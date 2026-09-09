@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Status__c</fullName>
+    <description>Workflow state. Unspecified is the default and the landing value for any external status that has no Salesforce equivalent yet, which is what lets this picklist stay restricted without the sync failing on custom Jira workflows.</description>
+    <inlineHelpText>Unspecified means the external status has not been mapped to a Salesforce value yet.</inlineHelpText>
+    <label>Status</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Unspecified</fullName>
+                <default>true</default>
+                <label>Unspecified</label>
+            </value>
+            <value>
+                <fullName>To Do</fullName>
+                <default>false</default>
+                <label>To Do</label>
+            </value>
+            <value>
+                <fullName>In Progress</fullName>
+                <default>false</default>
+                <label>In Progress</label>
+            </value>
+            <value>
+                <fullName>In Review</fullName>
+                <default>false</default>
+                <label>In Review</label>
+            </value>
+            <value>
+                <fullName>Done</fullName>
+                <default>false</default>
+                <label>Done</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

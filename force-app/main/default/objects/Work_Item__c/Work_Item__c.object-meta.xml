@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>A unit of work synced from an external system. Keyed on External_Id__c, the stable remote ID, so upserts survive project renames and issue moves.</description>
+    <enableActivities>true</enableActivities>
+    <enableBulkApi>true</enableBulkApi>
+    <enableFeeds>false</enableFeeds>
+    <enableHistory>false</enableHistory>
+    <enableReports>true</enableReports>
+    <enableSearch>true</enableSearch>
+    <enableSharing>true</enableSharing>
+    <enableStreamingApi>true</enableStreamingApi>
+    <label>Work Item</label>
+    <nameField>
+        <displayFormat>WI-{0000}</displayFormat>
+        <label>Work Item Number</label>
+        <type>AutoNumber</type>
+    </nameField>
+    <pluralLabel>Work Items</pluralLabel>
+    <sharingModel>ReadWrite</sharingModel>
+</CustomObject>

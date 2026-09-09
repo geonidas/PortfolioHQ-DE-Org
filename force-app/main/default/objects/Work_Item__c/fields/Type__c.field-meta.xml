@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Type__c</fullName>
+    <description>Issue type in the external system. Unspecified is the default and the landing value for any external type that has no Salesforce equivalent yet, which is what lets this picklist stay restricted without the sync failing on custom Jira issue types.</description>
+    <inlineHelpText>Unspecified means the external issue type has not been mapped to a Salesforce value yet.</inlineHelpText>
+    <label>Type</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Unspecified</fullName>
+                <default>true</default>
+                <label>Unspecified</label>
+            </value>
+            <value>
+                <fullName>Epic</fullName>
+                <default>false</default>
+                <label>Epic</label>
+            </value>
+            <value>
+                <fullName>Story</fullName>
+                <default>false</default>
+                <label>Story</label>
+            </value>
+            <value>
+                <fullName>Bug</fullName>
+                <default>false</default>
+                <label>Bug</label>
+            </value>
+            <value>
+                <fullName>Task</fullName>
+                <default>false</default>
+                <label>Task</label>
+            </value>
+            <value>
+                <fullName>Spike</fullName>
+                <default>false</default>
+                <label>Spike</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

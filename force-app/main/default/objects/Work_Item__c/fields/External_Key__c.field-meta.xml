@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_Key__c</fullName>
+    <description>Human-readable key from the external system, e.g. PHQ-38. Display only - this value is not stable and must never be used as a sync key.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Display key such as PHQ-38. Not stable; do not key integrations off this.</inlineHelpText>
+    <label>External Key</label>
+    <length>50</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

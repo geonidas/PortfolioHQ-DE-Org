@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Is_Public__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Drives guest visibility. No guest permission set exists yet; this flag is recorded now so later builds have it.</description>
+    <externalId>false</externalId>
+    <label>Is Public</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>
