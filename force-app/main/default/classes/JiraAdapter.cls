@@ -53,8 +53,11 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         String externalId = item.External_Id__c;
         String rawId = ExternalIdUtil.rawIdOf(externalId);
 
-        // Already there: skip both callouts. Doubles effective chunk capacity for no-op syncs.
-        if (normalize(item.Status__c) == normalize(targetStatus)) {
+        // Skip both callouts only when Salesforce already believes the remote agrees: the status
+        // matches AND the last sync succeeded. Matching status alone is not enough - the service
+        // pushes item.Status__c as its own target, so that test would always pass and nothing
+        // would ever sync. Sync_Status__c is what makes the belief credible.
+        if (normalize(item.Status__c) == normalize(targetStatus) && item.Sync_Status__c == 'Synced') {
             SyncResult result = SyncResult.alreadyInTargetStatus(targetStatus);
             result.workItemId = item.Id;
             result.externalId = externalId;
