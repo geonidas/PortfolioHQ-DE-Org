@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>One row per integration callout, success or failure. Rows are written after all callouts in a chunk complete, because pending DML blocks a subsequent callout in the same transaction. Grows unbounded - no purge job exists yet.</description>
+    <enableActivities>false</enableActivities>
+    <enableBulkApi>true</enableBulkApi>
+    <enableFeeds>false</enableFeeds>
+    <enableHistory>false</enableHistory>
+    <enableReports>true</enableReports>
+    <enableSearch>true</enableSearch>
+    <enableSharing>true</enableSharing>
+    <enableStreamingApi>true</enableStreamingApi>
+    <label>Integration Log</label>
+    <nameField>
+        <displayFormat>LOG-{00000}</displayFormat>
+        <label>Log Number</label>
+        <type>AutoNumber</type>
+    </nameField>
+    <pluralLabel>Integration Logs</pluralLabel>
+    <sharingModel>ReadWrite</sharingModel>
+</CustomObject>
