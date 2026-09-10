@@ -2,7 +2,6 @@
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>GitHub_URL__c</fullName>
     <description>Repository backing this project.</description>
-    <externalId>false</externalId>
     <label>GitHub URL</label>
     <required>false</required>
     <trackTrending>false</trackTrending>

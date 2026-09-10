@@ -2,7 +2,6 @@
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Last_Synced__c</fullName>
     <description>When Salesforce last successfully pulled this record.</description>
-    <externalId>false</externalId>
     <label>Last Synced</label>
     <required>false</required>
     <trackTrending>false</trackTrending>
