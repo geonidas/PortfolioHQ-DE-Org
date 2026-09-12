@@ -31,14 +31,14 @@ public with sharing class SyncResult {
     }
 
     public static SyncResult success(String appliedStatus, Integer statusCode) {
-        SyncResult result = new SyncResult(Outcome.SUCCESS, 'Transitioned to ' + appliedStatus + '.', statusCode);
+        SyncResult result = new SyncResult(SyncResult.Outcome.SUCCESS, 'Transitioned to ' + appliedStatus + '.', statusCode);
         result.appliedStatus = appliedStatus;
         return result;
     }
 
     public static SyncResult alreadyInTargetStatus(String status) {
         SyncResult result = new SyncResult(
-            Outcome.ALREADY_IN_TARGET_STATUS,
+            SyncResult.Outcome.ALREADY_IN_TARGET_STATUS,
             'Already in status ' + status + '; no callout made.',
             null
         );
@@ -54,7 +54,9 @@ public with sharing class SyncResult {
      * True when the work item ended up in the requested status, whether or not that took a callout.
      */
     public Boolean isSuccess() {
-        return outcome == Outcome.SUCCESS || outcome == Outcome.ALREADY_IN_TARGET_STATUS;
+        // Qualified with the class name: Apex identifiers are case-insensitive, so inside an
+        // instance method the field `outcome` shadows the type `Outcome`.
+        return outcome == SyncResult.Outcome.SUCCESS || outcome == SyncResult.Outcome.ALREADY_IN_TARGET_STATUS;
     }
 
     /**
@@ -63,6 +65,6 @@ public with sharing class SyncResult {
      * differently and which callers should not retry.
      */
     public Boolean isBusinessOutcome() {
-        return outcome == Outcome.NO_TRANSITION_AVAILABLE || outcome == Outcome.BAD_REQUEST;
+        return outcome == SyncResult.Outcome.NO_TRANSITION_AVAILABLE || outcome == SyncResult.Outcome.BAD_REQUEST;
     }
 }

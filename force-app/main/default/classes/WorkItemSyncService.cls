@@ -127,14 +127,14 @@ public with sharing class WorkItemSyncService {
      * remote system actually agreed" rather than "the last time we tried".
      */
     private static Work_Item__c withSyncFields(Work_Item__c item, SyncResult result) {
-        Work_Item__c update_ = new Work_Item__c(Id = item.Id);
+        Work_Item__c updatedItem = new Work_Item__c(Id = item.Id);
         if (result.isSuccess()) {
-            update_.Sync_Status__c = 'Synced';
-            update_.Last_Synced__c = System.now();
+            updatedItem.Sync_Status__c = 'Synced';
+            updatedItem.Last_Synced__c = System.now();
         } else {
-            update_.Sync_Status__c = 'Failed';
+            updatedItem.Sync_Status__c = 'Failed';
         }
-        return update_;
+        return updatedItem;
     }
 
     /**
