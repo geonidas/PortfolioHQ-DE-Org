@@ -3,7 +3,6 @@
     <fullName>Is_Success__c</fullName>
     <defaultValue>false</defaultValue>
     <description>True when the call returned a 2xx. Safe for guest exposure - carries no payload detail.</description>
-    <externalId>false</externalId>
     <label>Is Success</label>
     <trackTrending>false</trackTrending>
     <type>Checkbox</type>
