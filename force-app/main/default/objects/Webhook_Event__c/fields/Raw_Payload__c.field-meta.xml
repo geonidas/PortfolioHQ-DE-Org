@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Raw_Payload__c</fullName>
+    <description>Body exactly as received. Stored verbatim because the HMAC is computed over the raw bytes - reserialising changes whitespace and key order and invalidates the signature. GUEST-SENSITIVE: carries reporter and assignee PII from Jira. STORAGE: written for rejected requests too, so an unauthenticated caller can grow this object; revisit before exposing the endpoint publicly.</description>
+    <label>Raw Payload</label>
+    <length>131072</length>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>10</visibleLines>
+</CustomField>

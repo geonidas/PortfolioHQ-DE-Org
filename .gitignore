@@ -46,3 +46,7 @@ $RECYCLE.BIN/
 **/__pycache__/
 **/.venv/
 **/venv/
+
+# Custom metadata RECORDS carry secrets (Integration_Secret__mdt.Jira_Webhook).
+# Added before any record exists - once a secret is committed, gitignore cannot help.
+force-app/main/default/customMetadata/

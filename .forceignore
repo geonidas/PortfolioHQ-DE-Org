@@ -12,3 +12,8 @@ package.xml
 **/__tests__/**
 
 node_modules/
+
+# Custom metadata RECORDS carry secrets (Integration_Secret__mdt.Jira_Webhook).
+# Ignored before any record exists: gitignore cannot untrack a file that was already
+# committed, so the ordering here is the whole point.
+force-app/main/default/customMetadata/

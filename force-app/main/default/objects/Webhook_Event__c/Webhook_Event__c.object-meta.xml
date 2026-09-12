@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>Durable record of one inbound webhook delivery. The guest endpoint writes the row and stops; all processing happens in a separate transaction via platform event, so this row is the handoff and the audit trail. Sharing is Private because the site guest user creates these - Salesforce forces guest record access to Private, and a public model would block the guest grant.</description>
+    <enableActivities>false</enableActivities>
+    <enableBulkApi>true</enableBulkApi>
+    <enableFeeds>false</enableFeeds>
+    <enableHistory>false</enableHistory>
+    <enableReports>true</enableReports>
+    <enableSearch>false</enableSearch>
+    <enableSharing>true</enableSharing>
+    <enableStreamingApi>true</enableStreamingApi>
+    <label>Webhook Event</label>
+    <nameField>
+        <displayFormat>WH-{00000}</displayFormat>
+        <label>Webhook Event Number</label>
+        <type>AutoNumber</type>
+    </nameField>
+    <pluralLabel>Webhook Events</pluralLabel>
+    <sharingModel>Private</sharingModel>
+</CustomObject>
