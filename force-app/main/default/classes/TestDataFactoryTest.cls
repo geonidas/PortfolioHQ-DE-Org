@@ -97,6 +97,11 @@ private class TestDataFactoryTest {
             );
         }
 
+        // This test is about external ids, not outbound sync. Without this, WorkItemTrigger sees
+        // 200 genuine Status__c changes and enqueues a push, which then tries to call Jira with
+        // no mock set. Suppressing is the honest statement of scope.
+        SyncContext.suppressOutbound();
+
         Test.startTest();
         Database.upsert(incoming, Work_Item__c.External_Id__c, true);
         Test.stopTest();

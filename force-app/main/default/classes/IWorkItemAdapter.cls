@@ -26,6 +26,20 @@ public interface IWorkItemAdapter {
     List<TransitionOption> fetchAvailableTransitions(String externalId);
 
     /**
+     * Translate a status name as the external system spells it into our normalized
+     * Work_Item__c.Status__c vocabulary.
+     *
+     * The inverse direction already lives in the adapter, and both must read from one table -
+     * two tables drift, and drift here means inbound and outbound disagree about what a status
+     * means. An unrecognised remote status returns 'Unspecified' rather than throwing, which is
+     * the same catch-all behaviour the outbound path relies on.
+     *
+     * @param remoteStatusName status name from the external system, e.g. Jira's 'Resolved'
+     * @return                 a Work_Item__c.Status__c value, never null
+     */
+    String normalizeStatus(String remoteStatusName);
+
+    /**
      * Hand over the Integration_Log__c rows accumulated since the last drain, and clear the buffer.
      *
      * Adapters must not insert these themselves: DML issued between callouts triggers

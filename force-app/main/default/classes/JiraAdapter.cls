@@ -38,6 +38,26 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
 
     private final List<Integration_Log__c> pendingLogs = new List<Integration_Log__c>();
 
+    /**
+     * Reverse of the match() lookup, reading the same STATUS_ALIASES table so the mapping is
+     * defined exactly once. Extracting it to custom metadata later is therefore one refactor,
+     * not two.
+     */
+    public String normalizeStatus(String remoteStatusName) {
+        String candidate = normalize(remoteStatusName);
+        if (String.isBlank(candidate)) {
+            return 'Unspecified';
+        }
+        for (String normalized : STATUS_ALIASES.keySet()) {
+            if (normalize(normalized) == candidate || STATUS_ALIASES.get(normalized).contains(candidate)) {
+                return normalized;
+            }
+        }
+        // A workflow status we have no mapping for lands on the catch-all, exactly as an
+        // unmappable status does on the way out.
+        return 'Unspecified';
+    }
+
     public List<Integration_Log__c> drainLogs() {
         List<Integration_Log__c> drained = new List<Integration_Log__c>(pendingLogs);
         pendingLogs.clear();

@@ -38,6 +38,10 @@ private class WorkItemSyncServiceTest {
             return result;
         }
 
+        public String normalizeStatus(String remoteStatusName) {
+            return 'Unspecified';
+        }
+
         public List<TransitionOption> fetchAvailableTransitions(String externalId) {
             return new List<TransitionOption>();
         }
