@@ -199,6 +199,68 @@ private class JiraWebhookProcessorTest {
     }
 
     @IsTest
+    static void aPreviouslySyncedRecordStillPushesWhenItsStatusChanges() {
+        // Regression guard. The adapter skips its callout for anything marked Synced, so without
+        // before-update staging a record synced once would never sync again - and would report
+        // success while Jira never heard about it. Asserting on the enqueue alone missed this:
+        // the job ran, made no callout, and stamped the record Synced anyway.
+        JiraCalloutMock mock = new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Project__c project = TestDataFactory.createProjects(1, true)[0];
+        Work_Item__c item = TestDataFactory.createWorkItems(1, project.Id, false)[0];
+        item.External_Id__c = 'jira:10039';
+        item.Status__c = 'To Do';
+        item.Sync_Status__c = 'Synced'; // the state that used to go silent
+        insert item;
+
+        Test.startTest();
+        update new Work_Item__c(Id = item.Id, Status__c = 'In Progress');
+        Test.stopTest();
+
+        Assert.areEqual(2, mock.callCount(), 'A real status change must reach Jira: list, then transition.');
+        Assert.areEqual(
+            2,
+            [SELECT COUNT() FROM Integration_Log__c],
+            'And the callouts must be logged, which is how this failure was visible at all.'
+        );
+        Assert.areEqual('Synced', [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :item.Id].Sync_Status__c,
+            'Only after a real push may it claim to be synced.');
+    }
+
+    @IsTest
+    static void stagingLeavesAnExplicitSyncStatusAlone() {
+        // A caller that sets Sync_Status__c in the same update means it; staging must not override.
+        Test.setMock(HttpCalloutMock.class, new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK));
+        Work_Item__c item = seedItem('jira:10039', 'To Do', System.now());
+
+        Test.startTest();
+        update new Work_Item__c(Id = item.Id, Status__c = 'In Progress', Sync_Status__c = 'Failed');
+        Test.stopTest();
+
+        Assert.areNotEqual('Pending', [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :item.Id].Sync_Status__c,
+            'An explicitly supplied Sync_Status__c beats the inferred one.');
+    }
+
+    @IsTest
+    static void inboundKeepsItsOwnSyncStatusThroughStaging() {
+        // Inbound sets Synced deliberately. Staging runs on the same DML and must stand down.
+        Datetime was = System.now().addHours(-1);
+        Work_Item__c item = seedItem('jira:10039', 'To Do', was);
+        List<Webhook_Event__c> events = deliver(
+            new List<String>{ JiraWebhookPayloadFactory.issueUpdated('10039', 'DOPP-15', 'In Progress', was.addMinutes(30)) }
+        );
+
+        Test.startTest();
+        JiraWebhookProcessor.process(events);
+        Test.stopTest();
+
+        Assert.areEqual('Synced', [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :item.Id].Sync_Status__c,
+            'Suppression must stop staging from downgrading an inbound-applied change to Pending.');
+        Assert.areEqual(0, [SELECT COUNT() FROM Integration_Log__c], 'And still no outbound traffic.');
+    }
+
+    @IsTest
     static void awriteThatChangesNoStatusEnqueuesNothing() {
         // Build 02 writes Sync_Status__c and Last_Synced__c back after every sync. Without the
         // delta check those writes would re-trigger the sync that produced them.

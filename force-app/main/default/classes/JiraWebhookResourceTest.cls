@@ -100,12 +100,69 @@ private class JiraWebhookResourceTest {
         Test.stopTest();
 
         List<Webhook_Event__c> events = [
-            SELECT Signature_Valid__c, Processing_Status__c, Error_Message__c FROM Webhook_Event__c
+            SELECT Signature_Valid__c, Processing_Status__c, Error_Message__c, Raw_Payload__c
+            FROM Webhook_Event__c
         ];
         Assert.areEqual(1, events.size(), 'A rejected attempt is still recorded.');
         Assert.isFalse(events[0].Signature_Valid__c, 'Recorded as invalid.');
         Assert.areEqual('Failed', events[0].Processing_Status__c, 'Terminal: nothing will process it.');
         Assert.isNotNull(events[0].Error_Message__c, 'Reason should be recorded.');
+    }
+
+    @IsTest
+    static void anUnverifiedBodyIsNeverStored() {
+        // Anyone who finds this URL can POST to it. Storing what they send would hand an
+        // anonymous caller a 128 KB write per request.
+        IntegrationSecretService.inject(JiraWebhookPayloadFactory.randomSecret(), true);
+        String payload = samplePayload();
+
+        Test.startTest();
+        post(payload, 'sha256=deadbeef');
+        Test.stopTest();
+
+        Webhook_Event__c event = [
+            SELECT Raw_Payload__c, Error_Message__c FROM Webhook_Event__c LIMIT 1
+        ];
+        Assert.isNull(event.Raw_Payload__c, 'An unverified body must not be persisted.');
+        // The fingerprint is what keeps the row useful for investigation.
+        Assert.isTrue(event.Error_Message__c.contains('Body not stored'), 'Should say so: ' + event.Error_Message__c);
+        Assert.isTrue(event.Error_Message__c.contains('bytes=' + payload.length()), 'Size recorded.');
+        Assert.isTrue(event.Error_Message__c.contains('sha256='), 'Digest recorded for correlating repeats.');
+        Assert.isTrue(event.Error_Message__c.contains('deadbeef'), 'Offered signature recorded.');
+    }
+
+    @IsTest
+    static void identicalRejectedBodiesShareADigest() {
+        // Two floods of the same body are recognisable as one campaign without storing either.
+        IntegrationSecretService.inject(JiraWebhookPayloadFactory.randomSecret(), true);
+        String payload = samplePayload();
+
+        Test.startTest();
+        post(payload, 'sha256=deadbeef');
+        post(payload, 'sha256=deadbeef');
+        post('{"different":true}', 'sha256=deadbeef');
+        Test.stopTest();
+
+        Set<String> digests = new Set<String>();
+        for (Webhook_Event__c event : [SELECT Error_Message__c FROM Webhook_Event__c]) {
+            digests.add(event.Error_Message__c.substringAfter('sha256=').substringBefore(' '));
+        }
+        Assert.areEqual(2, digests.size(), 'Two distinct bodies should yield two distinct digests.');
+    }
+
+    @IsTest
+    static void averifiedBodyIsStillStoredInFull() {
+        // The restriction applies to unverified traffic only - processing needs the real body.
+        String secret = JiraWebhookPayloadFactory.randomSecret();
+        IntegrationSecretService.inject(secret, true);
+        String payload = samplePayload();
+
+        Test.startTest();
+        post(payload, WebhookSignature.sign(Blob.valueOf(payload), secret));
+        Test.stopTest();
+
+        Assert.areEqual(payload, [SELECT Raw_Payload__c FROM Webhook_Event__c LIMIT 1].Raw_Payload__c,
+            'A verified body must still be stored byte-for-byte.');
     }
 
     @IsTest
