@@ -50,3 +50,6 @@ $RECYCLE.BIN/
 # Custom metadata RECORDS carry secrets (Integration_Secret__mdt.Jira_Webhook).
 # Added before any record exists - once a secret is committed, gitignore cannot help.
 force-app/main/default/customMetadata/
+
+# Commit message drafts, written per build step. Ephemeral - not part of the source.
+.commit-messages/
