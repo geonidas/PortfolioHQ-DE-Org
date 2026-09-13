@@ -1,0 +1,87 @@
+:host {
+  display: block;
+}
+article {
+  background: var(--wib-card-bg, #ffffff);
+  border: 1px solid var(--wib-border, #d8dde6);
+  border-radius: 4px;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+/* Unmapped status: the card itself is marked, not just the region it sits in. */
+article.is-unmapped {
+  border-style: dashed;
+  border-color: var(--wib-warn, #a86403);
+  background: var(--wib-warn-bg, #fdf6e9);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.key {
+  font-weight: 700;
+  font-size: 0.86rem;
+  letter-spacing: 0.01em;
+}
+.badge {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  background: var(--wib-badge-bg, #eef1f6);
+  color: var(--wib-badge-fg, #3e4b5b);
+}
+.sync-flag {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  margin-left: auto;
+}
+.sync-pending {
+  background: var(--wib-warn-bg, #fdf6e9);
+  color: var(--wib-warn, #a86403);
+}
+.sync-failed {
+  background: var(--wib-err-bg, #fdecea);
+  color: var(--wib-err, #b12b23);
+}
+.desc {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--wib-text-soft, #56657a);
+}
+.desc-none {
+  font-style: italic;
+  opacity: 0.65;
+}
+.meta {
+  font-size: 0.7rem;
+  color: var(--wib-text-faint, #7c8b9e);
+  gap: 0.5rem;
+}
+.parent-note {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--wib-text-faint, #7c8b9e);
+  border-top: 1px dotted var(--wib-border, #d8dde6);
+  padding-top: 0.35rem;
+}
+
+article {
+  cursor: pointer;
+}
+article:hover {
+  border-color: var(--wib-accent, #0176d3);
+}
+article:focus-visible {
+  outline: 2px solid var(--wib-accent, #0176d3);
+  outline-offset: 2px;
+}

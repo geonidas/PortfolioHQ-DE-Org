@@ -1,0 +1,46 @@
+<template>
+  <article
+    class={card.cssClass}
+    data-id={card.id}
+    data-status={card.status}
+    role="button"
+    tabindex="0"
+    onclick={handleSelect}
+    onkeydown={handleKey}
+  >
+    <div class="row">
+      <span class="key">{card.externalKey}</span>
+      <!-- No type badge at all when the type is unknown. An empty badge would read as
+                 damaged; an absent one reads as untyped, which is the truth. -->
+      <template lwc:if={card.hasType}>
+        <span class="badge">{card.type}</span>
+      </template>
+      <template lwc:if={card.showSyncFlag}>
+        <span class={card.syncClass} title={card.syncTitle}
+          >{card.syncStatus}</span
+        >
+      </template>
+    </div>
+
+    <template lwc:if={card.hasDescription}>
+      <p class="desc">{card.description}</p>
+    </template>
+    <template lwc:else>
+      <p class="desc desc-none">No description synced</p>
+    </template>
+
+    <div class="row meta">
+      <span class="num">{card.name}</span>
+      <template lwc:if={card.hasPoints}>
+        <span class="pts">{card.storyPoints} pts</span>
+      </template>
+      <template lwc:if={card.hasProjectLabel}>
+        <span class="proj">{card.projectLabel}</span>
+      </template>
+    </div>
+
+    <template lwc:if={card.showParentNote}>
+      <p class="parent-note">{card.parentNote}</p>
+    </template>
+  </article>
+</template>

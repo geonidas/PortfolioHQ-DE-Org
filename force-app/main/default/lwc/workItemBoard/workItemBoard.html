@@ -1,0 +1,163 @@
+<template>
+  <section class="board">
+    <header class="board-head">
+      <div>
+        <h1 class="title">{headingLabel}</h1>
+        <p class="freshness">{freshnessLabel}</p>
+      </div>
+      <span class="total">{countLabel}</span>
+    </header>
+
+    <template lwc:if={isLoading}>
+      <p class="state" data-state="loading">Loading work items…</p>
+    </template>
+
+    <template lwc:elseif={hasError}>
+      <div class="state state-error" data-state="error">
+        <p class="state-title">The board could not load.</p>
+        <p class="state-detail">{errorMessage}</p>
+        <p class="state-hint">
+          Refresh the page. If it keeps failing, check access to Work Item
+          records.
+        </p>
+      </div>
+    </template>
+
+    <template lwc:elseif={isEmpty}>
+      <div class="state state-empty" data-state="empty">
+        <p class="state-title">No work items yet.</p>
+        <p class="state-detail">
+          Nothing has synced from Jira for this project.
+        </p>
+      </div>
+    </template>
+
+    <template lwc:else>
+      <template lwc:if={hasSelection}>
+        <aside class="detail" data-region="detail">
+          <div class="detail-head">
+            <h2 class="detail-title">{detailTitle}</h2>
+            <button class="close" type="button" onclick={handleCloseDetail}>
+              Close
+            </button>
+          </div>
+
+          <dl class="detail-facts">
+            <div>
+              <dt>Status</dt>
+              <dd>{selectedCard.status}</dd>
+            </div>
+            <div>
+              <dt>Sync</dt>
+              <dd>{selectedCard.syncStatus}</dd>
+            </div>
+            <div>
+              <dt>Type</dt>
+              <dd>{selectedCard.type}</dd>
+            </div>
+            <div>
+              <dt>Record</dt>
+              <dd>{selectedCard.name}</dd>
+            </div>
+          </dl>
+
+          <template lwc:if={hasStatusOptions}>
+            <p class="detail-label">Move to</p>
+            <div class="detail-actions">
+              <template for:each={statusOptions} for:item="option">
+                <button
+                  key={option.key}
+                  class="status-btn"
+                  type="button"
+                  data-status={option.key}
+                  disabled={isSaving}
+                  onclick={handleStatusClick}
+                >
+                  {option.label}
+                </button>
+              </template>
+            </div>
+            <!-- The push is asynchronous. Saying so up front is cheaper than a user
+                             refreshing Jira and finding nothing there yet. -->
+            <p class="detail-async">
+              Changing the status saves in Salesforce immediately. The Jira
+              update runs in the background, so this card shows Pending until
+              the two reconcile.
+            </p>
+          </template>
+          <template lwc:else>
+            <p class="detail-async">No other configured status to move to.</p>
+          </template>
+
+          <template lwc:if={isSaving}>
+            <p class="detail-note" data-note="saving">Saving…</p>
+          </template>
+          <template lwc:if={actionMessage}>
+            <p class="detail-note detail-ok" data-note="ok">{actionMessage}</p>
+          </template>
+          <template lwc:if={actionError}>
+            <p class="detail-note detail-bad" data-note="error">
+              {actionError}
+            </p>
+          </template>
+        </aside>
+      </template>
+
+      <div class="columns" data-state="ready">
+        <template for:each={viewColumns} for:item="col">
+          <section class="column" key={col.key} data-column={col.key}>
+            <h2 class="col-head">
+              <span class="col-name">{col.label}</span>
+              <span class="col-count">{col.countLabel}</span>
+            </h2>
+            <template lwc:if={col.isEmpty}>
+              <p class="col-empty">Nothing here</p>
+            </template>
+            <template for:each={col.cards} for:item="card">
+              <div class="stack" key={card.id}>
+                <c-work-item-card
+                  card={card}
+                  onselect={handleCardSelect}
+                ></c-work-item-card>
+                <template lwc:if={card.hasChildren}>
+                  <ul class="children">
+                    <template for:each={card.children} for:item="child">
+                      <li key={child.id}>
+                        <c-work-item-card
+                          card={child}
+                          onselect={handleCardSelect}
+                        ></c-work-item-card>
+                      </li>
+                    </template>
+                  </ul>
+                </template>
+              </div>
+            </template>
+          </section>
+        </template>
+      </div>
+
+      <!-- Records the configured columns do not account for. Kept visible on purpose:
+                 dropping them would hide exactly the data build 03 chose to surface. -->
+      <template lwc:if={hasOutside}>
+        <section class="outside" data-region="outside">
+          <h2 class="outside-head">Outside the configured columns</h2>
+          <p class="outside-note">
+            These have a status that is not one of the board columns — either
+            Jira reported something with no Salesforce mapping, or the column is
+            not configured. They are not "to do" and are not counted as such.
+          </p>
+          <div class="outside-cards">
+            <template for:each={outsideCards} for:item="card">
+              <c-work-item-card
+                key={card.id}
+                card={card}
+                onselect={handleCardSelect}
+              ></c-work-item-card>
+            </template>
+          </div>
+        </section>
+      </template>
+    </template>
+  </section>
+</template>

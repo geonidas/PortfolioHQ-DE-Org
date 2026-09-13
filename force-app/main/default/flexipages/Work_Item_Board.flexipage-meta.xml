@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<FlexiPage xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description
+  >Hosts the work item board. Columns are set on the component here, so adding a status is an edit to this page rather than a deployment of new code.</description>
+    <flexiPageRegions>
+        <itemInstances>
+            <componentInstance>
+                <componentInstanceProperties>
+                    <name>columns</name>
+                    <value>To Do,In Progress,Done</value>
+                </componentInstanceProperties>
+                <componentInstanceProperties>
+                    <!-- Blank on purpose: an unscoped board shows every work item the running
+                         user can see. A project id here would be org specific and would not
+                         survive a rebuild. -->
+                    <name>projectId</name>
+                    <value />
+                </componentInstanceProperties>
+                <componentName>workItemBoard</componentName>
+                <identifier>workItemBoardComponent</identifier>
+            </componentInstance>
+        </itemInstances>
+        <name>main</name>
+        <type>Region</type>
+    </flexiPageRegions>
+    <masterLabel>Work Item Board</masterLabel>
+    <template>
+        <name>flexipage:defaultAppHomeTemplate</name>
+    </template>
+    <type>AppPage</type>
+</FlexiPage>
