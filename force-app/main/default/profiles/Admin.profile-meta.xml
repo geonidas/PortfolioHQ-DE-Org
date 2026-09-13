@@ -65,6 +65,10 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>IntegrationSecretService</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>JiraAdapter</apexClass>
         <enabled>true</enabled>
     </classAccesses>
@@ -74,6 +78,14 @@
     </classAccesses>
     <classAccesses>
         <apexClass>JiraCalloutMock</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>JiraWebhookProcessor</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>JiraWebhookResource</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
@@ -133,6 +145,10 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>SyncContext</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>SyncResult</apexClass>
         <enabled>true</enabled>
     </classAccesses>
@@ -149,6 +165,14 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>WebhookEventTriggerHandler</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>WebhookSignature</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>WorkItemAdapterFactory</apexClass>
         <enabled>true</enabled>
     </classAccesses>
@@ -162,6 +186,10 @@
     </classAccesses>
     <classAccesses>
         <apexClass>WorkItemSyncServiceTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>WorkItemTriggerHandler</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <custom>false</custom>
@@ -232,6 +260,16 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>false</editable>
+        <field>Integration_Secret__mdt.Is_Active__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Integration_Secret__mdt.Secret_Value__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
         <field>Project__c.External_Project_Key__c</field>
         <readable>false</readable>
     </fieldPermissions>
@@ -263,6 +301,56 @@
     <fieldPermissions>
         <editable>false</editable>
         <field>Project__c.Status__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event_Received__e.Webhook_Event_Id__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Error_Message__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Event_Type__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.External_Id__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Processing_Status__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Raw_Payload__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Received_At__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Retry_Count__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Signature_Valid__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Webhook_Event__c.Source_System__c</field>
         <readable>false</readable>
     </fieldPermissions>
     <fieldPermissions>
@@ -355,6 +443,9 @@
         <layout>Account-Internal</layout>
         <recordType>Account.Internal</recordType>
     </layoutAssignments>
+    <layoutAssignments>
+        <layout>Integration_Secret__mdt-Integration Secret Layout</layout>
+    </layoutAssignments>
     <objectPermissions>
         <allowCreate>true</allowCreate>
         <allowDelete>true</allowDelete>
@@ -371,6 +462,24 @@
         <allowRead>true</allowRead>
         <modifyAllRecords>true</modifyAllRecords>
         <object>Project__c</object>
+        <viewAllRecords>true</viewAllRecords>
+    </objectPermissions>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>true</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>true</modifyAllRecords>
+        <object>Webhook_Event_Received__e</object>
+        <viewAllRecords>true</viewAllRecords>
+    </objectPermissions>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>true</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>true</modifyAllRecords>
+        <object>Webhook_Event__c</object>
         <viewAllRecords>true</viewAllRecords>
     </objectPermissions>
     <objectPermissions>
