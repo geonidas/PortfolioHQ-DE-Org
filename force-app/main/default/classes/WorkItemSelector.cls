@@ -15,7 +15,7 @@ public with sharing class WorkItemSelector {
    * traversing to User, which a guest cannot read, and every assignee is currently null anyway.
    */
   private static final String FIELDS =
-    'Id, Name, External_Key__c, External_URL__c, Status__c, Type__c, Sync_Status__c, ' +
+    'Id, Name, Title__c, External_Key__c, External_URL__c, Status__c, Type__c, Sync_Status__c, ' +
     'Story_Points__c, Description__c, Last_Synced__c, Remote_Last_Modified__c, ' +
     'Parent_Work_Item__c, Project__c, Project__r.Name, Project__r.Short_Name__c';
 

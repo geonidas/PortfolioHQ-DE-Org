@@ -32,6 +32,7 @@ function item(overrides) {
     {
       Id: "",
       Name: "WI-0000",
+      Title__c: "Reconcile the nightly Jira pull",
       External_Key__c: "DOPP-0",
       Status__c: "To Do",
       Type__c: "Story",
@@ -171,7 +172,37 @@ describe("c-work-item-board", () => {
       const card = cards(element)[0];
       expect(card.shadowRoot.querySelector(".badge")).toBeNull();
       // Still a readable card, not a damaged one.
-      expect(card.shadowRoot.querySelector(".key").textContent).toBe("DOPP-0");
+      expect(card.shadowRoot.querySelector(".heading").textContent).toBe(
+        "Reconcile the nightly Jira pull"
+      );
+    });
+
+    it("heads the card with the title and demotes the key beside the number", async () => {
+      const element = mount();
+      getBoardData.emit(board([item({ Id: "1" })]));
+      await flush();
+
+      const card = cards(element)[0];
+      expect(card.shadowRoot.querySelector("h3.heading").textContent).toBe(
+        "Reconcile the nightly Jira pull"
+      );
+      expect(card.shadowRoot.querySelector(".num").textContent).toBe(
+        "WI-0000 · DOPP-0"
+      );
+    });
+
+    it("stands the key in as the heading when no title has synced", async () => {
+      const element = mount();
+      getBoardData.emit(board([item({ Id: "1", Title__c: null })]));
+      await flush();
+
+      const heading = cards(element)[0].shadowRoot.querySelector("h3.heading");
+      expect(heading.textContent).toBe("DOPP-0");
+      expect(heading.className).toContain("heading-fallback");
+      // Not printed twice: the identity line carries the auto number alone.
+      expect(
+        cards(element)[0].shadowRoot.querySelector(".num").textContent
+      ).toBe("WI-0000");
     });
 
     it("renders a known type with a badge", async () => {

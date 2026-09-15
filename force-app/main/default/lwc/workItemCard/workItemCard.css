@@ -22,9 +22,39 @@ article.is-unmapped {
   gap: 0.4rem;
   flex-wrap: wrap;
 }
-.key {
-  font-weight: 700;
-  font-size: 0.86rem;
+.head {
+  /* The flag sits on the heading's first line, not below a wrapped title. */
+  align-items: flex-start;
+  flex-wrap: nowrap;
+}
+.heading {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--wib-text, #181818);
+  /* Two lines of title, then an ellipsis. Cards in a column have to stay comparable in
+     height; a twelve-word Jira summary otherwise pushes everything below it off screen. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Long unbroken tokens - a branch name, a URL - wrap instead of widening the column. */
+  overflow-wrap: anywhere;
+}
+/* No title synced, so the key is standing in. Toned down: it is an identifier, not a name. */
+.heading-fallback {
+  font-weight: 500;
+  color: var(--wib-text-soft, #56657a);
+  letter-spacing: 0.01em;
+}
+.ident {
+  font-size: 0.7rem;
+  color: var(--wib-text-faint, #7c8b9e);
+  gap: 0.4rem;
+}
+.num {
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
 .badge {
@@ -43,6 +73,8 @@ article.is-unmapped {
   padding: 0.1rem 0.35rem;
   border-radius: 2px;
   margin-left: auto;
+  /* Never squeezed by a long title - the flag is the reason to look at the card twice. */
+  flex: none;
 }
 .sync-pending {
   background: var(--wib-warn-bg, #fdf6e9);

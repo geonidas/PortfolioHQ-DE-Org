@@ -198,17 +198,32 @@ export default class WorkItemBoard extends LightningElement {
 
   toCard(item) {
     const type = item.Type__c;
+    const title = item.Title__c;
+    const hasTitle = !!title;
+    const externalKey = item.External_Key__c || item.Name;
     const hasType = !!type && type !== UNMAPPED;
     const sync = item.Sync_Status__c;
     const isSynced = sync === SYNCED;
     const project = item.Project__r || {};
     const projectLabel = project.Short_Name__c || project.Name || null;
     const isUnmappedStatus = item.Status__c === UNMAPPED;
+    const hasPoints =
+      item.Story_Points__c !== null && item.Story_Points__c !== undefined;
 
     const card = {
       id: item.Id,
       name: item.Name,
-      externalKey: item.External_Key__c || item.Name,
+      // The heading is what the work is called. With no title synced the key is the only
+      // name we have, so it stands in - marked as a fallback so it does not pose as one.
+      heading: hasTitle ? title : externalKey,
+      hasTitle,
+      // A stand-in key is toned down so the card does not read as though it has a title.
+      headingClass: hasTitle ? "heading" : "heading heading-fallback",
+      // Identity, not headline: the auto number, and the remote key beside it. When the key
+      // is already doing duty as the heading, repeating it here would say nothing twice.
+      identLabel: hasTitle ? `${item.Name} · ${externalKey}` : item.Name,
+      title,
+      externalKey,
       status: item.Status__c,
       isUnmappedStatus,
       type,
@@ -221,12 +236,14 @@ export default class WorkItemBoard extends LightningElement {
         ? ""
         : `Salesforce and Jira are not reconciled: ${sync}`,
       storyPoints: item.Story_Points__c,
-      hasPoints:
-        item.Story_Points__c !== null && item.Story_Points__c !== undefined,
+      hasPoints,
       description: item.Description__c,
       hasDescription: !!item.Description__c,
       projectLabel,
       hasProjectLabel: !!projectLabel,
+      // The row is skipped rather than rendered empty; an empty flex row is invisible but
+      // still spends the card's gap, which shows up as a card that looks mis-padded.
+      hasMeta: hasPoints || !!projectLabel,
       parentId: item.Parent_Work_Item__c || null,
       parentKey: null,
       isOrphan: false,
@@ -275,7 +292,7 @@ export default class WorkItemBoard extends LightningElement {
 
   get detailTitle() {
     const card = this.selectedCard;
-    return card ? card.externalKey : "";
+    return card ? card.heading : "";
   }
 
   handleCardSelect(event) {

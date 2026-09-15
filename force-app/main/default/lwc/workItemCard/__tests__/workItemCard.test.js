@@ -6,6 +6,11 @@ function card(overrides) {
     {
       id: "w1",
       name: "WI-0000",
+      title: "Reconcile the nightly Jira pull",
+      hasTitle: true,
+      heading: "Reconcile the nightly Jira pull",
+      headingClass: "heading",
+      identLabel: "WI-0000 · DOPP-1",
       externalKey: "DOPP-1",
       status: "To Do",
       isUnmappedStatus: false,
@@ -21,6 +26,7 @@ function card(overrides) {
       hasDescription: false,
       projectLabel: "Portfolio HQ",
       hasProjectLabel: true,
+      hasMeta: true,
       parentId: null,
       showParentNote: false,
       parentNote: null,
@@ -51,7 +57,51 @@ describe("c-work-item-card", () => {
     // Not an empty badge and not a placeholder - the element is simply absent, so the card
     // reads as untyped rather than as broken.
     expect(element.shadowRoot.querySelector(".badge")).toBeNull();
-    expect(element.shadowRoot.querySelector(".key").textContent).toBe("DOPP-1");
+    expect(element.shadowRoot.querySelector(".num").textContent).toBe(
+      "WI-0000 · DOPP-1"
+    );
+  });
+
+  it("leads with the title, not the key", () => {
+    const element = mount(card());
+    const heading = element.shadowRoot.querySelector("h3.heading");
+    expect(heading.textContent).toBe("Reconcile the nightly Jira pull");
+    expect(heading.className).not.toContain("heading-fallback");
+    // The key is not gone, it is demoted: it sits with the auto number below the title.
+    expect(element.shadowRoot.querySelector(".num").textContent).toBe(
+      "WI-0000 · DOPP-1"
+    );
+    // Nothing above the heading in the rendered order.
+    expect(
+      element.shadowRoot.querySelector("article").firstElementChild.className
+    ).toContain("head");
+  });
+
+  it("falls back to the key, visibly toned down, when no title has synced", () => {
+    const element = mount(
+      card({
+        title: null,
+        hasTitle: false,
+        heading: "DOPP-1",
+        headingClass: "heading heading-fallback",
+        identLabel: "WI-0000"
+      })
+    );
+    const heading = element.shadowRoot.querySelector("h3.heading");
+    expect(heading.textContent).toBe("DOPP-1");
+    // Styled as a stand-in so an untitled card does not read as a titled one.
+    expect(heading.className).toContain("heading-fallback");
+    // And not repeated underneath - the key is already the heading.
+    expect(element.shadowRoot.querySelector(".num").textContent).toBe(
+      "WI-0000"
+    );
+  });
+
+  it("drops the meta row rather than rendering it empty", () => {
+    const element = mount(
+      card({ hasPoints: false, hasProjectLabel: false, hasMeta: false })
+    );
+    expect(element.shadowRoot.querySelector(".meta")).toBeNull();
   });
 
   it("marks a card whose status Jira reported but we cannot map", () => {

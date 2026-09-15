@@ -87,6 +87,120 @@ private class JiraWebhookProcessorTest {
   }
 
   @IsTest
+  static void storesTheSummaryAsTheWorkItemTitle() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10039', 'To Do', was);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10039',
+          'DOPP-15',
+          'In Progress',
+          was.addMinutes(30),
+          'Reconcile the nightly Jira pull'
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      'Reconcile the nightly Jira pull',
+      [SELECT Title__c FROM Work_Item__c WHERE Id = :item.Id].Title__c,
+      'issue.fields.summary is the task title and belongs in Title__c.'
+    );
+  }
+
+  @IsTest
+  static void leavesAnExistingTitleAloneWhenThePayloadCarriesNoSummary() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10039', 'To Do', was);
+    item.Title__c = 'Title we already hold';
+    update item;
+
+    // A delivery with no summary is not a retitling. Writing the null through would blank the
+    // card heading on every status-only webhook.
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10039',
+          'DOPP-15',
+          'In Progress',
+          was.addMinutes(30),
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c updated = [
+      SELECT Status__c, Title__c
+      FROM Work_Item__c
+      WHERE Id = :item.Id
+    ];
+    Assert.areEqual(
+      'Title we already hold',
+      updated.Title__c,
+      'A payload with no summary must not blank the title.'
+    );
+    Assert.areEqual(
+      'In Progress',
+      updated.Status__c,
+      'The rest of the payload still applies.'
+    );
+  }
+
+  @IsTest
+  static void truncatesASummaryTooLongForTheFieldRatherThanFailingTheDelivery() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10039', 'To Do', was);
+    String longSummary = 'x'.repeat(400);
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10039',
+          'DOPP-15',
+          'In Progress',
+          was.addMinutes(30),
+          longSummary
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c updated = [
+      SELECT Status__c, Title__c
+      FROM Work_Item__c
+      WHERE Id = :item.Id
+    ];
+    Assert.areEqual(
+      255,
+      updated.Title__c.length(),
+      'Title should be cut to the field length, not rejected.'
+    );
+    Assert.areEqual(
+      'In Progress',
+      updated.Status__c,
+      'An over-long title must not cost us the status change.'
+    );
+    Assert.areEqual(
+      'Processed',
+      [SELECT Processing_Status__c FROM Webhook_Event__c LIMIT 1]
+      .Processing_Status__c,
+      'Delivery still terminal and successful.'
+    );
+  }
+
+  @IsTest
   static void translatesJiraVocabularyThroughTheSharedMapping() {
     Datetime was = System.now().addHours(-1);
     Work_Item__c item = seedItem('jira:10039', 'To Do', was);
