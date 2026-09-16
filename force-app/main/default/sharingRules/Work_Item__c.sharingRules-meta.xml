@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<SharingRules xmlns="http://soap.sforce.com/2006/04/metadata">
+    <!--
+        Guest users get records through sharing rules only - ownership based access does not apply
+        to them, which is also why this is sharingGuestRules and not sharingCriteriaRules. The
+        external org-wide default on this object is already Private, so this rule is the entire
+        grant, and it is keyed on Is_Public__c.
+
+        Note what this rule cannot do: criteria can only reference fields on this object, so it
+        cannot require Project__r.Is_Public__c. A public work item under a non-public project is
+        therefore shared here and excluded by PublicBoardController's WHERE clause instead. That
+        makes the query the only place the parent flag is enforced, so any future guest-reachable
+        class touching this object inherits that obligation.
+    -->
+    <sharingGuestRules>
+        <fullName>Public_Work_Items_To_Site_Guest</fullName>
+        <accessLevel>Read</accessLevel>
+        <criteriaItems>
+            <field>Is_Public__c</field>
+            <operation>equals</operation>
+            <value>true</value>
+        </criteriaItems>
+        <description
+    >Read access to work items flagged public, for the neoGeoTest site guest user.</description>
+        <label>Public Work Items To Site Guest</label>
+        <!--
+            This is the guest user's CommunityNickname, not a site developer name. Both sites in
+            this org share one guest user, so this single value covers the board on /neoGeoTest
+            and cannot be scoped to one site.
+        -->
+        <sharedTo>
+            <guestUser>Test_Professional_Site</guestUser>
+        </sharedTo>
+    </sharingGuestRules>
+</SharingRules>

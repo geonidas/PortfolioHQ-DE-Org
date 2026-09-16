@@ -1,0 +1,12 @@
+{
+  "type": "sfdc_cms__route",
+  "title": "Work Item Board",
+  "contentBody": {
+    "activeViewId": "Work_Item_Board",
+    "configurationTags": [],
+    "pageAccess": "UseParent",
+    "routeType": "custom-work-item-board",
+    "urlPrefix": "work-item-board"
+  },
+  "urlName": "work-item-board"
+}

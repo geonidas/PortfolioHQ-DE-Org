@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<SharingRules xmlns="http://soap.sforce.com/2006/04/metadata">
+    <!--
+        The board reads Project__r.Short_Name__c, so the guest needs record access to the parent
+        project as well as the work item. Keyed on the project's own Is_Public__c, so a private
+        project stays unreadable even when its work items are public.
+    -->
+    <sharingGuestRules>
+        <fullName>Public_Projects_To_Site_Guest</fullName>
+        <accessLevel>Read</accessLevel>
+        <criteriaItems>
+            <field>Is_Public__c</field>
+            <operation>equals</operation>
+            <value>true</value>
+        </criteriaItems>
+        <description
+    >Read access to projects flagged public, for the neoGeoTest site guest user.</description>
+        <label>Public Projects To Site Guest</label>
+        <!--
+            This is the guest user's CommunityNickname, not a site developer name. Both sites in
+            this org share one guest user, so this single value covers the board on /neoGeoTest
+            and cannot be scoped to one site.
+        -->
+        <sharedTo>
+            <guestUser>Test_Professional_Site</guestUser>
+        </sharedTo>
+    </sharingGuestRules>
+</SharingRules>
