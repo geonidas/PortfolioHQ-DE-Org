@@ -8,6 +8,16 @@
   >Read-only board data for unauthenticated site visitors. Read on Work_Item__c and Project__c limited to the fields the public DTO needs, and PublicBoardController alone. No write of any kind, no tabs, no standard objects.</description>
     <fieldPermissions>
         <editable>false</editable>
+        <field>Project__c.Is_Public__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Project__c.Short_Name__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
         <field>Work_Item__c.External_Key__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -51,16 +61,6 @@
         <field>Work_Item__c.Type__c</field>
         <readable>true</readable>
     </fieldPermissions>
-    <fieldPermissions>
-        <editable>false</editable>
-        <field>Project__c.Is_Public__c</field>
-        <readable>true</readable>
-    </fieldPermissions>
-    <fieldPermissions>
-        <editable>false</editable>
-        <field>Project__c.Short_Name__c</field>
-        <readable>true</readable>
-    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>Portfolio HQ Guest</label>
     <objectPermissions>
@@ -70,6 +70,7 @@
         <allowRead>true</allowRead>
         <modifyAllRecords>false</modifyAllRecords>
         <object>Project__c</object>
+        <viewAllFields>false</viewAllFields>
         <viewAllRecords>false</viewAllRecords>
     </objectPermissions>
     <objectPermissions>
@@ -79,6 +80,7 @@
         <allowRead>true</allowRead>
         <modifyAllRecords>false</modifyAllRecords>
         <object>Work_Item__c</object>
+        <viewAllFields>false</viewAllFields>
         <viewAllRecords>false</viewAllRecords>
     </objectPermissions>
 </PermissionSet>

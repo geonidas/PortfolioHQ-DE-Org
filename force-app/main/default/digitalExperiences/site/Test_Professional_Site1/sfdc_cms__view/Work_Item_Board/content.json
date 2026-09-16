@@ -11,6 +11,7 @@
                 "backgroundImageConfig": "",
                 "backgroundImageOverlay": "rgba(0,0,0,0)",
                 "componentSpacerSize": "",
+                "dxpStyle": {},
                 "layoutDirectionDesktop": "row",
                 "layoutDirectionMobile": "column",
                 "layoutDirectionTablet": "column",
@@ -27,8 +28,8 @@
                       "attributes": {
                         "columns": "To Do,In Progress,Done"
                       },
-                      "definition": "c:workItemBoard",
-                      "id": "a3f3e02d-b85d-4553-ad7c-65c7aff5568a",
+                      "definition": "c:publicWorkItemBoard",
+                      "id": "667ab5d3-d353-4115-ac14-3900005b33ee",
                       "type": "component"
                     }
                   ],
@@ -54,6 +55,7 @@
               "attributes": {
                 "customHeadTags": "",
                 "description": "",
+                "dxpStyle": {},
                 "pageTitle": "Work Item Board",
                 "recordId": "{!recordId}"
               },

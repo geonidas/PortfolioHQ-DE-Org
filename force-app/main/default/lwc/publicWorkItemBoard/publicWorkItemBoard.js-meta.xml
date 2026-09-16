@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>67.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>Public Work Item Board</masterLabel>
+    <description
+  >Read-only board of public work items, safe for unauthenticated site visitors.</description>
+    <targets>
+        <target>lightningCommunity__Page</target>
+        <target>lightningCommunity__Default</target>
+        <target>lightning__AppPage</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightningCommunity__Default">
+            <property
+        name="columns"
+        type="String"
+        default="To Do,In Progress,Done"
+        label="Board columns"
+        description="Ordered, comma separated Status__c values. Adding a status here is all that is needed to add a column."
+      />
+        </targetConfig>
+        <targetConfig targets="lightning__AppPage">
+            <property
+        name="columns"
+        type="String"
+        default="To Do,In Progress,Done"
+        label="Board columns"
+        description="Ordered, comma separated Status__c values. Adding a status here is all that is needed to add a column."
+      />
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>

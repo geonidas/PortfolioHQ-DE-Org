@@ -1,0 +1,80 @@
+<template>
+  <section class="board">
+    <header class="board-head">
+      <div>
+        <h1 class="title">{headingLabel}</h1>
+        <template lwc:if={freshnessLabel}>
+          <p class="freshness">{freshnessLabel}</p>
+        </template>
+      </div>
+      <span class="total">{countLabel}</span>
+    </header>
+
+    <template lwc:if={isLoading}>
+      <p class="state" data-state="loading">Loading…</p>
+    </template>
+
+    <template lwc:elseif={hasError}>
+      <!-- Fixed wording. The server sends no detail, and the page invents none. -->
+      <div class="state state-error" data-state="error">
+        <p class="state-title">{errorMessage}</p>
+        <p class="state-detail">Please try again shortly.</p>
+      </div>
+    </template>
+
+    <template lwc:elseif={isEmpty}>
+      <div class="state" data-state="empty">
+        <p class="state-title">Nothing to show yet.</p>
+        <p class="state-detail">
+          No work is public on this board at the moment.
+        </p>
+      </div>
+    </template>
+
+    <template lwc:else>
+      <div class="columns" data-state="ready">
+        <template for:each={viewColumns} for:item="col">
+          <section class="column" key={col.key} data-column={col.key}>
+            <h2 class="col-head">
+              <span class="col-name">{col.label}</span>
+              <span class="col-count">{col.countLabel}</span>
+            </h2>
+            <template lwc:if={col.isEmpty}>
+              <p class="col-empty">Nothing here</p>
+            </template>
+            <template for:each={col.cards} for:item="card">
+              <div class="stack" key={card.recordNumber}>
+                <c-public-work-item-card card={card}></c-public-work-item-card>
+                <template lwc:if={card.hasChildren}>
+                  <ul class="children">
+                    <template for:each={card.children} for:item="child">
+                      <li key={child.recordNumber}>
+                        <c-public-work-item-card
+                          card={child}
+                        ></c-public-work-item-card>
+                      </li>
+                    </template>
+                  </ul>
+                </template>
+              </div>
+            </template>
+          </section>
+        </template>
+      </div>
+
+      <template lwc:if={hasOther}>
+        <section class="other" data-region="other">
+          <h2 class="other-head">Other</h2>
+          <div class="other-cards">
+            <template for:each={otherCards} for:item="card">
+              <c-public-work-item-card
+                key={card.recordNumber}
+                card={card}
+              ></c-public-work-item-card>
+            </template>
+          </div>
+        </section>
+      </template>
+    </template>
+  </section>
+</template>

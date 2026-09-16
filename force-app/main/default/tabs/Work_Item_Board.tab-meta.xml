@@ -4,5 +4,5 @@
   >Opens the work item board. Without a tab the Lightning page exists but is not reachable, which would make this click-only setup.</description>
     <flexiPage>Work_Item_Board</flexiPage>
     <label>Work Item Board</label>
-    <motif>Custom18: Cube</motif>
+    <motif>Custom18: Form</motif>
 </CustomTab>

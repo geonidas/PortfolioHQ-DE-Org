@@ -1,0 +1,128 @@
+:host {
+  display: block;
+  --pwb-border: #d8dde6;
+  --pwb-text-soft: #56657a;
+  --pwb-text-faint: #7c8b9e;
+  --pwb-warn: #a86403;
+  --pwb-warn-bg: #fdf6e9;
+  --pwb-err: #b12b23;
+  --pwb-err-bg: #fdecea;
+}
+.board {
+  padding: 0.75rem;
+  font-family: inherit;
+}
+.board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--pwb-border);
+  margin-bottom: 0.9rem;
+}
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.freshness,
+.total {
+  margin: 0.15rem 0 0;
+  font-size: 0.74rem;
+  color: var(--pwb-text-faint);
+}
+.total {
+  white-space: nowrap;
+}
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+.column {
+  background: #f7f8fa;
+  border: 1px solid var(--pwb-border);
+  border-radius: 4px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pwb-text-soft);
+}
+.col-count {
+  font-weight: 700;
+}
+.col-empty {
+  margin: 0;
+  font-size: 0.76rem;
+  font-style: italic;
+  color: var(--pwb-text-faint);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.85rem;
+  border-left: 2px solid var(--pwb-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.other {
+  margin-top: 1.1rem;
+  padding: 0.7rem;
+  border: 1px solid var(--pwb-border);
+  border-radius: 4px;
+  background: #f7f8fa;
+}
+.other-head {
+  margin: 0 0 0.5rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pwb-text-soft);
+}
+.other-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.5rem;
+}
+.state {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--pwb-border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--pwb-text-soft);
+}
+.state-title {
+  margin: 0;
+  font-weight: 700;
+  color: #16325c;
+}
+.state-detail {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+}
+.state-error {
+  border-color: var(--pwb-err);
+  background: var(--pwb-err-bg);
+}
+.state-error .state-title {
+  color: var(--pwb-err);
+}

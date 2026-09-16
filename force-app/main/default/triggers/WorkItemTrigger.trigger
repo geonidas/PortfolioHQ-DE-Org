@@ -7,9 +7,9 @@
  * doing nothing.
  */
 trigger WorkItemTrigger on Work_Item__c(before update, after update) {
-    if (Trigger.isBefore) {
-        WorkItemTriggerHandler.stageForPush(Trigger.new, Trigger.oldMap);
-    } else {
-        WorkItemTriggerHandler.pushStatusChanges(Trigger.new, Trigger.oldMap);
-    }
+  if (Trigger.isBefore) {
+    WorkItemTriggerHandler.stageForPush(Trigger.new, Trigger.oldMap);
+  } else {
+    WorkItemTriggerHandler.pushStatusChanges(Trigger.new, Trigger.oldMap);
+  }
 }

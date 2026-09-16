@@ -260,11 +260,11 @@
         <viewAllRecords>false</viewAllRecords>
     </objectPermissions>
     <tabSettings>
-        <tab>Work_Item_Board</tab>
+        <tab>Project__c</tab>
         <visibility>Visible</visibility>
     </tabSettings>
     <tabSettings>
-        <tab>Project__c</tab>
+        <tab>Work_Item_Board</tab>
         <visibility>Visible</visibility>
     </tabSettings>
     <tabSettings>

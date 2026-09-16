@@ -1,0 +1,69 @@
+:host {
+  display: block;
+}
+.card {
+  background: var(--pwb-card-bg, #ffffff);
+  border: 1px solid var(--pwb-border, #d8dde6);
+  border-radius: 4px;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.head {
+  align-items: flex-start;
+}
+h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+/* With no title synced the key stands in, toned down, so an untitled card does not pose as one. */
+h3.is-fallback {
+  font-weight: 500;
+  opacity: 0.72;
+}
+.num {
+  font-size: 0.7rem;
+  color: var(--pwb-text-faint, #7c8b9e);
+  font-variant-numeric: tabular-nums;
+}
+.badge,
+.proj {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  background: var(--pwb-badge-bg, #eef1f6);
+  color: var(--pwb-badge-fg, #3e4b5b);
+}
+.proj {
+  background: transparent;
+  color: var(--pwb-text-faint, #7c8b9e);
+  padding-left: 0;
+}
+.sync-flag {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.sync-pending {
+  background: var(--pwb-warn-bg, #fdf6e9);
+  color: var(--pwb-warn, #a86403);
+}
+.sync-failed {
+  background: var(--pwb-err-bg, #fdecea);
+  color: var(--pwb-err, #b12b23);
+}

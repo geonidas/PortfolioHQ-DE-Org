@@ -165,6 +165,20 @@ public with sharing class JiraWebhookProcessor {
           ? 'Pending'
           : 'Synced'
       );
+      // Only on creation. This subscriber runs as the Automated Process user, so anything it
+      // inserts is owned by Automated Process - and guest sharing rules do not share records
+      // owned by that user, measured directly: reassigning one record took the guest from 2 of
+      // 6 public records to 3 of 6, instantly. Without this every newly synced issue would be
+      // invisible on the public board, with no error to notice.
+      //
+      // Deliberately not set on update, so an existing record keeps whatever owner it has.
+      if (current == null) {
+        Id owner = integrationOwnerId();
+        if (owner != null) {
+          item.OwnerId = owner;
+        }
+      }
+
       // Only when the payload actually carried one. Assigning a null would blank a title
       // we already hold, and a delivery that omits the summary is not a retitling.
       if (String.isNotBlank(event.title)) {
@@ -216,6 +230,37 @@ public with sharing class JiraWebhookProcessor {
     }
 
     commitEvents(updates.values());
+  }
+
+  /**
+   * The user that should own records this subscriber creates.
+   *
+   * Resolved once per transaction and cached. Returning null is a tolerated outcome: the record
+   * still syncs, it is simply owned by Automated Process and therefore not visible to guests.
+   * Failing the whole delivery over an ownership nicety would be worse.
+   *
+   * Profile name is admittedly brittle - a dedicated integration user, named in configuration,
+   * is the better long-term answer.
+   */
+  @TestVisible
+  private static Id integrationOwner;
+  @TestVisible
+  private static Boolean integrationOwnerResolved = false;
+
+  private static Id integrationOwnerId() {
+    if (integrationOwnerResolved) {
+      return integrationOwner;
+    }
+    integrationOwnerResolved = true;
+    List<User> admins = [
+      SELECT Id
+      FROM User
+      WHERE IsActive = TRUE AND Profile.Name = 'System Administrator'
+      ORDER BY CreatedDate ASC
+      LIMIT 1
+    ];
+    integrationOwner = admins.isEmpty() ? null : admins[0].Id;
+    return integrationOwner;
   }
 
   // ---------- parsing ----------

@@ -1,5 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <Profile xmlns="http://soap.sforce.com/2006/04/metadata">
+    <applicationVisibilities>
+        <application>standard__LightningSales</application>
+        <default>false</default>
+        <visible>true</visible>
+    </applicationVisibilities>
     <classAccesses>
         <apexClass>AdapterException</apexClass>
         <enabled>true</enabled>
@@ -61,11 +66,19 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>GuestAccessTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>IWorkItemAdapter</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
         <apexClass>IntegrationSecretService</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>IntegrationSecretServiceTest</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
@@ -81,11 +94,23 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>JiraWebhookPayloadFactory</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>JiraWebhookProcessor</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>JiraWebhookProcessorTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>JiraWebhookResource</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>JiraWebhookResourceTest</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
@@ -126,6 +151,18 @@
     </classAccesses>
     <classAccesses>
         <apexClass>MyProfilePageControllerTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>ProjectSelector</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>PublicBoardController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>PublicWorkItemSelector</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
@@ -173,7 +210,23 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>WebhookSignatureTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>WorkItemAdapterFactory</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>WorkItemBoardController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>WorkItemBoardControllerTest</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>WorkItemSelector</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
@@ -425,6 +478,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>false</editable>
+        <field>Work_Item__c.Title__c</field>
+        <readable>false</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
         <field>Work_Item__c.Type__c</field>
         <readable>false</readable>
     </fieldPermissions>
@@ -600,6 +658,14 @@
     </recordTypeVisibilities>
     <tabVisibilities>
         <tab>Project__c</tab>
+        <visibility>Hidden</visibility>
+    </tabVisibilities>
+    <tabVisibilities>
+        <tab>Unified_Cross_Platform_Workflow</tab>
+        <visibility>DefaultOn</visibility>
+    </tabVisibilities>
+    <tabVisibilities>
+        <tab>Work_Item_Board</tab>
         <visibility>Hidden</visibility>
     </tabVisibilities>
     <tabVisibilities>
