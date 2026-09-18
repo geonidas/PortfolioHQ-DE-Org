@@ -9,3 +9,8 @@
 .vscode
 
 coverage/
+force-app/**/digitalExperiences/**
+force-app/**/profiles/**
+force-app/**/sharingRules/**
+force-app/**/permissionsets/**
+force-app/**/*-meta.xml

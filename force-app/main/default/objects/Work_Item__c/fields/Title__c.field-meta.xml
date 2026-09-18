@@ -1,11 +1,9 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Title__c</fullName>
-    <description
-  >One-line title of the remote issue - Jira&apos;s issue.fields.summary. This is what a person calls the task; Name is the record&apos;s auto number and External_Key__c is the remote identifier, and neither reads as a title.</description>
+    <description>One-line title of the remote issue - Jira&apos;s issue.fields.summary. This is what a person calls the task; Name is the record&apos;s auto number and External_Key__c is the remote identifier, and neither reads as a title.</description>
     <externalId>false</externalId>
-    <inlineHelpText
-  >Title of the work, as the external system states it. Synced; edits here are overwritten on the next inbound update.</inlineHelpText>
+    <inlineHelpText>Title of the work, as the external system states it. Synced; edits here are overwritten on the next inbound update.</inlineHelpText>
     <label>Title</label>
     <length>255</length>
     <required>false</required>

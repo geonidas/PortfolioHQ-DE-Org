@@ -1,82 +1,71 @@
 {
-  "type": "sfdc_cms__view",
-  "title": "Work Item Board",
-  "contentBody": {
-    "component": {
-      "children": [
-        {
-          "children": [
-            {
-              "attributes": {
-                "backgroundImageConfig": "",
-                "backgroundImageOverlay": "rgba(0,0,0,0)",
-                "componentSpacerSize": "",
-                "dxpStyle": {},
-                "layoutDirectionDesktop": "row",
-                "layoutDirectionMobile": "column",
-                "layoutDirectionTablet": "column",
-                "maxContentWidth": "",
-                "sectionColumnGutterWidth": "",
-                "sectionConfig": "{\"UUID\":\"4d2cd9c3-c1ee-46cc-b8a9-f92c2dad7799\",\"columns\":[{\"UUID\":\"98f9f99b-3d06-40bf-b9b0-0e1953593adc\",\"columnName\":\"Column 1\",\"columnKey\":\"col1\",\"columnWidth\":\"12\",\"seedComponents\":[]}]}",
-                "sectionMinHeight": "",
-                "sectionVerticalAlign": "flex-start"
+  "type" : "sfdc_cms__view",
+  "title" : "Work Item Board",
+  "contentBody" : {
+    "component" : {
+      "children" : [ {
+        "children" : [ {
+          "attributes" : {
+            "backgroundImageConfig" : "",
+            "backgroundImageOverlay" : "rgba(0,0,0,0)",
+            "componentSpacerSize" : "",
+            "dxpStyle" : { },
+            "layoutDirectionDesktop" : "row",
+            "layoutDirectionMobile" : "column",
+            "layoutDirectionTablet" : "column",
+            "maxContentWidth" : "",
+            "sectionColumnGutterWidth" : "",
+            "sectionConfig" : "{\"UUID\":\"4d2cd9c3-c1ee-46cc-b8a9-f92c2dad7799\",\"columns\":[{\"UUID\":\"98f9f99b-3d06-40bf-b9b0-0e1953593adc\",\"columnName\":\"Column 1\",\"columnKey\":\"col1\",\"columnWidth\":\"12\",\"seedComponents\":[]}]}",
+            "sectionMinHeight" : "",
+            "sectionVerticalAlign" : "flex-start"
+          },
+          "children" : [ {
+            "children" : [ {
+              "attributes" : {
+                "columns" : "To Do,In Progress,Done"
               },
-              "children": [
-                {
-                  "children": [
-                    {
-                      "attributes": {
-                        "columns": "To Do,In Progress,Done"
-                      },
-                      "definition": "c:publicWorkItemBoard",
-                      "id": "667ab5d3-d353-4115-ac14-3900005b33ee",
-                      "type": "component"
-                    }
-                  ],
-                  "id": "98f9f99b-3d06-40bf-b9b0-0e1953593adc",
-                  "name": "col1",
-                  "title": "Column 1",
-                  "type": "region"
-                }
-              ],
-              "definition": "community_layout:section",
-              "id": "4d2cd9c3-c1ee-46cc-b8a9-f92c2dad7799",
-              "type": "component"
-            }
-          ],
-          "id": "5ec39aee-0887-4fd8-876b-c11f684e6d1d",
-          "name": "content",
-          "title": "Content",
-          "type": "region"
-        },
-        {
-          "children": [
-            {
-              "attributes": {
-                "customHeadTags": "",
-                "description": "",
-                "dxpStyle": {},
-                "pageTitle": "Work Item Board",
-                "recordId": "{!recordId}"
-              },
-              "definition": "community_builder:seoAssistant",
-              "id": "366b1b79-1fd4-40f1-a9b7-96aa716a8f6b",
-              "type": "component"
-            }
-          ],
-          "id": "e014bd85-2588-4e7e-8579-7f04c9fd90bf",
-          "name": "sfdcHiddenRegion",
-          "title": "sfdcHiddenRegion",
-          "type": "region"
-        }
-      ],
-      "definition": "community_layout:sldsFlexibleLayout",
-      "id": "664ebadf-7f87-4f33-9731-1d3a0a8eae4b",
-      "type": "component"
+              "definition" : "c:publicWorkItemBoard",
+              "id" : "667ab5d3-d353-4115-ac14-3900005b33ee",
+              "type" : "component"
+            } ],
+            "id" : "98f9f99b-3d06-40bf-b9b0-0e1953593adc",
+            "name" : "col1",
+            "title" : "Column 1",
+            "type" : "region"
+          } ],
+          "definition" : "community_layout:section",
+          "id" : "4d2cd9c3-c1ee-46cc-b8a9-f92c2dad7799",
+          "type" : "component"
+        } ],
+        "id" : "5ec39aee-0887-4fd8-876b-c11f684e6d1d",
+        "name" : "content",
+        "title" : "Content",
+        "type" : "region"
+      }, {
+        "children" : [ {
+          "attributes" : {
+            "customHeadTags" : "",
+            "description" : "",
+            "dxpStyle" : { },
+            "pageTitle" : "Work Item Board",
+            "recordId" : "{!recordId}"
+          },
+          "definition" : "community_builder:seoAssistant",
+          "id" : "366b1b79-1fd4-40f1-a9b7-96aa716a8f6b",
+          "type" : "component"
+        } ],
+        "id" : "e014bd85-2588-4e7e-8579-7f04c9fd90bf",
+        "name" : "sfdcHiddenRegion",
+        "title" : "sfdcHiddenRegion",
+        "type" : "region"
+      } ],
+      "definition" : "community_layout:sldsFlexibleLayout",
+      "id" : "664ebadf-7f87-4f33-9731-1d3a0a8eae4b",
+      "type" : "component"
     },
-    "dataProviders": [],
-    "themeLayoutType": "Inner",
-    "viewType": "custom-work-item-board"
+    "dataProviders" : [ ],
+    "themeLayoutType" : "Inner",
+    "viewType" : "custom-work-item-board"
   },
-  "urlName": "work-item-board"
+  "urlName" : "work-item-board"
 }

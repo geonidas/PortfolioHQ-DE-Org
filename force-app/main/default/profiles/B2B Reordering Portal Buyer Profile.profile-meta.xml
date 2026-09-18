@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <Profile xmlns="http://soap.sforce.com/2006/04/metadata">
     <applicationVisibilities>
         <application>standard__LightningSales</application>
@@ -159,6 +159,10 @@
     </classAccesses>
     <classAccesses>
         <apexClass>PublicBoardController</apexClass>
+        <enabled>false</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>PublicBoardControllerTest</apexClass>
         <enabled>false</enabled>
     </classAccesses>
     <classAccesses>

@@ -1,7 +1,6 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description
-  >Opens the work item board. Without a tab the Lightning page exists but is not reachable, which would make this click-only setup.</description>
+    <description>Opens the work item board. Without a tab the Lightning page exists but is not reachable, which would make this click-only setup.</description>
     <flexiPage>Work_Item_Board</flexiPage>
     <label>Work Item Board</label>
     <motif>Custom18: Form</motif>

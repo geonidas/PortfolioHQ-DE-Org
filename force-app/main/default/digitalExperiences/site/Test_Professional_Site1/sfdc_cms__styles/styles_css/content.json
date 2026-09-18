@@ -1,15 +1,15 @@
 {
-  "type": "sfdc_cms__styles",
-  "title": "styles.css",
-  "contentBody": {
-    "sfdc_cms:media": {
-      "source": {
-        "type": "file",
-        "ref": "0sNE2000001S3bv",
-        "size": 125,
-        "mimeType": "text/css"
+  "type" : "sfdc_cms__styles",
+  "title" : "styles.css",
+  "contentBody" : {
+    "sfdc_cms:media" : {
+      "source" : {
+        "type" : "file",
+        "ref" : "0sNE2000001S3bv",
+        "size" : 125,
+        "mimeType" : "text/css"
       }
     }
   },
-  "urlName": "styles-css"
+  "urlName" : "styles-css"
 }

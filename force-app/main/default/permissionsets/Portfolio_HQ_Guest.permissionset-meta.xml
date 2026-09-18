@@ -1,11 +1,10 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
     <classAccesses>
         <apexClass>PublicBoardController</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description
-  >Read-only board data for unauthenticated site visitors. Read on Work_Item__c and Project__c limited to the fields the public DTO needs, and PublicBoardController alone. No write of any kind, no tabs, no standard objects.</description>
+    <description>Read-only board data for unauthenticated site visitors. Read on Work_Item__c and Project__c limited to the fields the public DTO needs, and PublicBoardController alone. No write of any kind, no tabs, no standard objects.</description>
     <fieldPermissions>
         <editable>false</editable>
         <field>Project__c.Is_Public__c</field>

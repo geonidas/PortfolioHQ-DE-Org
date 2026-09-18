@@ -116,8 +116,22 @@ not per method — reaching it at all exposes `changeStatus`. That is why
 field fails the test on purpose, so publishing something new to an anonymous visitor is
 a deliberate act.
 
-**Only status, timestamps and title sync inbound.** `Type__c` and
-`Parent_Work_Item__c` are set by hand. A Jira-side change to either does not propagate.
+**Status, timestamps, title, type and parent all sync inbound** as of build 06.
+`Type__c` comes from `fields.issuetype.name` through `IWorkItemAdapter.normalizeType`;
+`Parent_Work_Item__c` comes from `fields.parent`.
+
+**Every one of those is assigned only when the payload carries it.** Most deliveries are
+status transitions carrying no summary, issuetype or parent at all — writing a null
+through would blank known data on every one of them. An `issuetype` object present but
+with a blank `name` counts as absent, not as unmapped.
+
+**Parent resolution is a second pass, and deliberately creates no stub records.** A
+delivery batch can carry a child and its parent in either order, so linking happens after
+every record in the batch exists. A parent `External_Id__c` Salesforce has never seen
+leaves `Parent_Work_Item__c` null, writes an `Integration_Log__c` row naming both sides,
+and the delivery still succeeds. **Nothing back-fills that link when the parent later
+arrives** — only a subsequent delivery for the _child_ repairs it. The log row is the
+only record of the gap.
 
 **`In Review` is unreachable.** It exists in the picklist; the Jira board offers only
 To Do, In Progress and Done. Board columns are configurable so it can be added later
@@ -148,6 +162,54 @@ comment in metadata disappears on the next retrieve. Put it in a `description` e
 
 **Prettier reformats metadata between edits.** String-match patches silently no-op —
 assert that a replacement actually changed the file.
+
+**Prettier and the org fight over formatting, and the loop never settles on its own.**
+A retrieve reporting 60+ modified files is almost always this, not real drift. The
+mechanism is the **pre-commit hook**, not the editor extension — `package.json` wires
+`husky` → `lint-staged` → `prettier --write`, so:
+
+1. You deploy — the org stores those exact bytes.
+2. You commit — the hook reformats the staged files.
+3. The repo now holds prettier's version; the org holds the pre-prettier version.
+4. The next retrieve drags the org's version back.
+
+Repo and org are never formatted the same way, by construction. Disabling the VS Code
+Prettier extension changes nothing, because step 2 is a git hook.
+
+Six flavours of pure churn, none of them meaningful: trailing newline (prettier adds,
+Salesforce strips), `UTF-8 ?>` vs `UTF-8?>`, LWC JS quote style / indent / 80-col
+wrapping and prettier's `return ( … )` parens, the `<description\n  >` break in XML,
+`&apos;` vs a literal apostrophe, and `" : "` vs `": "` in digitalExperiences JSON.
+
+**Two fixes, applied in build 06:**
+
+- `.prettierignore` now covers `digitalExperiences/`, `profiles/`, `sharingRules/`,
+  `permissionsets/` and `**/*-meta.xml`. These are org-generated; prettier's only effect
+  on them was guaranteed churn. **For these paths the org's format is now canonical** —
+  commit what the retrieve gives you rather than reformatting it.
+- Still outstanding: run `npm run prettier` **before deploying**, not at commit time. Until
+  the org receives prettier-formatted bytes, the remaining ~32 hand-written source files
+  (`.cls`, `.trigger`, LWC bundles) churn on every retrieve.
+
+**A side effect worth knowing when reviewing a commit:** the hook reformats whole files on
+the way in, so a commit's diff can be far larger than the change you reviewed. Build 06
+step 2 was ~35 lines of real change; `JiraAdapter.cls` went into `e0fc34c` as 801 changed
+lines because the hook prettier-formatted the whole file at the same time.
+
+**Sorting a post-retrieve working tree.** Normalising whitespace and quote style is enough
+to separate churn from substance:
+
+```bash
+for f in $(git diff --name-only); do
+  a=$(git show HEAD:"$f" | tr -d "[:space:]'\"()"); b=$(cat "$f" | tr -d "[:space:]'\"()")
+  [ "$a" != "$b" ] && echo "SUBSTANTIVE: $f"
+done
+```
+
+Run this before reverting anything. In build 06 it reduced 63 modified files to two real
+changes: `Admin.profile` gaining `PublicBoardControllerTest` class access, and the route's
+`pageAccess` going `UseParent` → `Public` — the latter being build 05's site-public-access
+click, which the repo had never captured.
 
 **Salesforce API gotchas found the hard way:**
 
@@ -184,7 +246,8 @@ assert that a replacement actually changed the file.
 | Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run. | If the endpoint sees hostile traffic |
 | `Retry_Count__c` is inert; retry policy was never built.                                                                                                                                                          | When retries are wanted              |
 | Bare page layouts on four objects.                                                                                                                                                                                | Cosmetic                             |
-| `Title__c` and `Parent_Work_Item__c` do not sync inbound.                                                                                                                                                         | When field sync is built             |
+| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.              | When hierarchy gaps are noticed      |
+| Prettier and the org disagree on formatting for hand-written source; `npm run prettier` needs to run **before deploy**, not at commit. See section 3.                                                             | Next time a retrieve churns 30 files |
 
 ---
 
