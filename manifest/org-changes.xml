@@ -23,7 +23,6 @@
         <name>CustomObject</name>
     </types>
     <types>
-        <members>Unified_Cross_Platform_Workflow</members>
         <members>Work_Item_Board</members>
         <name>FlexiPage</name>
     </types>
@@ -60,7 +59,6 @@
     </types>
     <types>
         <members>Project__c</members>
-        <members>Unified_Cross_Platform_Workflow</members>
         <members>Work_Item_Board</members>
         <members>Work_Item__c</members>
         <name>CustomTab</name>

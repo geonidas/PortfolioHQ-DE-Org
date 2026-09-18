@@ -4,7 +4,7 @@ What a new context window needs and cannot read from the repo. Decisions and the
 reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
 **This file holds only what git does not know: org state, invariants, and traps.**
 
-Current as of Build 05. Builds 01–05 are deployed and verified against live Jira.
+Current as of Build 06. Builds 01–06 are deployed and verified against live Jira.
 
 ---
 
@@ -63,7 +63,8 @@ Process, and `Portfolio_HQ_Developer` holds `viewAllRecords=false` on both objec
 
 ### Demo data
 
-6 of 11 work items and 1 project are flagged public. To restore after a rebuild:
+Two projects, one public. 6 of the 8 work items under the public project are flagged public.
+To restore after a rebuild:
 
 ```bash
 sf apex run --file scripts/apex/flag-public-demo-data.apex --target-org MyScratchOrg
@@ -71,6 +72,18 @@ sf apex run --file scripts/apex/flag-public-demo-data.apex --target-org MyScratc
 
 Deliberately partial — records are left private so "no non-public record leaks" is
 testable. One of them is a child of a public parent.
+
+Build 06 added two things to it. A **hierarchy**, because a flat set of orphans renders the epic
+view empty and that is indistinguishable from a broken one. And the **canary**: `SEED-CANARY`, a
+work item flagged public under the _private_ project, owned by a real user so sharing genuinely
+grants the row. It must never render.
+
+The script **never writes `Status__c`**, and that is load-bearing rather than tidy.
+`WorkItemTriggerHandler` enqueues a real outbound push on any status change to a record carrying an
+`External_Id__c`, so assigning a status here would transition live Jira issues as a side effect of
+seeding demo data. It picks epics from records that already hold the status each role needs. The
+canary carries no `External_Id__c` at all, so it can never be pushed however it is later edited.
+Check `Integration_Log__c` does not grow across a run.
 
 ---
 
@@ -144,6 +157,37 @@ without a code change.
 **Metadata deploys do not grant field-level security.** Symptom:
 `Operation failed due to fields being inaccessible`. Fix: assign the permission set.
 
+**Deploying an LWC does not update the site.** An LWR site serves a built bundle. Deploy the
+component, see the org's `LightningComponentBundle.LastModifiedDate` move, and the public page
+still serves the old markup until the site is republished:
+
+```bash
+sf community publish --name "Test Professional Site" --target-org MyScratchOrg
+```
+
+`--name` is required and is the **Network** name, not the Site name — so `Test Professional Site`
+even though the board lives on `/neoGeoTest`, which is Site `Test_Professional_Site1`. Same trap as
+the `guestUser` CommunityNickname. The publish is **asynchronous**: it returns a job id, and the
+change goes live a minute or so later. Poll it:
+
+```bash
+sf data query -o MyScratchOrg -q "SELECT Status, Error FROM BackgroundOperation WHERE Id = '<job id>'"
+```
+
+**`standard__LightningSales` cannot be deleted, and trying takes the whole deploy with it.** The org
+rejects it twice over — "standard and cannot be deleted", and separately because in-app guidance is
+attached. Deploys are atomic, so one unrelated deletion in the set fails everything. It is a standard
+app present in every org and needs no source file, so the answer is never to delete it.
+
+**`.forceignore` does not retract a deletion already pending.** A pending delete lives in source
+tracking, not in file presence, so ignoring the path stops future retrieves pulling it back but does
+not stop the CLI trying to delete it. Both are needed:
+
+```bash
+# after adding the path to .forceignore
+sf project reset tracking --target-org MyScratchOrg --no-prompt
+```
+
 **Source tracking breaks constantly.** Scoped deploys and `deploy validate` leave every
 component's `lastRetrievedFromServer` null, which reports the whole org as remotely
 changed and produces a wall of conflicts on the next deploy.
@@ -187,9 +231,13 @@ wrapping and prettier's `return ( … )` parens, the `<description\n  >` break i
   `permissionsets/` and `**/*-meta.xml`. These are org-generated; prettier's only effect
   on them was guaranteed churn. **For these paths the org's format is now canonical** —
   commit what the retrieve gives you rather than reformatting it.
-- Still outstanding: run `npm run prettier` **before deploying**, not at commit time. Until
-  the org receives prettier-formatted bytes, the remaining ~32 hand-written source files
-  (`.cls`, `.trigger`, LWC bundles) churn on every retrieve.
+- **The cure in use since build 06: deploy freely, retrieve minimally.** The clash only happens
+  when a retrieve pulls the org's formatting back over prettier's, so source that lives in git
+  travels local → org only and is never retrieved. `manifest/org-changes.xml` is the declarative-only
+  package for that: `sf project retrieve start -x manifest/org-changes.xml`. It deliberately omits
+  ApexClass, ApexTrigger, LWC, DigitalExperience **and Profile** — every churn source identified.
+  Running `npm run prettier` before deploy would also have narrowed the gap, but not retrieving the
+  files at all closes it.
 
 **A side effect worth knowing when reviewing a commit:** the hook reformats whole files on
 the way in, so a commit's diff can be far larger than the change you reviewed. Build 06
@@ -239,15 +287,18 @@ click, which the repo had never captured.
 
 ## 4. Open items
 
-| Item                                                                                                                                                                                                              | Trigger point                        |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                         | Before a second admin exists         |
-| `Integration_Log__c` and `Webhook_Event__c` grow unbounded; no purge job.                                                                                                                                         | At volume                            |
-| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run. | If the endpoint sees hostile traffic |
-| `Retry_Count__c` is inert; retry policy was never built.                                                                                                                                                          | When retries are wanted              |
-| Bare page layouts on four objects.                                                                                                                                                                                | Cosmetic                             |
-| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.              | When hierarchy gaps are noticed      |
-| Prettier and the org disagree on formatting for hand-written source; `npm run prettier` needs to run **before deploy**, not at commit. See section 3.                                                             | Next time a retrieve churns 30 files |
+| Item                                                                                                                                                                                                              | Trigger point                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                         | Before a second admin exists          |
+| `Integration_Log__c` and `Webhook_Event__c` grow unbounded; no purge job.                                                                                                                                         | At volume                             |
+| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run. | If the endpoint sees hostile traffic  |
+| `Retry_Count__c` is inert; retry policy was never built.                                                                                                                                                          | When retries are wanted               |
+| Bare page layouts on four objects.                                                                                                                                                                                | Cosmetic                              |
+| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.              | When hierarchy gaps are noticed       |
+| Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                | Next time a full retrieve is needed   |
+| Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.       | Cosmetic                              |
+| An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                | Cosmetic                              |
+| A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.    | If `npm run test:unit` dies wholesale |
 
 ---
 
@@ -270,6 +321,25 @@ sf data query -o MyScratchOrg -q "SELECT Processing_Status__c, COUNT(Id) c FROM 
 # The public board, as an anonymous visitor
 curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/work-item-board
 ```
+
+Build 06 added a second view. Both payloads ship on every call whichever is on screen, so check
+what the guest actually receives rather than what renders:
+
+```bash
+sf apex run --target-org MyScratchOrg <<'EOF'
+PublicBoardController.PublicBoardData b = PublicBoardController.getPublicBoardData();
+System.debug('>>> tasks=' + b.itemCount + ' epics=' + b.epics.size());
+System.debug('>>> epic keys=' + ((Map<String,Object>)JSON.deserializeUntyped(JSON.serialize(b.epics[0]))).keySet());
+EOF
+```
+
+Expect **exactly one SOQL query** in that debug log's limit block. Ancestry and child counts are
+computed in memory; a per-epic query would put the guest page one busy project away from the
+governor limit.
+
+The seed script is the way to get a board worth looking at after a rebuild, and it now also plants
+a **canary**: a work item flagged public under a _private_ project. It must never render. If it
+does, the only enforcement of the parent project flag has gone.
 
 A loop-prevention check: change one `Status__c`, then watch `Integration_Log__c`. It
 should gain exactly 2 rows and stop. Climbing by 2 repeatedly means the loop did not
