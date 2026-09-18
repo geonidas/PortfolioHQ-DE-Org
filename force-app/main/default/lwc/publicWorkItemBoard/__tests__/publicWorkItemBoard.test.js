@@ -34,9 +34,22 @@ function card(overrides) {
   );
 }
 
-function board(items) {
+function epic(overrides) {
+  return Object.assign(
+    {
+      title: "Guest board",
+      status: "In Progress",
+      totalChildren: 4,
+      completedChildren: 1
+    },
+    overrides
+  );
+}
+
+function board(items, epics) {
   return {
     items,
+    epics: epics || [],
     itemCount: items.length,
     projectLabel: "PHQ",
     lastSyncedAt: "2026-09-13T05:20:07.000Z"
@@ -58,6 +71,16 @@ const columnNames = (el) =>
   );
 const cards = (el) =>
   Array.from(el.shadowRoot.querySelectorAll("c-public-work-item-card"));
+const epicCards = (el) =>
+  Array.from(el.shadowRoot.querySelectorAll("c-public-epic-card"));
+const toggle = (el, view) =>
+  el.shadowRoot.querySelector(`button[data-view="${view}"]`);
+const epicColumn = (el, status) =>
+  el.shadowRoot.querySelector(`[data-epic-column="${status}"]`);
+const epicColumnNames = (el) =>
+  Array.from(el.shadowRoot.querySelectorAll("[data-epic-column]")).map((c) =>
+    c.getAttribute("data-epic-column")
+  );
 
 describe("c-public-work-item-board", () => {
   afterEach(() => {
@@ -206,12 +229,245 @@ describe("c-public-work-item-board", () => {
     expect(error.textContent).not.toContain("SELECT");
   });
 
+  // ---------- the two views (build 06) ----------
+
+  it("switches views without going back to the server", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card()], [epic()]));
+    await flush();
+
+    // A wire re-invokes only when its config changes, so capturing the config and comparing
+    // it after the toggle is what actually proves no refetch happened. A counter on the
+    // adapter's emit would have passed whether or not it were true.
+    const configOnLoad = getPublicBoardData.getLastConfig();
+    // Empty, because the Apex method takes no parameters. Give the wire a reactive config
+    // and this fails - which is the point: a config is the only thing that could refetch.
+    expect(configOnLoad).toEqual({});
+    expect(cards(element)).toHaveLength(1);
+    expect(epicCards(element)).toHaveLength(0);
+
+    toggle(element, "epics").click();
+    await flush();
+
+    expect(epicCards(element)).toHaveLength(1);
+    expect(cards(element)).toHaveLength(0);
+
+    toggle(element, "tasks").click();
+    await flush();
+
+    expect(cards(element)).toHaveLength(1);
+    // Unchanged across both switches. getPublicBoardData takes no parameters, so the
+    // component holds no wire config it could vary even if it wanted to.
+    expect(getPublicBoardData.getLastConfig()).toEqual(configOnLoad);
+  });
+
+  it("reports which view is on screen", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card()], [epic()]));
+    await flush();
+
+    expect(toggle(element, "tasks").getAttribute("aria-pressed")).toBe("true");
+    expect(toggle(element, "epics").getAttribute("aria-pressed")).toBe("false");
+
+    toggle(element, "epics").click();
+    await flush();
+
+    expect(toggle(element, "tasks").getAttribute("aria-pressed")).toBe("false");
+    expect(toggle(element, "epics").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("gives each view its own empty state", async () => {
+    const element = mount();
+    // Epics exist, so the board is not globally empty - but no task is visible.
+    getPublicBoardData.emit(board([], [epic({ status: "In Progress" })]));
+    await flush();
+
+    const taskEmpty = element.shadowRoot.querySelector('[data-empty="tasks"]');
+    expect(taskEmpty).not.toBeNull();
+    expect(taskEmpty.textContent).toContain("No open work");
+    // The global empty state is the wrong message here and must not appear.
+    expect(element.shadowRoot.querySelector('[data-state="empty"]')).toBeNull();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    expect(epicCards(element)).toHaveLength(1);
+    expect(element.shadowRoot.querySelector('[data-empty="epics"]')).toBeNull();
+  });
+
+  it("says a first-run org has completed no epics rather than leaving a gap", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card()], [epic({ status: "In Progress" })]));
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const completed = element.shadowRoot.querySelector(
+      '[data-empty="completed"]'
+    );
+    expect(completed).not.toBeNull();
+    expect(completed.textContent).toContain("No completed epics yet");
+    // The In Progress column holds the one epic, so only Done is empty.
+    expect(
+      epicColumn(element, "In Progress").querySelector(".col-empty")
+    ).toBeNull();
+  });
+
+  it("lays epics into the same columns as the task view", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(
+        [card()],
+        [
+          epic({ title: "Planned", status: "To Do" }),
+          epic({ title: "Underway", status: "In Progress" }),
+          epic({ title: "Shipped", status: "Done" })
+        ]
+      )
+    );
+    await flush();
+
+    const taskColumns = columnNames(element);
+    toggle(element, "epics").click();
+    await flush();
+
+    expect(epicColumnNames(element)).toEqual(taskColumns);
+    expect(epicColumnNames(element)).toEqual(["To Do", "In Progress", "Done"]);
+    ["To Do", "In Progress", "Done"].forEach((status) => {
+      const col = epicColumn(element, status);
+      expect(col.querySelectorAll("c-public-epic-card")).toHaveLength(1);
+      expect(col.querySelector(".col-count").textContent).toBe("1");
+    });
+  });
+
+  it("takes the epic columns from the same configuration as the tasks", async () => {
+    const element = mount({ columns: "Backlog,Shipping" });
+    getPublicBoardData.emit(board([card()], [epic({ status: "Backlog" })]));
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    // One column set for the whole board. When Asana tasks join the epic view they land in
+    // these columns too, rather than bringing their own.
+    expect(epicColumnNames(element)).toEqual(["Backlog", "Shipping"]);
+    expect(
+      epicColumn(element, "Backlog").querySelectorAll("c-public-epic-card")
+    ).toHaveLength(1);
+  });
+
+  it("surfaces an epic whose status no column accounts for", async () => {
+    const element = mount({ columns: "To Do,Done" });
+    getPublicBoardData.emit(board([card()], [epic({ status: "In Progress" })]));
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    // Same rule as the task view: silently dropping a record from a public page is worse
+    // than showing it somewhere unexpected.
+    const other = element.shadowRoot.querySelector(
+      '[data-region="other-epics"]'
+    );
+    expect(other).not.toBeNull();
+    expect(other.querySelectorAll("c-public-epic-card")).toHaveLength(1);
+  });
+
+  it("explains an epic view with no epics at all", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card()], []));
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    expect(
+      element.shadowRoot.querySelector('[data-empty="epics"]').textContent
+    ).toContain("No epics yet");
+  });
+
+  it("renders an epic as progress rather than as a status alone", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([card()], [epic({ totalChildren: 4, completedChildren: 3 })])
+    );
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const rendered = epicCards(element)[0].shadowRoot;
+    expect(rendered.querySelector(".count").textContent).toBe("3 of 4 done");
+    expect(rendered.querySelector(".bar").style.width).toBe("75%");
+    // Decorative: the count beside it carries the same information as text.
+    expect(rendered.querySelector(".track").getAttribute("aria-hidden")).toBe(
+      "true"
+    );
+  });
+
+  it("reads an epic with nothing under it as empty, not as broken", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([card()], [epic({ totalChildren: 0, completedChildren: 0 })])
+    );
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const rendered = epicCards(element)[0].shadowRoot;
+    expect(rendered.querySelector(".count").textContent).toBe(
+      "No child items yet"
+    );
+    // "0 of 0 done" reads as a bug, so no bar is drawn at all.
+    expect(rendered.querySelector(".track")).toBeNull();
+  });
+
+  it("labels an untitled epic instead of publishing an identifier for it", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card()], [epic({ title: null })]));
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const heading = epicCards(element)[0].shadowRoot.querySelector("h3");
+    expect(heading.textContent).toBe("Untitled epic");
+    expect(heading.className).toContain("is-fallback");
+  });
+
+  it("keeps epic cards as inert as work item cards", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card()], [epic()]));
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const article = epicCards(element)[0].shadowRoot.querySelector("article");
+    expect(article.getAttribute("role")).toBeNull();
+    expect(article.getAttribute("tabindex")).toBeNull();
+    expect(epicCards(element)[0].shadowRoot.querySelector("button")).toBeNull();
+  });
+
   it("offers no control that could change anything", async () => {
     const element = mount();
     getPublicBoardData.emit(board([card()]));
     await flush();
 
-    expect(element.shadowRoot.querySelectorAll("button")).toHaveLength(0);
+    // Build 06 added a view toggle, so "no buttons at all" is no longer the right
+    // assertion - but the guarantee it protected still holds and still needs stating.
+    // Every button on this board must be a view toggle: a control that re-renders data
+    // already in memory. Anything else appearing here is a control that could act.
+    const buttons = Array.from(element.shadowRoot.querySelectorAll("button"));
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons.forEach((button) => {
+      expect(button.dataset.view).toBeDefined();
+      expect(button.type).toBe("button");
+    });
+
+    // The cards themselves stay inert, which is the half that never changes.
     const article = cards(element)[0].shadowRoot.querySelector("article");
     expect(article.getAttribute("role")).toBeNull();
     expect(article.getAttribute("tabindex")).toBeNull();

@@ -1,0 +1,60 @@
+:host {
+  display: block;
+}
+.epic {
+  background: var(--pwb-card-bg, #ffffff);
+  border: 1px solid var(--pwb-border, #d8dde6);
+  border-radius: 4px;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+/* An epic with no title synced reads as untitled rather than posing as a titled one. */
+h3.is-fallback {
+  font-weight: 500;
+  opacity: 0.72;
+}
+.status {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 2px;
+  white-space: nowrap;
+  background: var(--pwb-badge-bg, #eef1f6);
+  color: var(--pwb-badge-fg, #3e4b5b);
+}
+.status-done {
+  background: var(--pwb-ok-bg, #e8f5ec);
+  color: var(--pwb-ok, #1c6b3a);
+}
+.track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pwb-track, #e9edf3);
+  overflow: hidden;
+}
+.bar {
+  height: 100%;
+  background: var(--pwb-bar, #5a7fa8);
+}
+.count {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--pwb-text-faint, #7c8b9e);
+  font-variant-numeric: tabular-nums;
+}

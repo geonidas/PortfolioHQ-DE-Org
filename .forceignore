@@ -17,3 +17,12 @@ node_modules/
 # Ignored before any record exists: gitignore cannot untrack a file that was already
 # committed, so the ordering here is the whole point.
 force-app/main/default/customMetadata/
+
+# Stray metadata that earlier retrieves dragged in and build 06 removed from source.
+# Ignored rather than deleted from the org: standard__LightningSales is a STANDARD app that
+# exists in every org and cannot meaningfully be deleted, and the Unified_Cross_Platform_Workflow
+# flexipage and tab are org defaults this project never authored. Ignoring them is what stops
+# the next retrieve pulling all three back - deleting the files alone never did.
+force-app/main/default/applications/standard__LightningSales.app-meta.xml
+force-app/main/default/flexipages/Unified_Cross_Platform_Workflow.flexipage-meta.xml
+force-app/main/default/tabs/Unified_Cross_Platform_Workflow.tab-meta.xml

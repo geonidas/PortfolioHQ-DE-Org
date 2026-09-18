@@ -48,9 +48,49 @@ public class JiraWebhookPayloadFactory {
     Datetime updated,
     String summary
   ) {
+    return issueUpdated(
+      issueId,
+      issueKey,
+      jiraStatus,
+      updated,
+      summary,
+      'Story',
+      null
+    );
+  }
+
+  /**
+   * The same payload with the issue type and parent under the caller's control.
+   *
+   * A null issueTypeName omits the issuetype object entirely, and a null parentId omits the
+   * parent object entirely - not an empty one. That is the shape of a real Jira status
+   * transition, which carries neither, and it is exactly the case the processor must leave
+   * existing values alone for. Sending an empty object instead would test nothing.
+   */
+  public static String issueUpdated(
+    String issueId,
+    String issueKey,
+    String jiraStatus,
+    Datetime updated,
+    String summary,
+    String issueTypeName,
+    String parentId
+  ) {
     String summaryField = summary == null
       ? ''
       : '"summary":"' + String.escapeSingleQuotes(summary) + '",';
+    String typeField = issueTypeName == null
+      ? ''
+      : '"issuetype":{"name":"' +
+        String.escapeSingleQuotes(issueTypeName) +
+        '"},';
+    String parentField = parentId == null
+      ? ''
+      : '"parent":{"id":"' +
+        String.escapeSingleQuotes(parentId) +
+        '","key":"DOPP-' +
+        parentId +
+        '"},';
     return '{' +
       '"timestamp":' +
       updated.getTime() +
@@ -70,7 +110,8 @@ public class JiraWebhookPayloadFactory {
       '"updated":"' +
       jiraTimestamp(updated) +
       '",' +
-      '"issuetype":{"name":"Story"},' +
+      typeField +
+      parentField +
       '"status":{"id":"3","name":"' +
       String.escapeSingleQuotes(jiraStatus) +
       '"}' +

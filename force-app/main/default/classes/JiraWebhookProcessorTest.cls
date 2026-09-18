@@ -38,6 +38,334 @@ private class JiraWebhookProcessorTest {
     ];
   }
 
+  // ---------- type and parent (build 06) ----------
+
+  @IsTest
+  static void storesTheIssueTypeFromThePayload() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10050', 'To Do', was);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10050',
+          'DOPP-50',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          'Epic',
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      'Epic',
+      [SELECT Type__c FROM Work_Item__c WHERE Id = :item.Id].Type__c,
+      'fields.issuetype.name should map through to Type__c.'
+    );
+  }
+
+  @IsTest
+  static void anUnrecognisedIssueTypeLandsOnUnspecified() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10051', 'To Do', was);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10051',
+          'DOPP-51',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          'Incident Postmortem',
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    // Type__c is a restricted picklist, so a custom Jira issue type has to land somewhere.
+    // Failing the delivery over a labelling gap would throw away the status change with it.
+    Assert.areEqual(
+      'Unspecified',
+      [SELECT Type__c FROM Work_Item__c WHERE Id = :item.Id].Type__c,
+      'An unmapped issue type should land on the catch-all.'
+    );
+    Assert.areEqual(
+      'In Progress',
+      [SELECT Status__c FROM Work_Item__c WHERE Id = :item.Id].Status__c,
+      'And the status change should still have been applied.'
+    );
+  }
+
+  @IsTest
+  static void aPayloadWithNoTypeOrParentLeavesBothAlone() {
+    Datetime was = System.now().addHours(-1);
+    Project__c project = TestDataFactory.createProjects(1, true)[0];
+    Work_Item__c parent = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    parent.External_Id__c = 'jira:10052';
+    parent.Status__c = 'To Do';
+    parent.Sync_Status__c = 'Pending';
+    insert parent;
+
+    Work_Item__c child = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    child.External_Id__c = 'jira:10053';
+    child.Status__c = 'To Do';
+    child.Sync_Status__c = 'Pending';
+    child.Remote_Last_Modified__c = was;
+    child.Type__c = 'Bug';
+    child.Parent_Work_Item__c = parent.Id;
+    insert child;
+
+    // A real status transition carries neither issuetype nor parent.
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10053',
+          'DOPP-53',
+          'Done',
+          was.addMinutes(30),
+          null,
+          null,
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = [
+      SELECT Status__c, Type__c, Parent_Work_Item__c
+      FROM Work_Item__c
+      WHERE Id = :child.Id
+    ];
+    Assert.areEqual('Done', after.Status__c, 'The status should have moved.');
+    // Writing a null through would blank known data on every status-only delivery, which is
+    // most of them.
+    Assert.areEqual('Bug', after.Type__c, 'Type__c must survive untouched.');
+    Assert.areEqual(
+      parent.Id,
+      after.Parent_Work_Item__c,
+      'Parent_Work_Item__c must survive untouched.'
+    );
+  }
+
+  @IsTest
+  static void resolvesAParentDeliveredInTheSameBatch() {
+    Datetime was = System.now().addHours(-1);
+    // Child first, so the batch proves ordering does not matter.
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10061',
+          'DOPP-61',
+          'To Do',
+          was,
+          'The child',
+          'Story',
+          '10060'
+        ),
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10060',
+          'DOPP-60',
+          'In Progress',
+          was,
+          'The parent',
+          'Epic',
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c parent = [
+      SELECT Id
+      FROM Work_Item__c
+      WHERE External_Id__c = 'jira:10060'
+    ];
+    Work_Item__c child = [
+      SELECT Parent_Work_Item__c
+      FROM Work_Item__c
+      WHERE External_Id__c = 'jira:10061'
+    ];
+    Assert.areEqual(
+      parent.Id,
+      child.Parent_Work_Item__c,
+      'The second pass should link a parent that arrived in the same batch.'
+    );
+  }
+
+  @IsTest
+  static void anUnresolvableParentIsLoggedAndTheDeliveryStillSucceeds() {
+    Datetime was = System.now().addHours(-1);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10070',
+          'DOPP-70',
+          'In Progress',
+          was,
+          'An orphaned child',
+          'Story',
+          '99999'
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c child = [
+      SELECT Id, Status__c, Parent_Work_Item__c
+      FROM Work_Item__c
+      WHERE External_Id__c = 'jira:10070'
+    ];
+    // No stub. The reference is a data gap to surface, not a record to invent.
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Work_Item__c],
+      'No stub parent should have been created.'
+    );
+    Assert.isNull(
+      child.Parent_Work_Item__c,
+      'An unresolvable parent leaves the lookup null.'
+    );
+    Assert.areEqual(
+      'In Progress',
+      child.Status__c,
+      'And the status change still lands - a data gap is not a reason to drop it.'
+    );
+    Assert.areEqual(
+      'Processed',
+      [
+        SELECT Processing_Status__c
+        FROM Webhook_Event__c
+        WHERE Id = :events[0].Id
+      ]
+      .Processing_Status__c,
+      'The delivery itself succeeded.'
+    );
+
+    List<Integration_Log__c> logs = [
+      SELECT Direction__c, Is_Success__c, Error_Message__c
+      FROM Integration_Log__c
+    ];
+    Assert.areEqual(1, logs.size(), 'The gap should be reported exactly once.');
+    Assert.areEqual('Inbound', logs[0].Direction__c);
+    Assert.isFalse(logs[0].Is_Success__c);
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('jira:99999'),
+      'The log names the unresolved parent.'
+    );
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('jira:10070'),
+      'And the child that referenced it.'
+    );
+  }
+
+  @IsTest
+  static void aPayloadNamingItselfAsItsOwnParentIsRefused() {
+    Datetime was = System.now().addHours(-1);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10080',
+          'DOPP-80',
+          'To Do',
+          was,
+          'A self-referencing issue',
+          'Story',
+          '10080'
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    // A cycle of length one is still a cycle for anything walking ancestors.
+    Assert.isNull(
+      [
+        SELECT Parent_Work_Item__c
+        FROM Work_Item__c
+        WHERE External_Id__c = 'jira:10080'
+      ]
+      .Parent_Work_Item__c,
+      'A record must not be made its own parent.'
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Integration_Log__c],
+      'And the refusal is reported.'
+    );
+  }
+
+  @IsTest
+  static void anUnresolvedOwnerIsReportedRatherThanPassedOverInSilence() {
+    Datetime was = System.now().addHours(-1);
+    // Force the "no admin resolved" branch without depending on the org having no admin.
+    JiraWebhookProcessor.integrationOwnerResolved = true;
+    JiraWebhookProcessor.integrationOwner = null;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10090',
+          'DOPP-90',
+          'To Do',
+          was,
+          'Created with nobody to own it',
+          'Story',
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraWebhookProcessor.process(events);
+    Test.stopTest();
+
+    // Public, synced and invisible with nothing reporting it is the failure most likely to
+    // waste an hour at launch, so it gets a row of its own.
+    List<Integration_Log__c> logs = [
+      SELECT Error_Message__c, Direction__c
+      FROM Integration_Log__c
+    ];
+    Assert.areEqual(1, logs.size(), 'The ownership gap should be reported.');
+    Assert.areEqual('Inbound', logs[0].Direction__c);
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('Automated Process'),
+      'The log should say why the record will not be guest-visible.'
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Work_Item__c],
+      'The record still syncs - ownership is not worth failing a delivery over.'
+    );
+  }
+
   // ---------- applying changes ----------
 
   @IsTest

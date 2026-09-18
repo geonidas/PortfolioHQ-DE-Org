@@ -30,7 +30,13 @@ public with sharing class PublicWorkItemSelector {
         Sync_Status__c,
         Last_Synced__c,
         Parent_Work_Item__c,
-        Project__r.Short_Name__c
+        Project__r.Short_Name__c,
+        // Ordering key only, for capping the completed epics on the epic view. Never
+        // published - it is absent from every DTO. LastModifiedDate rather than
+        // Remote_Last_Modified__c because it is a standard field needing no field-level
+        // grant, and widening Portfolio_HQ_Guest for something the visitor never sees
+        // would be a real cost for no benefit.
+        LastModifiedDate
       FROM Work_Item__c
       WHERE Is_Public__c = TRUE AND Project__r.Is_Public__c = TRUE
       WITH USER_MODE

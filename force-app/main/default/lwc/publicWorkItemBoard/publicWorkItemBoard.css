@@ -7,6 +7,10 @@
   --pwb-warn-bg: #fdf6e9;
   --pwb-err: #b12b23;
   --pwb-err-bg: #fdecea;
+  --pwb-ok: #1c6b3a;
+  --pwb-ok-bg: #e8f5ec;
+  --pwb-track: #e9edf3;
+  --pwb-bar: #5a7fa8;
 }
 .board {
   padding: 0.75rem;
@@ -125,4 +129,39 @@
 }
 .state-error .state-title {
   color: var(--pwb-err);
+}
+.views {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.9rem;
+}
+/* The one interactive control on this board, and it changes nothing but what is on screen.
+   A real button, so it is focusable and keyboard operable without being told to be. */
+.view-btn {
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.28rem 0.7rem;
+  border: 1px solid var(--pwb-border);
+  border-radius: 3px;
+  background: #ffffff;
+  color: var(--pwb-text-soft);
+  cursor: pointer;
+}
+.view-btn:hover {
+  border-color: #b9c2cf;
+}
+.view-btn:focus-visible {
+  outline: 2px solid #5a7fa8;
+  outline-offset: 1px;
+}
+.view-btn.is-on {
+  background: #eef2f7;
+  border-color: #b9c2cf;
+  color: #16325c;
+  font-weight: 600;
+}
+.epic-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
 }

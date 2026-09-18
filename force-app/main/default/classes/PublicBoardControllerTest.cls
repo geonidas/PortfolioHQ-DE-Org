@@ -30,6 +30,42 @@ private class PublicBoardControllerTest {
     return w;
   }
 
+  /** A work item with its type and parent under the caller's control. */
+  private static Work_Item__c item(
+    Id projectId,
+    Boolean isPublic,
+    String status,
+    String type,
+    Id parentId
+  ) {
+    Work_Item__c w = TestDataFactory.createWorkItems(1, projectId, false)[0];
+    w.Is_Public__c = isPublic;
+    w.Status__c = status;
+    w.Sync_Status__c = 'Pending';
+    w.Type__c = type;
+    w.Parent_Work_Item__c = parentId;
+    insert w;
+    return w;
+  }
+
+  private static Work_Item__c epic(
+    Id projectId,
+    Boolean isPublic,
+    String status
+  ) {
+    return item(projectId, isPublic, status, 'Epic', null);
+  }
+
+  private static Map<String, PublicBoardController.PublicEpic> epicsByTitle(
+    PublicBoardController.PublicBoardData board
+  ) {
+    Map<String, PublicBoardController.PublicEpic> byTitle = new Map<String, PublicBoardController.PublicEpic>();
+    for (PublicBoardController.PublicEpic e : board.epics) {
+      byTitle.put(e.title, e);
+    }
+    return byTitle;
+  }
+
   private static Set<String> numbersFrom(
     PublicBoardController.PublicBoardData board
   ) {
@@ -38,6 +74,271 @@ private class PublicBoardControllerTest {
       numbers.add(card.recordNumber);
     }
     return numbers;
+  }
+
+  // ---------- epic resolution and the two views (build 06) ----------
+
+  @IsTest
+  static void resolvesAnEpicAtOneHopAndAtTwo() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c theEpic = epic(open.Id, true, 'In Progress');
+    Work_Item__c story = item(open.Id, true, 'To Do', 'Story', theEpic.Id);
+    Work_Item__c subtask = item(open.Id, true, 'To Do', 'Task', story.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Set<String> shown = numbersFrom(board);
+    Map<Id, Work_Item__c> named = new Map<Id, Work_Item__c>(
+      [
+        SELECT Name
+        FROM Work_Item__c
+        WHERE Id IN :new List<Id>{ story.Id, subtask.Id }
+      ]
+    );
+    Assert.isTrue(
+      shown.contains(named.get(story.Id).Name),
+      'One hop up to the epic.'
+    );
+    Assert.isTrue(
+      shown.contains(named.get(subtask.Id).Name),
+      'Two hops up, through the story, to the same epic.'
+    );
+    // Both descendants count towards the epic, not just the direct child, so the number on
+    // the card matches the number of cards the task view shows beneath it.
+    Assert.areEqual(2, board.epics[0].totalChildren);
+  }
+
+  @IsTest
+  static void aCycleInTheHierarchyTerminates() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c a = item(open.Id, true, 'To Do', 'Story', null);
+    Work_Item__c b = item(open.Id, true, 'To Do', 'Story', a.Id);
+    // Close the loop. Nothing in the schema prevents this.
+    update new Work_Item__c(Id = a.Id, Parent_Work_Item__c = b.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    // Reaching this assertion at all is the test: the walk terminated rather than hanging.
+    // A cycle has no epic ancestor, so both rows fall through to the orphan rule.
+    Assert.areEqual(
+      2,
+      board.itemCount,
+      'Both rows survive as unfinished orphans rather than hanging the request.'
+    );
+    Assert.isTrue(board.epics.isEmpty(), 'Neither is an epic.');
+  }
+
+  @IsTest
+  static void aDoneOrphanIsHiddenButALiveOneIsNot() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c live = item(open.Id, true, 'In Progress', 'Story', null);
+    Work_Item__c finished = item(open.Id, true, 'Done', 'Story', null);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Set<String> shown = numbersFrom(board);
+    Map<Id, Work_Item__c> named = new Map<Id, Work_Item__c>(
+      [
+        SELECT Name
+        FROM Work_Item__c
+        WHERE Id IN :new List<Id>{ live.Id, finished.Id }
+      ]
+    );
+    Assert.isTrue(
+      shown.contains(named.get(live.Id).Name),
+      'Real unparented work stays visible.'
+    );
+    // Otherwise finished orphans accumulate into the unbounded Done column the two-view
+    // design exists to avoid.
+    Assert.isFalse(
+      shown.contains(named.get(finished.Id).Name),
+      'A finished orphan does not.'
+    );
+  }
+
+  @IsTest
+  static void aTaskUnderALiveEpicShowsEvenWhenItIsDone() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c live = epic(open.Id, true, 'In Progress');
+    Work_Item__c finishedEpic = epic(open.Id, true, 'Done');
+    Work_Item__c underLive = item(open.Id, true, 'Done', 'Story', live.Id);
+    Work_Item__c underFinished = item(
+      open.Id,
+      true,
+      'In Progress',
+      'Story',
+      finishedEpic.Id
+    );
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Set<String> shown = numbersFrom(board);
+    Map<Id, Work_Item__c> named = new Map<Id, Work_Item__c>(
+      [
+        SELECT Name
+        FROM Work_Item__c
+        WHERE Id IN :new List<Id>{ underLive.Id, underFinished.Id }
+      ]
+    );
+    Assert.isTrue(
+      shown.contains(named.get(underLive.Id).Name),
+      'A finished task stays visible while its epic is in flight.'
+    );
+    Assert.isFalse(
+      shown.contains(named.get(underFinished.Id).Name),
+      'Work under a completed epic leaves the task view whatever its own status.'
+    );
+  }
+
+  @IsTest
+  static void theEpicDtoCarriesExactlyFourKeys() {
+    Project__c open = project(true, 'OPEN');
+    epic(open.Id, true, 'In Progress');
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Map<String, Object> onTheWire = (Map<String, Object>) JSON.deserializeUntyped(
+      JSON.serialize(board.epics[0])
+    );
+    // An exact set, exactly as PublicCard is asserted. Both views ship on every call
+    // whichever one is on screen, so the epic payload is held to the same standard.
+    Set<String> expected = new Set<String>{
+      'title',
+      'status',
+      'totalChildren',
+      'completedChildren'
+    };
+    Assert.areEqual(
+      expected,
+      onTheWire.keySet(),
+      'The epic payload changed shape.'
+    );
+  }
+
+  @IsTest
+  static void aNonPublicEpicIsAbsentFromTheEpicView() {
+    Project__c open = project(true, 'OPEN');
+    Project__c shut = project(false, 'SHUT');
+    epic(open.Id, true, 'In Progress');
+    epic(open.Id, false, 'In Progress');
+    epic(shut.Id, true, 'In Progress');
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      board.epics.size(),
+      'Only the doubly public epic should come back - a private epic and a public epic under a private project must not.'
+    );
+  }
+
+  @IsTest
+  static void theEpicViewCapsCompletedEpicsAtThree() {
+    Project__c open = project(true, 'OPEN');
+    epic(open.Id, true, 'In Progress');
+    for (Integer i = 0; i < 5; i++) {
+      epic(open.Id, true, 'Done');
+    }
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Integer done = 0;
+    Integer active = 0;
+    for (PublicBoardController.PublicEpic e : board.epics) {
+      if (e.status == 'Done') {
+        done++;
+      } else {
+        active++;
+      }
+    }
+    Assert.areEqual(1, active, 'Every active epic is shown.');
+    // An unbounded list of finished epics is the same failure as an unbounded Done column.
+    Assert.areEqual(3, done, 'Completed epics are capped at three.');
+  }
+
+  @IsTest
+  static void childCountsAreCorrectIncludingAnEpicWithNone() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c busy = epic(open.Id, true, 'In Progress');
+    Work_Item__c bare = epic(open.Id, true, 'In Progress');
+    update new Work_Item__c(Id = busy.Id, Title__c = 'Busy epic');
+    update new Work_Item__c(Id = bare.Id, Title__c = 'Bare epic');
+    item(open.Id, true, 'Done', 'Story', busy.Id);
+    item(open.Id, true, 'Done', 'Story', busy.Id);
+    item(open.Id, true, 'To Do', 'Story', busy.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Map<String, PublicBoardController.PublicEpic> byTitle = epicsByTitle(board);
+    Assert.areEqual(3, byTitle.get('Busy epic').totalChildren);
+    Assert.areEqual(2, byTitle.get('Busy epic').completedChildren);
+    // Zero rather than null, so the card reads as empty rather than as broken.
+    Assert.areEqual(0, byTitle.get('Bare epic').totalChildren);
+    Assert.areEqual(0, byTitle.get('Bare epic').completedChildren);
+  }
+
+  @IsTest
+  static void aWithheldEpicBreaksTheChainAndItsChildBecomesAnOrphan() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c hidden = epic(open.Id, false, 'In Progress');
+    Work_Item__c child = item(open.Id, true, 'Done', 'Story', hidden.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    // The walk only sees public rows, so the chain stops at the withheld epic and the child
+    // reads as an orphan - which, being Done, means it is hidden. Documented rather than
+    // incidental: an epic's counts can legitimately disagree with Jira.
+    Assert.areEqual(
+      0,
+      board.itemCount,
+      'A Done child under a withheld epic falls through to the orphan rule.'
+    );
+    Assert.isTrue(
+      board.epics.isEmpty(),
+      'And the withheld epic is not published.'
+    );
+  }
+
+  @IsTest
+  static void theQueryCountDoesNotScaleWithEpicCount() {
+    Project__c open = project(true, 'OPEN');
+    for (Integer i = 0; i < 12; i++) {
+      Work_Item__c e = epic(open.Id, true, 'In Progress');
+      item(open.Id, true, 'To Do', 'Story', e.Id);
+    }
+
+    Test.startTest();
+    Integer before = Limits.getQueries();
+    PublicBoardController.getPublicBoardData();
+    Integer used = Limits.getQueries() - before;
+    Test.stopTest();
+
+    // One query, whatever the shape of the data. Counts and ancestry are computed in memory
+    // from the rows that query already returned; a per-epic query would put the guest page
+    // one busy project away from the governor limit.
+    Assert.areEqual(
+      1,
+      used,
+      'The guest read path must issue exactly one query regardless of epic count.'
+    );
   }
 
   // ---------- the filter ----------

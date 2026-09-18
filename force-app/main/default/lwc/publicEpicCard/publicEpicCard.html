@@ -1,0 +1,20 @@
+<template>
+  <!-- No role, no tabindex, no handlers - the same rule publicWorkItemCard follows. A card
+       that announces itself as a button but does nothing is worse than one that is plainly
+       static, and this board has no write path to offer. -->
+  <article class="epic" data-status={epic.status}>
+    <div class="row head">
+      <h3 class={epic.headingClass}>{epic.heading}</h3>
+      <span class={epic.statusClass}>{epic.status}</span>
+    </div>
+
+    <template lwc:if={epic.hasChildren}>
+      <!-- Decorative. The count below carries the same information as text. -->
+      <div class="track" aria-hidden="true">
+        <div class="bar" style={epic.barStyle}></div>
+      </div>
+    </template>
+
+    <p class="count">{epic.progressLabel}</p>
+  </article>
+</template>
