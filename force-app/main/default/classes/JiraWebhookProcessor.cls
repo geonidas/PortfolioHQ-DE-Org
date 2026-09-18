@@ -23,8 +23,13 @@ public with sharing class JiraWebhookProcessor {
     String title;
     String remoteStatus;
     String normalizedStatus;
+    String remoteType;
+    String normalizedType; // null means the payload carried no usable issuetype
+    String parentExternalId; // namespaced; null means the payload carried no parent
     Datetime remoteUpdated;
     String failure; // non-null means the event cannot be applied
+    Boolean ownerUnresolved = false;
+    Id workItemId; // filled from the upsert result, for the second pass
   }
 
   /** Subscriber entry point. */
@@ -176,6 +181,12 @@ public with sharing class JiraWebhookProcessor {
         Id owner = integrationOwnerId();
         if (owner != null) {
           item.OwnerId = owner;
+        } else {
+          // Build 05 left this silent. The record still syncs, but it stays owned by Automated
+          // Process, and guest sharing rules do not share those - so it is public, synced and
+          // invisible, with nothing anywhere saying so. Logged after the upsert, once there is
+          // a record id to point the row at.
+          event.ownerUnresolved = true;
         }
       }
 
@@ -183,6 +194,13 @@ public with sharing class JiraWebhookProcessor {
       // we already hold, and a delivery that omits the summary is not a retitling.
       if (String.isNotBlank(event.title)) {
         item.Title__c = event.title;
+      }
+
+      // The same rule, for the same reason. Most deliveries here are status transitions, whose
+      // payloads carry no issuetype at all; assigning a null would blank a known type on every
+      // one of them. Unspecified, by contrast, is a real value the payload asked for.
+      if (String.isNotBlank(event.normalizedType)) {
+        item.Type__c = event.normalizedType;
       }
 
       toUpsert.add(item);
@@ -199,9 +217,12 @@ public with sharing class JiraWebhookProcessor {
         SyncContext.resumeOutbound();
       }
 
+      List<ParsedEvent> succeeded = new List<ParsedEvent>();
       for (Integer i = 0; i < results.size(); i++) {
         ParsedEvent event = applied[i];
         if (results[i].isSuccess()) {
+          event.workItemId = results[i].getId();
+          succeeded.add(event);
           String note = event.normalizedStatus == 'Unspecified'
             ? 'Applied, but remote status "' +
               event.remoteStatus +
@@ -227,9 +248,188 @@ public with sharing class JiraWebhookProcessor {
           );
         }
       }
+
+      List<Integration_Log__c> logs = new List<Integration_Log__c>();
+      for (ParsedEvent event : succeeded) {
+        if (event.ownerUnresolved) {
+          logs.add(
+            inboundLog(
+              event.workItemId,
+              'No System Administrator resolved, so ' +
+                event.externalId +
+                ' was created owned by Automated Process. Guest sharing rules do not share ' +
+                'records owned by that user: if this record is flagged public it will sync ' +
+                'correctly and still not appear on the public board. Reassign the owner.'
+            )
+          );
+        }
+      }
+      resolveParents(succeeded, logs);
+      writeLogs(logs);
     }
 
     commitEvents(updates.values());
+  }
+
+  /**
+   * Second pass: link children to parents, once every record in the batch exists.
+   *
+   * Two passes rather than one because a single delivery batch can carry a child and its parent
+   * together in either order. Resolving during the first pass would miss a parent that had not
+   * been inserted yet, and would do so intermittently - the failure would depend on payload
+   * order, which is the worst kind to debug.
+   *
+   * No stub records. An unresolvable parent leaves Parent_Work_Item__c null and writes a log row
+   * naming both sides. A stub would be a titleless, projectless Work_Item__c appearing on the
+   * internal board as a blank card, to buy a link the child's next delivery will make anyway.
+   *
+   * The known cost of that choice: nothing back-fills the link when the parent arrives later.
+   * Only a subsequent delivery for the child repairs it. The log row is the record of that gap.
+   */
+  private static void resolveParents(
+    List<ParsedEvent> events,
+    List<Integration_Log__c> logs
+  ) {
+    Map<String, Id> idByExternalId = new Map<String, Id>();
+    for (ParsedEvent event : events) {
+      idByExternalId.put(event.externalId, event.workItemId);
+    }
+
+    Set<String> wanted = new Set<String>();
+    for (ParsedEvent event : events) {
+      if (
+        event.parentExternalId != null &&
+        !idByExternalId.containsKey(event.parentExternalId)
+      ) {
+        wanted.add(event.parentExternalId);
+      }
+    }
+    // One query, and only for parents this batch did not itself carry - the batch's own records
+    // are already keyed above, straight off the upsert results.
+    if (!wanted.isEmpty()) {
+      for (Work_Item__c parent : [
+        SELECT Id, External_Id__c
+        FROM Work_Item__c
+        WHERE External_Id__c IN :wanted
+      ]) {
+        idByExternalId.put(parent.External_Id__c, parent.Id);
+      }
+    }
+
+    List<Work_Item__c> links = new List<Work_Item__c>();
+    List<ParsedEvent> linked = new List<ParsedEvent>();
+    for (ParsedEvent event : events) {
+      if (event.parentExternalId == null) {
+        continue;
+      }
+      Id parentId = idByExternalId.get(event.parentExternalId);
+      if (parentId == null) {
+        // Surfaced, not fatal. The delivery is still Processed: an unresolved reference is a
+        // data gap, and dropping a status change on account of one would trade a visible
+        // problem for an invisible one.
+        logs.add(
+          inboundLog(
+            event.workItemId,
+            'Parent ' +
+              event.parentExternalId +
+              ' referenced by ' +
+              event.externalId +
+              ' is not a Work_Item__c Salesforce has seen. Parent_Work_Item__c left null; the ' +
+              'status change in this delivery was applied. The link is made when the child is ' +
+              'next delivered, by which time the parent will normally exist.'
+          )
+        );
+        continue;
+      }
+      if (parentId == event.workItemId) {
+        // Nothing in the schema stops a self-lookup pointing at its own row, and a cycle of
+        // length one is still a cycle for anything walking ancestors.
+        logs.add(
+          inboundLog(
+            event.workItemId,
+            'Payload for ' +
+              event.externalId +
+              ' names itself as its own parent. Parent_Work_Item__c left null.'
+          )
+        );
+        continue;
+      }
+      links.add(
+        new Work_Item__c(Id = event.workItemId, Parent_Work_Item__c = parentId)
+      );
+      linked.add(event);
+    }
+
+    if (links.isEmpty()) {
+      return;
+    }
+
+    // Suppressed for the same reason the upsert is. Parent_Work_Item__c is not Status__c, so
+    // the trigger's delta check would not fire outbound anyway - but relying on that couples
+    // this to a detail of another class.
+    SyncContext.suppressOutbound();
+    List<Database.SaveResult> linkResults;
+    try {
+      linkResults = Database.update(links, false);
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+
+    for (Integer i = 0; i < linkResults.size(); i++) {
+      if (linkResults[i].isSuccess()) {
+        continue;
+      }
+      List<String> messages = new List<String>();
+      for (Database.Error error : linkResults[i].getErrors()) {
+        messages.add(error.getStatusCode() + ': ' + error.getMessage());
+      }
+      logs.add(
+        inboundLog(
+          linked[i].workItemId,
+          'Could not link ' +
+            linked[i].externalId +
+            ' to parent ' +
+            linked[i].parentExternalId +
+            ': ' +
+            String.join(messages, ' | ')
+        )
+      );
+    }
+  }
+
+  /**
+   * An Integration_Log__c row describing a processing outcome rather than a callout.
+   *
+   * Endpoint__c and HTTP_Method__c stay null on purpose: no HTTP happened. Is_Success__c is
+   * false because every caller here is reporting something that did not go as intended - the
+   * delivery succeeded, but a piece of it did not land.
+   */
+  private static Integration_Log__c inboundLog(Id workItemId, String message) {
+    return new Integration_Log__c(
+      Direction__c = 'Inbound',
+      Is_Success__c = false,
+      Work_Item__c = workItemId,
+      Error_Message__c = truncate(message, ERROR_MAX)
+    );
+  }
+
+  /**
+   * Allow-partial, and never allowed to throw. These rows exist to report problems; a failure
+   * to write one must not become a second, larger problem by failing the delivery that was
+   * otherwise fine.
+   */
+  private static void writeLogs(List<Integration_Log__c> logs) {
+    if (logs.isEmpty()) {
+      return;
+    }
+    try {
+      Database.insert(logs, false);
+    } catch (Exception e) {
+      System.debug(
+        LoggingLevel.ERROR,
+        'Could not write Integration_Log__c rows: ' + e.getMessage()
+      );
+    }
   }
 
   /**
@@ -317,6 +517,33 @@ public with sharing class JiraWebhookProcessor {
     // Truncated rather than rejected: a title too long for the field is a display problem,
     // not a reason to drop a status change on the floor.
     event.title = truncate(asString(fields.get('summary')), TITLE_MAX);
+
+    // Type and parent are read here but assigned further down only when the payload actually
+    // carried them. Both are standard Jira fields, so "carried it" needs no configuration to
+    // decide - the object is either in the payload or it is not.
+    Map<String, Object> issueType = asMap(fields.get('issuetype'));
+    if (issueType != null) {
+      event.remoteType = asString(issueType.get('name'));
+      // A blank name is treated as absent rather than unmapped. An issuetype object with no
+      // name is malformed, and writing Unspecified over a type we already hold on the strength
+      // of malformed input is worse than leaving it alone.
+      if (String.isNotBlank(event.remoteType)) {
+        event.normalizedType = adapter.normalizeType(event.remoteType);
+      }
+    }
+
+    // The reference only. Resolving it to a record happens after the upsert, because the
+    // parent may be arriving in this very batch - see resolveParents.
+    Map<String, Object> parentRef = asMap(fields.get('parent'));
+    if (parentRef != null) {
+      String parentRawId = asString(parentRef.get('id'));
+      if (String.isNotBlank(parentRawId)) {
+        event.parentExternalId = ExternalIdUtil.qualify(
+          SYSTEM_NAMESPACE,
+          parentRawId
+        );
+      }
+    }
 
     Map<String, Object> status = asMap(fields.get('status'));
     event.remoteStatus = status == null ? null : asString(status.get('name'));
