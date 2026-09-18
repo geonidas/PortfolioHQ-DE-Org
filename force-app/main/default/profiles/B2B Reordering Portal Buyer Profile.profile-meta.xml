@@ -81,7 +81,7 @@
         <enabled>false</enabled>
     </classAccesses>
     <classAccesses>
-        <apexClass>JiraWebhookProcessor</apexClass>
+        <apexClass>WorkItemInboundProcessor</apexClass>
         <enabled>false</enabled>
     </classAccesses>
     <classAccesses>

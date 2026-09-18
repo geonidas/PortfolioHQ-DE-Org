@@ -15,9 +15,9 @@
  *    carries only what was chosen. Adding a field to the query does not silently publish it.
  */
 public with sharing class PublicBoardController {
-  private static final String UNMAPPED = 'Unspecified';
-  private static final String EPIC = 'Epic';
-  private static final String DONE = 'Done';
+  private static final String UNMAPPED = WorkItemType.UNSPECIFIED;
+  private static final String EPIC = WorkItemType.EPIC;
+  private static final String DONE = WorkItemStatus.DONE;
   private static final Integer COMPLETED_EPIC_LIMIT = 3;
   // Real Jira hierarchies run three deep (epic > story > subtask). Ten is slack, not a
   // guess at the data - it exists to terminate a malformed chain, not to fit a real one.

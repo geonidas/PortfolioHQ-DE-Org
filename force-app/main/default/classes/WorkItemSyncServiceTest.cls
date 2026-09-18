@@ -50,6 +50,14 @@ private class WorkItemSyncServiceTest {
       return 'Unspecified';
     }
 
+    public InboundChange parseInbound(String rawPayload) {
+      InboundChange change = new InboundChange();
+
+      change.failure = 'FakeAdapter has no inbound path.';
+
+      return change;
+    }
+
     public List<TransitionOption> fetchAvailableTransitions(String externalId) {
       return new List<TransitionOption>();
     }

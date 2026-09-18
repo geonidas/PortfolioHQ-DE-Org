@@ -26,3 +26,10 @@ force-app/main/default/customMetadata/
 force-app/main/default/applications/standard__LightningSales.app-meta.xml
 force-app/main/default/flexipages/Unified_Cross_Platform_Workflow.flexipage-meta.xml
 force-app/main/default/tabs/Unified_Cross_Platform_Workflow.tab-meta.xml
+
+# Parked for a later build. Both exist in the org and stay there; they are out of source so the
+# read-only board ships without carrying metadata nothing references yet. Jira_Atlassian points
+# at api.atlassian.com (the OAuth-style base URL) while every callout uses Jira_Classic;
+# Jira_Demo_Access grants nothing. Remove these lines when a build starts using them.
+force-app/main/default/namedCredentials/Jira_Atlassian.namedCredential-meta.xml
+force-app/main/default/permissionsets/Jira_Demo_Access.permissionset-meta.xml

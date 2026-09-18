@@ -3,5 +3,5 @@
  * Publishes nothing for rejected deliveries - an unverified payload is never parsed.
  */
 trigger WebhookEventTrigger on Webhook_Event__c(after insert) {
-    WebhookEventTriggerHandler.publishReceived(Trigger.new);
+  WebhookEventTriggerHandler.publishReceived(Trigger.new);
 }

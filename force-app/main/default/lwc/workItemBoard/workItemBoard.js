@@ -2,8 +2,13 @@ import { LightningElement, api, wire } from "lwc";
 import { refreshApex } from "@salesforce/apex";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
+import {
+  DEFAULT_COLUMNS,
+  columnsFrom,
+  layoutColumns,
+  nestByParent
+} from "c/boardLayout";
 
-const DEFAULT_COLUMNS = "To Do,In Progress,Done";
 const UNMAPPED = "Unspecified";
 const SYNCED = "Synced";
 
@@ -118,10 +123,7 @@ export default class WorkItemBoard extends LightningElement {
   // ---------- view model ----------
 
   get configuredColumns() {
-    return this._columnsRaw
-      .split(",")
-      .map((name) => name.trim())
-      .filter((name) => name.length > 0);
+    return columnsFrom(this._columnsRaw);
   }
 
   rebuild() {
@@ -142,36 +144,22 @@ export default class WorkItemBoard extends LightningElement {
       card.isOrphan = !!card.parentId && !parent;
     });
 
-    const configured = this.configuredColumns;
-    const configuredSet = new Set(configured);
-
-    this.viewColumns = configured.map((status) => {
-      const inColumn = cards.filter((card) => card.status === status);
-      const idsHere = new Set(inColumn.map((card) => card.id));
-      // Nest a child under its parent only when both sit in this column. A child in a
-      // different column belongs in its own column and gets a parent note instead -
-      // nesting it here would put an In Progress card under a To Do heading.
-      const tops = inColumn.filter(
-        (card) => !card.parentId || !idsHere.has(card.parentId)
+    // Nest a child under its parent only when both sit in this column. A child in a
+    // different column belongs in its own column and gets a parent note instead -
+    // nesting it here would put an In Progress card under a To Do heading.
+    const laid = layoutColumns(cards, this.configuredColumns, (inColumn) => {
+      const { tops, idsHere } = nestByParent(
+        inColumn,
+        (card) => card.id,
+        (card) => card.parentId
       );
-      tops.forEach((card) => {
-        card.children = inColumn.filter((other) => other.parentId === card.id);
-        card.hasChildren = card.children.length > 0;
-      });
       tops.forEach((card) => this.annotateParent(card, idsHere));
-      return {
-        key: status,
-        label: status,
-        count: inColumn.length,
-        cards: tops,
-        isEmpty: inColumn.length === 0,
-        countLabel: `${inColumn.length}`
-      };
+      return tops;
     });
-
+    this.viewColumns = laid.columns;
     this.allCards = cards;
 
-    const outside = cards.filter((card) => !configuredSet.has(card.status));
+    const outside = laid.other;
     outside.forEach((card) => this.annotateParent(card, new Set()));
     this.outsideCards = outside;
   }

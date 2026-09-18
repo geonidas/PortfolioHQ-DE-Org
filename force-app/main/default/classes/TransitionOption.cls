@@ -5,11 +5,11 @@
  * meaning is the implementing adapter's business. Callers pass it back, they do not interpret it.
  */
 public with sharing class TransitionOption {
-    public String id { get; private set; }
-    public String targetStatus { get; private set; }
+  public String id { get; private set; }
+  public String targetStatus { get; private set; }
 
-    public TransitionOption(String id, String targetStatus) {
-        this.id = id;
-        this.targetStatus = targetStatus;
-    }
+  public TransitionOption(String id, String targetStatus) {
+    this.id = id;
+    this.targetStatus = targetStatus;
+  }
 }

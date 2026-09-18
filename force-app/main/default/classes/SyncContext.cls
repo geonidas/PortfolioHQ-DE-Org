@@ -9,26 +9,26 @@
  * resume must not lift an outer block.
  */
 public class SyncContext {
-    private static Integer suppressionDepth = 0;
+  private static Integer suppressionDepth = 0;
 
-    /** Begin a region whose DML must not trigger an outbound push. Always pair with resume. */
-    public static void suppressOutbound() {
-        suppressionDepth++;
-    }
+  /** Begin a region whose DML must not trigger an outbound push. Always pair with resume. */
+  public static void suppressOutbound() {
+    suppressionDepth++;
+  }
 
-    /** End one suppression region. Safe to call more often than suppress; will not go negative. */
-    public static void resumeOutbound() {
-        if (suppressionDepth > 0) {
-            suppressionDepth--;
-        }
+  /** End one suppression region. Safe to call more often than suppress; will not go negative. */
+  public static void resumeOutbound() {
+    if (suppressionDepth > 0) {
+      suppressionDepth--;
     }
+  }
 
-    public static Boolean isOutboundSuppressed() {
-        return suppressionDepth > 0;
-    }
+  public static Boolean isOutboundSuppressed() {
+    return suppressionDepth > 0;
+  }
 
-    @TestVisible
-    private static void reset() {
-        suppressionDepth = 0;
-    }
+  @TestVisible
+  private static void reset() {
+    suppressionDepth = 0;
+  }
 }

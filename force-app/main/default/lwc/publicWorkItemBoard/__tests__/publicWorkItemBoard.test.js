@@ -473,3 +473,33 @@ describe("c-public-work-item-board", () => {
     expect(article.getAttribute("tabindex")).toBeNull();
   });
 });
+
+describe("c-public-work-item-board card freshness", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  it("renders when each card last agreed with its source", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([card({ lastSyncedAt: "2026-09-13T05:20:07.000Z" })])
+    );
+    await flush();
+
+    const stamp = cards(element)[0].shadowRoot.querySelector("[data-synced]");
+    expect(stamp).not.toBeNull();
+    expect(stamp.textContent).toMatch(/^Updated /);
+  });
+
+  it("says nothing on a card that has never synced rather than showing a blank stamp", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card({ lastSyncedAt: null })]));
+    await flush();
+
+    expect(
+      cards(element)[0].shadowRoot.querySelector("[data-synced]")
+    ).toBeNull();
+  });
+});

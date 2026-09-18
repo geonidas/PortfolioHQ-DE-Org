@@ -63,7 +63,7 @@ public with sharing class WorkItemBoardController {
     if (String.isBlank(newStatus)) {
       throw new AuraHandledException('No status was supplied.');
     }
-    if (newStatus == 'Unspecified') {
+    if (newStatus == WorkItemStatus.UNSPECIFIED) {
       throw new AuraHandledException(
         'Unspecified means Jira reported a status we cannot map, so it cannot be chosen here.'
       );

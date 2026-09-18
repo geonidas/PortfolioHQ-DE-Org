@@ -3,15 +3,15 @@
 Architecture decisions taken while building inbound sync from Jira into Salesforce.
 Recorded so none of it gets re-litigated from memory.
 
-| | |
-|---|---|
-| **Build** | 03 — inbound webhook |
-| **Branch** | `feature/first-branch` |
-| **Decisions** | 24 |
-| **Tests** | 133 passing |
-| **Components** | 233 validated |
-| **Open items** | 4 |
-| **State** | Validated, **not deployed**. No live Jira traffic. |
+|                |                                                    |
+| -------------- | -------------------------------------------------- |
+| **Build**      | 03 — inbound webhook                               |
+| **Branch**     | `feature/first-branch`                             |
+| **Decisions**  | 24                                                 |
+| **Tests**      | 133 passing                                        |
+| **Components** | 233 validated                                      |
+| **Open items** | 4                                                  |
+| **State**      | Validated, **not deployed**. No live Jira traffic. |
 
 **Origin labels used below**
 
@@ -36,7 +36,7 @@ suppression flag and timestamp comparison. Only push when `Status__c` actually c
 
 **Context.** The spec named two mechanisms. Neither stops the echo of our own push.
 Suppression is a static, so it dies at the transaction boundary — the webhook describing our
-own change arrives in a *new* transaction where the flag is long gone. The timestamp check
+own change arrives in a _new_ transaction where the flag is long gone. The timestamp check
 cannot stop it either, because each cycle genuinely **is** newer: Jira's `updated` advances
 every time round.
 
@@ -98,7 +98,7 @@ processing.
 
 **Context.** Platform event subscriber triggers run as the **Automated Process** user. The
 alternatives do not switch context at all — a Queueable enqueued from the guest transaction runs
-*as the guest*, and so does a future method. The remaining option, a `without sharing` class on
+_as the guest_, and so does a future method. The remaining option, a `without sharing` class on
 an unauthenticated endpoint, is exactly what this design avoids.
 
 **Consequences.** Subscriber failures retry roughly ten times and then the event is dropped,
@@ -194,8 +194,8 @@ it do.
 
 **Context.** The spec said "no parsing of business data" but described `External_Id__c` as
 extracted from the payload. Deserializing unauthenticated JSON is where these endpoints get
-hurt, and `JSON.deserializeUntyped` on a hostile 128 KB body burns heap and CPU *in the guest
-transaction* — the context the platform event exists to escape.
+hurt, and `JSON.deserializeUntyped` on a hostile 128 KB body burns heap and CPU _in the guest
+transaction_ — the context the platform event exists to escape.
 
 **Consequences.** Rejected deliveries keep a null `External_Id__c` forever, since nothing
 processes them. Correct — we should not parse payloads we have refused — but visible in the data.
@@ -364,8 +364,8 @@ last.
 **Decision.** Secret state is always injected, never inferred from the org. The real metadata
 lookup is exercised against a DeveloperName no record can ever hold.
 
-**Context.** The spec warned that tests must not depend on a real secret record *existing*. The
-first version made the mirror-image mistake: it depended on one *not* existing, and failed the
+**Context.** The spec warned that tests must not depend on a real secret record _existing_. The
+first version made the mirror-image mistake: it depended on one _not_ existing, and failed the
 moment the `Jira_Webhook` record was created — while the code was working correctly.
 
 **Consequences.** Chasing it down surfaced a second, quieter fault.
@@ -385,7 +385,7 @@ cannot pass merely because the trigger never fires.
 
 Deliberately unresolved. None blocks the build; each has a known trigger point.
 
-### Automated Process user and field-level security — *watch the first webhook*
+### Automated Process user and field-level security — _watch the first webhook_
 
 The processor writes `Work_Item__c` as the Automated Process user, which cannot be assigned a
 permission set. Build 01 proved this org enforces FLS on DML in a place the documentation says it
@@ -393,20 +393,20 @@ should not. Trigger code does run in system mode, so this probably will not bite
 can tell us, because tests run as the developer. Symptom: deliveries reach `Failed` with an
 inaccessible-fields message and nothing else reports an error.
 
-### The Experience site is not activated — *before live traffic*
+### The Experience site is not activated — _before live traffic_
 
 Network status is `UnderConstruction`. The site at `/neoGeoTest` is Active, but an unactivated
 Experience network serves an under-construction page to public traffic rather than routing to
 Apex REST. Jira cannot reach the endpoint until this changes — and it will look like a code fault
 when it happens.
 
-### `Retry_Count__c` is inert — *cosmetic*
+### `Retry_Count__c` is inert — _cosmetic_
 
 The field ships because the spec asked for it, but retry policy is out of scope, so nothing
 writes it. Expect null or zero on every row until that policy exists. Recorded in the field's own
 description.
 
-### Page layouts are bare on every object — *cosmetic*
+### Page layouts are bare on every object — _cosmetic_
 
 Metadata API deploys create fields but never place them on layouts — which is why
 `Secret_Value__c` was invisible in Setup until a layout was added. The same is true of
@@ -419,15 +419,15 @@ only shows when inspecting records by hand.
 
 What the 127-test suite and the validated deployment actually establish — and what they cannot.
 
-| Claim | Status | Evidence |
-|---|---|---|
-| Deploy and `RunLocalTests` pass | **Proven** | 127/127, 233 components, validation `0AfE200000psAOSKA2` |
-| An unconfigured org rejects everything | **Proven** | Injected unconfigured state, not inferred |
-| Duplicate delivery creates one record | **Proven** | Same payload twice: one Processed, one Ignored |
-| Stale deliveries do not overwrite newer state | **Proven** | Older event after newer, and batch-collapse ordering |
-| Inbound processing enqueues no outbound call | **Proven** | Plus a negative control proving the trigger does fire otherwise |
-| Guest cannot reach restricted objects | **Proven** | Permission-set grants asserted; org shows zero grants |
-| 200 deliveries stay within limits | **Proven** | Two DML statements regardless of volume |
-| Processing survives as Automated Process | **Untested** | Tests run as the developer; only a live webhook settles it |
-| Jira can reach the endpoint at all | **Untested** | Site not activated |
-| End-to-end round trip against real Jira | **Untested** | Outbound was verified live in Build 02; inbound has not been |
+| Claim                                         | Status       | Evidence                                                        |
+| --------------------------------------------- | ------------ | --------------------------------------------------------------- |
+| Deploy and `RunLocalTests` pass               | **Proven**   | 127/127, 233 components, validation `0AfE200000psAOSKA2`        |
+| An unconfigured org rejects everything        | **Proven**   | Injected unconfigured state, not inferred                       |
+| Duplicate delivery creates one record         | **Proven**   | Same payload twice: one Processed, one Ignored                  |
+| Stale deliveries do not overwrite newer state | **Proven**   | Older event after newer, and batch-collapse ordering            |
+| Inbound processing enqueues no outbound call  | **Proven**   | Plus a negative control proving the trigger does fire otherwise |
+| Guest cannot reach restricted objects         | **Proven**   | Permission-set grants asserted; org shows zero grants           |
+| 200 deliveries stay within limits             | **Proven**   | Two DML statements regardless of volume                         |
+| Processing survives as Automated Process      | **Untested** | Tests run as the developer; only a live webhook settles it      |
+| Jira can reach the endpoint at all            | **Untested** | Site not activated                                              |
+| End-to-end round trip against real Jira       | **Untested** | Outbound was verified live in Build 02; inbound has not been    |

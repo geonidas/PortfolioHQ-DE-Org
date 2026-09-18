@@ -19,46 +19,61 @@
  * stamped Synced.
  */
 public with sharing class WorkItemTriggerHandler {
-    /**
-     * Mark a locally changed record as no longer in agreement with the remote system, so the
-     * adapter does not skip the push. Runs in before update, so it costs no extra DML.
-     */
-    public static void stageForPush(List<Work_Item__c> updated, Map<Id, Work_Item__c> priorById) {
-        if (SyncContext.isOutboundSuppressed()) {
-            // Inbound is applying a remote change; the Sync_Status__c it sets is authoritative.
-            return;
-        }
-        for (Work_Item__c item : updated) {
-            Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
-            if (prior == null || prior.Status__c == item.Status__c) {
-                continue;
-            }
-            if (item.Status__c == 'Unspecified' || String.isBlank(item.External_Id__c)) {
-                continue;
-            }
-            // Leave it alone if the caller set Sync_Status__c themselves in this same update -
-            // an explicit value beats an inferred one.
-            if (item.Sync_Status__c == prior.Sync_Status__c) {
-                item.Sync_Status__c = 'Pending';
-            }
-        }
+  /**
+   * Mark a locally changed record as no longer in agreement with the remote system, so the
+   * adapter does not skip the push. Runs in before update, so it costs no extra DML.
+   */
+  public static void stageForPush(
+    List<Work_Item__c> updated,
+    Map<Id, Work_Item__c> priorById
+  ) {
+    if (SyncContext.isOutboundSuppressed()) {
+      // Inbound is applying a remote change; the Sync_Status__c it sets is authoritative.
+      return;
+    }
+    for (Work_Item__c item : updated) {
+      Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
+      if (!isPushable(item, prior)) {
+        continue;
+      }
+      // Leave it alone if the caller set Sync_Status__c themselves in this same update -
+      // an explicit value beats an inferred one.
+      if (item.Sync_Status__c == prior.Sync_Status__c) {
+        item.Sync_Status__c = SyncStatus.PENDING;
+      }
+    }
+  }
+
+  public static void pushStatusChanges(
+    List<Work_Item__c> updated,
+    Map<Id, Work_Item__c> priorById
+  ) {
+    if (SyncContext.isOutboundSuppressed()) {
+      return;
     }
 
-    public static void pushStatusChanges(List<Work_Item__c> updated, Map<Id, Work_Item__c> priorById) {
-        if (SyncContext.isOutboundSuppressed()) {
-            return;
-        }
-
-        List<Id> toPush = new List<Id>();
-        for (Work_Item__c item : updated) {
-            Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
-            Boolean statusChanged = prior != null && prior.Status__c != item.Status__c;
-            if (statusChanged && item.Status__c != 'Unspecified' && String.isNotBlank(item.External_Id__c)) {
-                toPush.add(item.Id);
-            }
-        }
-        if (!toPush.isEmpty()) {
-            WorkItemSyncService.enqueue(toPush);
-        }
+    List<Id> toPush = new List<Id>();
+    for (Work_Item__c item : updated) {
+      Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
+      if (isPushable(item, prior)) {
+        toPush.add(item.Id);
+      }
     }
+    if (!toPush.isEmpty()) {
+      WorkItemSyncService.enqueue(toPush);
+    }
+  }
+
+  /**
+   * The one rule both halves share: a genuine Status__c change, to a status that means
+   * something, on a record the remote system knows. Written once so the before and after
+   * contexts cannot drift apart - staging a record the after context then declines to push, or
+   * the reverse, would each be a silent failure.
+   */
+  private static Boolean isPushable(Work_Item__c item, Work_Item__c prior) {
+    return prior != null &&
+      prior.Status__c != item.Status__c &&
+      item.Status__c != WorkItemStatus.UNSPECIFIED &&
+      String.isNotBlank(item.External_Id__c);
+  }
 }

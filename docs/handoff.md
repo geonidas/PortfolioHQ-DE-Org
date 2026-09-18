@@ -4,7 +4,10 @@ What a new context window needs and cannot read from the repo. Decisions and the
 reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
 **This file holds only what git does not know: org state, invariants, and traps.**
 
-Current as of Build 06. Builds 01–06 are deployed and verified against live Jira.
+Current as of the refactor pass after Build 06 (`docs/build-summaries/refactor-01.md`).
+Builds 01–06 are deployed and verified against live Jira. Class names below reflect the
+refactor: `JiraWebhookProcessor` became `WorkItemInboundProcessor`, and Jira payload parsing
+moved into `JiraAdapter.parseInbound`. Older ADRs and summaries use the old name.
 
 ---
 
@@ -12,12 +15,13 @@ Current as of Build 06. Builds 01–06 are deployed and verified against live Ji
 
 None of this survives an org rebuild, and none of it is visible in the repo.
 
-| Thing                     | Value / where                                                                                                                                 |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scratch org alias         | `MyScratchOrg`                                                                                                                                |
-| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source. |
-| Webhook signing secret    | `Integration_Secret__mdt` record **`Jira_Webhook`**, `Is_Active__c = true`. Created in Setup. `customMetadata/` is gitignored on purpose.     |
-| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                     |
+| Thing                     | Value / where                                                                                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scratch org alias         | `MyScratchOrg`                                                                                                                                                        |
+| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                         |
+| Webhook signing secret    | `Integration_Secret__mdt` record **`Jira_Webhook`**, `Is_Active__c = true`. Created in Setup. `customMetadata/` is gitignored on purpose.                             |
+| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                             |
+| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them. |
 
 ### Permission set assignments — manual, not metadata
 
@@ -63,7 +67,8 @@ Process, and `Portfolio_HQ_Developer` holds `viewAllRecords=false` on both objec
 
 ### Demo data
 
-Two projects, one public. 6 of the 8 work items under the public project are flagged public.
+Two projects, one public. 6 of the 14 work items under the public project are flagged public
+(14 since the refactor pass back-filled six that had no project).
 To restore after a rebuild:
 
 ```bash
@@ -118,8 +123,17 @@ push — each cycle is genuinely newer. Only the delta check does.
 
 **Inbound-created records need `OwnerId` set.** Guest sharing rules do not share records
 owned by Automated Process, and the webhook subscriber owns everything it creates.
-`JiraWebhookProcessor` sets the owner on creation only. Without it, every newly synced
+`WorkItemInboundProcessor` sets the owner on creation only. Without it, every newly synced
 issue is invisible on the public board with no error anywhere.
+
+**Inbound-created records also need `Project__c` set, and since the refactor pass they get it
+from the payload.** `fields.project.key` is matched against `Project__c.External_Project_Key__c`
+with the same `External_System__c` as the delivery. Assigned on creation, or when the record has
+no project; an existing link is never overridden. No match, or more than one, leaves the lookup
+null and writes an `Integration_Log__c` row naming the key. The public board's query requires a
+public parent project, so an unlinked record is public, synced and invisible - the same failure
+shape as the owner. Records created by hand before this existed are linked on their next
+delivery, provided the project record carries the key and the system.
 
 **The guest must never reach `WorkItemBoardController`.** Apex class access is per class,
 not per method — reaching it at all exposes `changeStatus`. That is why
@@ -131,7 +145,10 @@ a deliberate act.
 
 **Status, timestamps, title, type and parent all sync inbound** as of build 06.
 `Type__c` comes from `fields.issuetype.name` through `IWorkItemAdapter.normalizeType`;
-`Parent_Work_Item__c` comes from `fields.parent`.
+`Parent_Work_Item__c` comes from `fields.parent`; `Project__c` from `fields.project.key`.
+All of that reading happens in `JiraAdapter.parseInbound`, which returns a vendor-neutral
+`InboundChange`. The processor never sees a payload, which is what lets Asana be a second
+adapter rather than a second processor.
 
 **Every one of those is assigned only when the payload carries it.** Most deliveries are
 status transitions carrying no summary, issuetype or parent at all — writing a null
@@ -238,6 +255,11 @@ wrapping and prettier's `return ( … )` parens, the `<description\n  >` break i
   ApexClass, ApexTrigger, LWC, DigitalExperience **and Profile** — every churn source identified.
   Running `npm run prettier` before deploy would also have narrowed the gap, but not retrieving the
   files at all closes it.
+- **Since the refactor pass, every project Apex file is formatted at prettier's defaults** (two
+  spaces), and `.prettierignore` also excludes the org's site scaffolding. `npm run
+prettier:verify` and `npm run lint` are clean and should stay so. The hook only reformats
+  files you stage, so a file nobody has touched keeps whatever style it had - which is how the
+  repo ended up half 2-space and half 4-space before the pass.
 
 **A side effect worth knowing when reviewing a commit:** the hook reformats whole files on
 the way in, so a commit's diff can be far larger than the change you reviewed. Build 06
@@ -287,18 +309,19 @@ click, which the repo had never captured.
 
 ## 4. Open items
 
-| Item                                                                                                                                                                                                              | Trigger point                         |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                         | Before a second admin exists          |
-| `Integration_Log__c` and `Webhook_Event__c` grow unbounded; no purge job.                                                                                                                                         | At volume                             |
-| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run. | If the endpoint sees hostile traffic  |
-| `Retry_Count__c` is inert; retry policy was never built.                                                                                                                                                          | When retries are wanted               |
-| Bare page layouts on four objects.                                                                                                                                                                                | Cosmetic                              |
-| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.              | When hierarchy gaps are noticed       |
-| Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                | Next time a full retrieve is needed   |
-| Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.       | Cosmetic                              |
-| An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                | Cosmetic                              |
-| A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.    | If `npm run test:unit` dies wholesale |
+| Item                                                                                                                                                                                                                                 | Trigger point                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                                            | Before a second admin exists          |
+| `Integration_Log__c` and `Webhook_Event__c` grow unbounded; no purge job.                                                                                                                                                            | At volume                             |
+| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run.                    | If the endpoint sees hostile traffic  |
+| `Retry_Count__c` is inert; retry policy was never built.                                                                                                                                                                             | When retries are wanted               |
+| Bare page layouts on four objects.                                                                                                                                                                                                   | Cosmetic                              |
+| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.                                 | When hierarchy gaps are noticed       |
+| Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                                   | Next time a full retrieve is needed   |
+| Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.                          | Cosmetic                              |
+| An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                                   | Cosmetic                              |
+| A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.                       | If `npm run test:unit` dies wholesale |
+| Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so. | After the next few live deliveries    |
 
 ---
 
@@ -311,6 +334,12 @@ npm run test:unit
 
 # Guest record access must equal Is_Public__c exactly
 sf data query -o MyScratchOrg -q "SELECT COUNT() FROM Work_Item__c WHERE Is_Public__c = true"
+
+# Synced records with no project cannot appear on the public board. Expect this to fall to 0
+# as issues are redelivered; each one that stays unlinked has an Inbound log row naming why
+sf data query -o MyScratchOrg -q "SELECT COUNT() FROM Work_Item__c WHERE Project__c = null AND External_Id__c != null"
+# Or link them all now, by key prefix, without waiting for a redelivery (never writes Status__c)
+sf apex run --file scripts/apex/backfill-work-item-projects.apex --target-org MyScratchOrg
 
 # Outbound: change a status, expect 2 Integration_Log__c rows and no more
 sf data query -o MyScratchOrg -q "SELECT Name, HTTP_Method__c, Status_Code__c FROM Integration_Log__c ORDER BY CreatedDate DESC LIMIT 4"

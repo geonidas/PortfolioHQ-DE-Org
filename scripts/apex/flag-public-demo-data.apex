@@ -87,7 +87,7 @@ if (!updates.isEmpty()) {
 // Guest sharing rules do not share records owned by the Automated Process user, and the inbound
 // webhook subscriber owns everything it creates. Measured directly: a public record owned by
 // Automated Process is not readable by the guest; reassigning it makes it readable immediately.
-// JiraWebhookProcessor now sets the owner on creation, but records synced before that change
+// WorkItemInboundProcessor now sets the owner on creation, but records synced before that change
 // still carry the old owner, so this reassigns the ones being published.
 Id newOwner = UserInfo.getUserId();
 List<Work_Item__c> reassign = new List<Work_Item__c>();

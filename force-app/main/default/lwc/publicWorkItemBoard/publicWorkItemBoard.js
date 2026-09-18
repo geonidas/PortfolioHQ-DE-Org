@@ -1,7 +1,12 @@
 import { LightningElement, api, wire } from "lwc";
 import getPublicBoardData from "@salesforce/apex/PublicBoardController.getPublicBoardData";
+import {
+  DEFAULT_COLUMNS,
+  columnsFrom,
+  layoutColumns,
+  nestByParent
+} from "c/boardLayout";
 
-const DEFAULT_COLUMNS = "To Do,In Progress,Done";
 const VIEW_TASKS = "tasks";
 const VIEW_EPICS = "epics";
 const DONE = "Done";
@@ -167,10 +172,7 @@ export default class PublicWorkItemBoard extends LightningElement {
   // ---------- view model ----------
 
   get configuredColumns() {
-    return this._columnsRaw
-      .split(",")
-      .map((name) => name.trim())
-      .filter((name) => name.length > 0);
+    return columnsFrom(this._columnsRaw);
   }
 
   rebuild() {
@@ -182,60 +184,21 @@ export default class PublicWorkItemBoard extends LightningElement {
     }
 
     const cards = this.board.items.map((item) => this.toCard(item));
-    const laid = this.toColumns(cards, (inColumn) => this.nest(inColumn));
+    // Nest only when parent and child share a column. A child elsewhere simply stands on its
+    // own - no note, because a note about a record a visitor cannot see is either noise or a
+    // leak. Keyed on auto numbers, since this board publishes no ids at all.
+    const laid = layoutColumns(
+      cards,
+      this.configuredColumns,
+      (inColumn) =>
+        nestByParent(
+          inColumn,
+          (card) => card.recordNumber,
+          (card) => card.parentNumber
+        ).tops
+    );
     this.viewColumns = laid.columns;
     this.otherCards = laid.other;
-  }
-
-  /**
-   * Lay a set of cards into the configured status columns, plus whatever the columns do not
-   * account for.
-   *
-   * Shared by both views on purpose. The epic view is not a different layout - it is the same
-   * board reading different rows. That is also what leaves room for the Asana work: a second
-   * source adds cards to these same columns rather than needing a third view, and the column
-   * set stays a single piece of configuration for all of it.
-   *
-   * `decorate` is how a view adds its own per-column arrangement. The task view uses it to nest
-   * children under parents; the epic view has no hierarchy to express and passes nothing.
-   */
-  toColumns(cards, decorate) {
-    const configured = this.configuredColumns;
-    const configuredSet = new Set(configured);
-    const columns = configured.map((status) => {
-      const inColumn = cards.filter((card) => card.status === status);
-      return {
-        key: status,
-        label: status,
-        cards: decorate ? decorate(inColumn) : inColumn,
-        isEmpty: inColumn.length === 0,
-        countLabel: `${inColumn.length}`
-      };
-    });
-    // Anything the configured columns do not account for still renders, rather than silently
-    // disappearing from a public page.
-    return {
-      columns,
-      other: cards.filter((card) => !configuredSet.has(card.status))
-    };
-  }
-
-  /**
-   * Nest only when parent and child share a column. A child elsewhere simply stands on its own -
-   * no note, because a note about a record a visitor cannot see is either noise or a leak.
-   */
-  nest(inColumn) {
-    const numbersHere = new Set(inColumn.map((card) => card.recordNumber));
-    const tops = inColumn.filter(
-      (card) => !card.parentNumber || !numbersHere.has(card.parentNumber)
-    );
-    tops.forEach((card) => {
-      card.children = inColumn.filter(
-        (other) => other.parentNumber === card.recordNumber
-      );
-      card.hasChildren = card.children.length > 0;
-    });
-    return tops;
   }
 
   /**
@@ -249,7 +212,7 @@ export default class PublicWorkItemBoard extends LightningElement {
   rebuildEpics() {
     const epics = (this.board && this.board.epics) || [];
     this.epicCards = epics.map((epic, index) => this.toEpicCard(epic, index));
-    const laid = this.toColumns(this.epicCards);
+    const laid = layoutColumns(this.epicCards, this.configuredColumns);
     this.epicColumns = laid.columns.map((col) => ({
       ...col,
       // Per column, because "no completed epics yet" and "nothing in progress" are different
@@ -296,8 +259,15 @@ export default class PublicWorkItemBoard extends LightningElement {
       ? `${item.recordNumber} · ${item.externalKey}`
       : item.recordNumber;
     const isSynced = item.syncStatus === "Synced";
+    // The DTO has always carried lastSyncedAt per card; until the refactor pass after build 06
+    // nothing rendered it, so a visitor could not tell a fresh card from a stale one.
+    const lastSyncedLabel = item.lastSyncedAt
+      ? `Updated ${new Date(item.lastSyncedAt).toLocaleDateString()}`
+      : null;
     return {
       recordNumber: item.recordNumber,
+      lastSyncedLabel,
+      hasLastSynced: !!lastSyncedLabel,
       heading,
       headingClass: hasTitle ? "has-title" : "is-fallback",
       identLabel: ident,

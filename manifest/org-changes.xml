@@ -27,7 +27,6 @@
         <name>FlexiPage</name>
     </types>
     <types>
-        <members>Jira_Demo_Access</members>
         <members>Jira_Snapshot_Access</members>
         <members>Jira_Webhook_Guest</members>
         <members>Portfolio_HQ_Developer</members>
@@ -49,7 +48,6 @@
         <name>GlobalValueSet</name>
     </types>
     <types>
-        <members>Jira_Atlassian</members>
         <members>Jira_Classic</members>
         <name>NamedCredential</name>
     </types>

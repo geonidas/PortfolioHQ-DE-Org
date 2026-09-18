@@ -2,8 +2,8 @@
  * Jira Cloud implementation of IWorkItemAdapter.
  *
  * Everything Jira-shaped is confined here: the named credential, the /rest/api/3 paths, the
- * response envelope, and the mapping between Jira's workflow status names and our normalized
- * Work_Item__c.Status__c values.
+ * response envelope, the webhook payload shape, and the mapping between Jira's workflow status
+ * and issue type names and our normalized Work_Item__c values.
  *
  * A status change is two callouts, not one. Jira will not accept a target status directly - you
  * ask which transitions are legal from the issue's current state, then post the id of the one
@@ -17,11 +17,15 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
   @TestVisible
   private static final String NAMED_CREDENTIAL = 'Jira_Classic';
   @TestVisible
-  private static final String SYSTEM_NAMESPACE = 'jira';
+  private static final String SYSTEM_NAMESPACE = ExternalSystem.JIRA_NAMESPACE;
   private static final String API_BASE = '/rest/api/3';
   private static final Integer TIMEOUT_MS = 10000;
-  private static final Integer ENDPOINT_MAX = 255;
-  private static final Integer BODY_MAX = 32768;
+  private static final Integer ENDPOINT_MAX = Integration_Log__c.Endpoint__c.getDescribe()
+    .getLength();
+  private static final Integer BODY_MAX = Integration_Log__c.Request_Body__c.getDescribe()
+    .getLength();
+  private static final Integer TITLE_MAX = Work_Item__c.Title__c.getDescribe()
+    .getLength();
 
   /**
    * Jira workflow status names that count as each of our normalized statuses.
@@ -30,7 +34,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
    * table it will replace. Names are compared normalized - lowercased, whitespace collapsed.
    */
   private static final Map<String, Set<String>> STATUS_ALIASES = new Map<String, Set<String>>{
-    'To Do' => new Set<String>{
+    WorkItemStatus.TO_DO => new Set<String>{
       'to do',
       'todo',
       'open',
@@ -38,20 +42,20 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       'new',
       'reopened'
     },
-    'In Progress' => new Set<String>{
+    WorkItemStatus.IN_PROGRESS => new Set<String>{
       'in progress',
       'inprogress',
       'in development',
       'started'
     },
-    'In Review' => new Set<String>{
+    WorkItemStatus.IN_REVIEW => new Set<String>{
       'in review',
       'review',
       'code review',
       'in qa',
       'qa'
     },
-    'Done' => new Set<String>{
+    WorkItemStatus.DONE => new Set<String>{
       'done',
       'closed',
       'resolved',
@@ -73,11 +77,20 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
    *   "we have not mapped this" distinguishable from "Jira says it is unspecified".
    */
   private static final Map<String, Set<String>> TYPE_ALIASES = new Map<String, Set<String>>{
-    'Epic' => new Set<String>{ 'epic' },
-    'Story' => new Set<String>{ 'story', 'user story' },
-    'Bug' => new Set<String>{ 'bug', 'defect', 'fault' },
-    'Task' => new Set<String>{ 'task', 'sub-task', 'subtask', 'sub task' },
-    'Spike' => new Set<String>{ 'spike', 'research', 'investigation' }
+    WorkItemType.EPIC => new Set<String>{ 'epic' },
+    WorkItemType.STORY => new Set<String>{ 'story', 'user story' },
+    WorkItemType.BUG => new Set<String>{ 'bug', 'defect', 'fault' },
+    WorkItemType.TASK => new Set<String>{
+      'task',
+      'sub-task',
+      'subtask',
+      'sub task'
+    },
+    WorkItemType.SPIKE => new Set<String>{
+      'spike',
+      'research',
+      'investigation'
+    }
   };
 
   private final List<Integration_Log__c> pendingLogs = new List<Integration_Log__c>();
@@ -90,7 +103,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
   public String normalizeStatus(String remoteStatusName) {
     String candidate = normalize(remoteStatusName);
     if (String.isBlank(candidate)) {
-      return 'Unspecified';
+      return WorkItemStatus.UNSPECIFIED;
     }
     for (String normalized : STATUS_ALIASES.keySet()) {
       if (
@@ -102,14 +115,14 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     }
     // A workflow status we have no mapping for lands on the catch-all, exactly as an
     // unmappable status does on the way out.
-    return 'Unspecified';
+    return WorkItemStatus.UNSPECIFIED;
   }
 
   /** Same lookup shape as normalizeStatus, over the type table. */
   public String normalizeType(String remoteTypeName) {
     String candidate = normalize(remoteTypeName);
     if (String.isBlank(candidate)) {
-      return 'Unspecified';
+      return WorkItemType.UNSPECIFIED;
     }
     for (String normalized : TYPE_ALIASES.keySet()) {
       if (
@@ -120,7 +133,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       }
     }
     // A custom Jira issue type lands on the catch-all rather than failing the delivery.
-    return 'Unspecified';
+    return WorkItemType.UNSPECIFIED;
   }
 
   public List<Integration_Log__c> drainLogs() {
@@ -130,6 +143,138 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     pendingLogs.clear();
     return drained;
   }
+
+  // ---------- inbound ----------
+
+  /**
+   * Reads a jira:issue_updated delivery. This is the only place that knows the payload's shape.
+   *
+   * Optional fields - summary, issuetype, parent, project - are set on the change only when the
+   * payload actually carries them, because most deliveries are status transitions carrying
+   * none of them, and the processor must be able to tell "not sent" from "sent empty". An
+   * issuetype object present but with a blank name counts as absent, not as unmapped: writing
+   * Unspecified over a known type on the strength of malformed input is worse than leaving it.
+   *
+   * Two things are read from the issue, not the envelope. The id is issue.id, the stable
+   * numeric one, never the key, which changes when an issue moves project. The timestamp is
+   * issue.fields.updated, because the envelope's own timestamp says when the event fired,
+   * which on a redelivery is not when the issue changed.
+   */
+  public InboundChange parseInbound(String rawPayload) {
+    InboundChange change = new InboundChange();
+    if (String.isBlank(rawPayload)) {
+      change.failure = 'Empty payload.';
+      return change;
+    }
+
+    Map<String, Object> payload;
+    try {
+      payload = (Map<String, Object>) JSON.deserializeUntyped(rawPayload);
+    } catch (Exception e) {
+      change.failure = 'Malformed JSON: ' + Strings.describe(e);
+      return change;
+    }
+
+    change.eventType = asString(payload.get('webhookEvent'));
+
+    Map<String, Object> issue = asMap(payload.get('issue'));
+    if (issue == null) {
+      change.failure = 'Payload carries no issue object.';
+      return change;
+    }
+
+    String rawId = asString(issue.get('id'));
+    if (String.isBlank(rawId)) {
+      change.failure = 'Payload carries no issue id.';
+      return change;
+    }
+    change.externalId = ExternalIdUtil.qualify(SYSTEM_NAMESPACE, rawId);
+    change.externalKey = asString(issue.get('key'));
+
+    Map<String, Object> fields = asMap(issue.get('fields'));
+    if (fields == null) {
+      change.failure = 'Payload carries no issue fields.';
+      return change;
+    }
+
+    // Jira's summary is the only thing in the payload a person would call the task's name.
+    // Truncated rather than rejected: a title too long for the field is a display problem,
+    // not a reason to drop a status change on the floor.
+    change.title = Strings.truncate(asString(fields.get('summary')), TITLE_MAX);
+
+    Map<String, Object> issueType = asMap(fields.get('issuetype'));
+    if (issueType != null) {
+      change.remoteType = asString(issueType.get('name'));
+      if (String.isNotBlank(change.remoteType)) {
+        change.normalizedType = normalizeType(change.remoteType);
+      }
+    }
+
+    // The reference only. Resolving it to a record is the processor's second pass, because
+    // the parent may be arriving in the same batch.
+    Map<String, Object> parentRef = asMap(fields.get('parent'));
+    if (parentRef != null) {
+      String parentRawId = asString(parentRef.get('id'));
+      if (String.isNotBlank(parentRawId)) {
+        change.parentExternalId = ExternalIdUtil.qualify(
+          SYSTEM_NAMESPACE,
+          parentRawId
+        );
+      }
+    }
+
+    // The project key, not its numeric id: the key is what a person types into
+    // Project__c.External_Project_Key__c, and it is what the JQL filter on the webhook uses.
+    Map<String, Object> project = asMap(fields.get('project'));
+    if (project != null) {
+      String projectKey = asString(project.get('key'));
+      if (String.isNotBlank(projectKey)) {
+        change.projectKey = projectKey;
+      }
+    }
+
+    Map<String, Object> status = asMap(fields.get('status'));
+    change.remoteStatus = status == null ? null : asString(status.get('name'));
+    change.normalizedStatus = normalizeStatus(change.remoteStatus);
+
+    change.remoteUpdated = parseIso(asString(fields.get('updated')));
+    if (change.remoteUpdated == null) {
+      change.failure = 'Payload carries no usable issue.fields.updated timestamp.';
+      return change;
+    }
+    return change;
+  }
+
+  /**
+   * Jira sends ISO-8601 with a four digit offset (+0000, or the site's local -0700). Insert the
+   * colon before handing it to the JSON parser, which wants an RFC-3339 shaped offset.
+   */
+  @TestVisible
+  private static Datetime parseIso(String value) {
+    if (String.isBlank(value)) {
+      return null;
+    }
+    String text = value.trim();
+    if (text.length() > 5) {
+      String tail = text.substring(text.length() - 5);
+      if (
+        (tail.startsWith('+') || tail.startsWith('-')) &&
+        tail.substring(1).isNumeric()
+      ) {
+        text =
+          text.substring(0, text.length() - 2) +
+          ':' +
+          text.substring(text.length() - 2);
+      }
+    }
+    try {
+      return (Datetime) JSON.deserialize('"' + text + '"', Datetime.class);
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  // ---------- outbound ----------
 
   public SyncResult updateStatus(Work_Item__c item, String targetStatus) {
     SyncResult rejection = validate(item, targetStatus);
@@ -146,7 +291,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     // would ever sync. Sync_Status__c is what makes the belief credible.
     if (
       normalize(item.Status__c) == normalize(targetStatus) &&
-      item.Sync_Status__c == 'Synced'
+      item.Sync_Status__c == SyncStatus.SYNCED
     ) {
       SyncResult result = SyncResult.alreadyInTargetStatus(targetStatus);
       result.workItemId = item.Id;
@@ -159,7 +304,11 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       listing = send('GET', transitionsPath(rawId), null, item.Id);
     } catch (Exception e) {
       return stamp(
-        SyncResult.failure(SyncResult.Outcome.CALLOUT_FAILED, describe(e), 0),
+        SyncResult.failure(
+          SyncResult.Outcome.CALLOUT_FAILED,
+          Strings.describe(e),
+          0
+        ),
         item,
         externalId
       );
@@ -175,7 +324,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       return stamp(
         SyncResult.failure(
           SyncResult.Outcome.REMOTE_ERROR,
-          'Could not parse the transitions response: ' + describe(e),
+          'Could not parse the transitions response: ' + Strings.describe(e),
           listing.getStatusCode()
         ),
         item,
@@ -210,7 +359,11 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       );
     } catch (Exception e) {
       return stamp(
-        SyncResult.failure(SyncResult.Outcome.CALLOUT_FAILED, describe(e), 0),
+        SyncResult.failure(
+          SyncResult.Outcome.CALLOUT_FAILED,
+          Strings.describe(e),
+          0
+        ),
         item,
         externalId
       );
@@ -244,7 +397,10 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         null
       );
     } catch (Exception e) {
-      throw new AdapterException('Could not reach Jira: ' + describe(e), e);
+      throw new AdapterException(
+        'Could not reach Jira: ' + Strings.describe(e),
+        e
+      );
     }
     if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
       throw new AdapterException(
@@ -379,21 +535,21 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     Integer status = response == null ? 0 : response.getStatusCode();
     pendingLogs.add(
       new Integration_Log__c(
-        Direction__c = 'Outbound',
-        Endpoint__c = truncate(
+        Direction__c = LogDirection.OUTBOUND,
+        Endpoint__c = Strings.truncate(
           'callout:' + NAMED_CREDENTIAL + path,
           ENDPOINT_MAX
         ),
         HTTP_Method__c = method,
         Status_Code__c = status,
         Duration_ms__c = System.currentTimeMillis() - startedAt,
-        Request_Body__c = truncate(body, BODY_MAX),
+        Request_Body__c = Strings.truncate(body, BODY_MAX),
         Response_Body__c = response == null
           ? null
-          : truncate(response.getBody(), BODY_MAX),
+          : Strings.truncate(response.getBody(), BODY_MAX),
         Error_Message__c = error == null
           ? null
-          : truncate(describe(error), BODY_MAX),
+          : Strings.truncate(Strings.describe(error), BODY_MAX),
         Work_Item__c = workItemId,
         Is_Success__c = status >= 200 && status < 300
       )
@@ -421,7 +577,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         item.External_Id__c
       );
     }
-    if (targetStatus == 'Unspecified') {
+    if (targetStatus == WorkItemStatus.UNSPECIFIED) {
       return stamp(
         SyncResult.failure(
           SyncResult.Outcome.BAD_REQUEST,
@@ -501,20 +657,19 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     return String.join(names, ', ');
   }
 
-  private static String describe(Exception e) {
-    return e.getTypeName() + ': ' + e.getMessage();
-  }
-
   private static String normalize(String value) {
     return value == null
       ? ''
       : value.trim().toLowerCase().replaceAll('\\s+', ' ');
   }
 
-  private static String truncate(String value, Integer maxLength) {
-    if (value == null || value.length() <= maxLength) {
-      return value;
-    }
-    return value.substring(0, maxLength - 3) + '...';
+  private static Map<String, Object> asMap(Object value) {
+    return value instanceof Map<String, Object>
+      ? (Map<String, Object>) value
+      : null;
+  }
+
+  private static String asString(Object value) {
+    return value == null ? null : String.valueOf(value);
   }
 }

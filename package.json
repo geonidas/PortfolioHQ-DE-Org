@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Salesforce App",
   "scripts": {
-    "lint": "eslint **/{aura,lwc}/**/*.js",
+    "lint": "eslint --no-warn-ignored force-app",
     "test": "npm run test:unit",
     "test:unit": "sfdx-lwc-jest",
     "test:unit:watch": "sfdx-lwc-jest --watch",
@@ -35,10 +35,10 @@
       "prettier --write"
     ],
     "**/{aura,lwc}/**/*.js": [
-      "eslint"
+      "eslint --no-warn-ignored"
     ],
     "**/lwc/**": [
-        "sfdx-lwc-jest -- --bail --findRelatedTests --passWithNoTests"
+      "sfdx-lwc-jest -- --bail --findRelatedTests --passWithNoTests"
     ]
   }
 }

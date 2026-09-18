@@ -1,12 +1,16 @@
 /**
- * Processor behaviour: ordering, idempotency, loop prevention and bulk.
+ * Processor behaviour: ordering, idempotency, loop prevention, project linkage and bulk.
+ *
+ * Payloads are Jira-shaped because JiraAdapter is the only adapter, but the class under test
+ * never sees them: it hands the raw body to the adapter named by Source_System__c and applies
+ * the InboundChange that comes back. Jira payload parsing itself is covered in JiraAdapterTest.
  *
  * Events are inserted BEFORE Test.startTest so their platform events are delivered at stopTest,
  * by which point process() has already run and moved the rows off Pending - so the subscriber
  * finds nothing and cannot double-process. Tests that want the real event path say so.
  */
 @IsTest
-private class JiraWebhookProcessorTest {
+private class WorkItemInboundProcessorTest {
   private static Work_Item__c seedItem(
     String externalId,
     String status,
@@ -33,7 +37,12 @@ private class JiraWebhookProcessorTest {
     }
     insert events;
     return [
-      SELECT Id, Raw_Payload__c, Processing_Status__c, Signature_Valid__c
+      SELECT
+        Id,
+        Source_System__c,
+        Raw_Payload__c,
+        Processing_Status__c,
+        Signature_Valid__c
       FROM Webhook_Event__c
     ];
   }
@@ -59,7 +68,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -88,7 +97,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     // Type__c is a restricted picklist, so a custom Jira issue type has to land somewhere.
@@ -148,7 +157,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c after = [
@@ -195,7 +204,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c parent = [
@@ -233,7 +242,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c child = [
@@ -302,7 +311,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     // A cycle of length one is still a cycle for anything walking ancestors.
@@ -326,8 +335,8 @@ private class JiraWebhookProcessorTest {
   static void anUnresolvedOwnerIsReportedRatherThanPassedOverInSilence() {
     Datetime was = System.now().addHours(-1);
     // Force the "no admin resolved" branch without depending on the org having no admin.
-    JiraWebhookProcessor.integrationOwnerResolved = true;
-    JiraWebhookProcessor.integrationOwner = null;
+    WorkItemInboundProcessor.integrationOwnerResolved = true;
+    WorkItemInboundProcessor.integrationOwner = null;
 
     List<Webhook_Event__c> events = deliver(
       new List<String>{
@@ -344,7 +353,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     // Public, synced and invisible with nothing reporting it is the failure most likely to
@@ -366,6 +375,219 @@ private class JiraWebhookProcessorTest {
     );
   }
 
+  // ---------- project linkage (refactor after build 06) ----------
+
+  @IsTest
+  static void aNewIssueIsLinkedToTheProjectItsKeyNames() {
+    // TestDataFactory projects carry External_Project_Key__c = DOPP and External_System__c = Jira.
+    Project__c project = TestDataFactory.createProjects(1, true)[0];
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10600',
+          'DOPP-600',
+          'To Do',
+          System.now(),
+          'Linked on arrival',
+          'Story',
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    // Before this, a new issue arrived with no project, and the public board - whose query
+    // demands a public parent project - never showed it, with nothing anywhere saying why.
+    Assert.areEqual(
+      project.Id,
+      [SELECT Project__c FROM Work_Item__c WHERE External_Id__c = 'jira:10600']
+      .Project__c,
+      'fields.project.key should resolve to the Project__c carrying that key.'
+    );
+    Assert.areEqual(
+      0,
+      [SELECT COUNT() FROM Integration_Log__c],
+      'A resolved link is nothing to report.'
+    );
+  }
+
+  @IsTest
+  static void anUnknownProjectKeyIsLoggedAndTheRecordStillSyncs() {
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10601',
+          'NOPE-1',
+          'In Progress',
+          System.now(),
+          'Belongs to a project Salesforce has not seen',
+          'Story',
+          null,
+          'NOPE'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c created = [
+      SELECT Project__c, Status__c
+      FROM Work_Item__c
+      WHERE External_Id__c = 'jira:10601'
+    ];
+    Assert.isNull(created.Project__c, 'No project to link to.');
+    Assert.areEqual(
+      'In Progress',
+      created.Status__c,
+      'The status change still lands - a missing project is not a reason to drop it.'
+    );
+    Assert.areEqual(
+      'Processed',
+      [SELECT Processing_Status__c FROM Webhook_Event__c LIMIT 1]
+      .Processing_Status__c,
+      'The delivery itself succeeded.'
+    );
+    List<Integration_Log__c> logs = [
+      SELECT Direction__c, Is_Success__c, Error_Message__c
+      FROM Integration_Log__c
+    ];
+    Assert.areEqual(1, logs.size(), 'The gap is reported exactly once.');
+    Assert.areEqual('Inbound', logs[0].Direction__c);
+    Assert.isFalse(logs[0].Is_Success__c);
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('NOPE') &&
+      logs[0].Error_Message__c.contains('jira:10601'),
+      'The log names the key and the issue: ' + logs[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void anAmbiguousProjectKeyIsNotGuessedAt() {
+    // External_Project_Key__c is not unique. Two projects carrying the same key and system
+    // is a data problem to report, not a coin to toss.
+    TestDataFactory.createProjects(2, true);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10602',
+          'DOPP-602',
+          'To Do',
+          System.now(),
+          'Two candidates',
+          'Story',
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.isNull(
+      [SELECT Project__c FROM Work_Item__c WHERE External_Id__c = 'jira:10602']
+      .Project__c,
+      'Neither candidate should have been chosen.'
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Integration_Log__c],
+      'And the ambiguity is reported.'
+    );
+  }
+
+  @IsTest
+  static void anExistingProjectLinkIsNeverOverridden() {
+    Datetime was = System.now().addHours(-1);
+    // seedItem links the record to a project of its own; a second project carries the key the
+    // payload will name.
+    Work_Item__c item = seedItem('jira:10603', 'To Do', was);
+    Project__c other = TestDataFactory.createProjects(1, false)[0];
+    other.External_Project_Key__c = 'OTHER';
+    insert other;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10603',
+          'OTHER-1',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          null,
+          null,
+          'OTHER'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = [
+      SELECT Project__c, Status__c
+      FROM Work_Item__c
+      WHERE Id = :item.Id
+    ];
+    Assert.areEqual(
+      item.Project__c,
+      after.Project__c,
+      'A link someone already made is theirs; the payload does not know better.'
+    );
+    Assert.areEqual('In Progress', after.Status__c, 'The rest still applies.');
+    Assert.areEqual(
+      0,
+      [SELECT COUNT() FROM Integration_Log__c],
+      'Leaving an existing link alone is not a gap.'
+    );
+  }
+
+  @IsTest
+  static void aRecordWithNoProjectIsLinkedOnItsNextDelivery() {
+    // The back-fill case: every record created before project linkage existed, or by hand.
+    Datetime was = System.now().addHours(-1);
+    Project__c project = TestDataFactory.createProjects(1, true)[0];
+    Work_Item__c orphan = TestDataFactory.createWorkItems(1, null, false)[0];
+    orphan.External_Id__c = 'jira:10604';
+    orphan.Status__c = 'To Do';
+    orphan.Sync_Status__c = 'Pending';
+    orphan.Remote_Last_Modified__c = was;
+    insert orphan;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10604',
+          'DOPP-604',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          null,
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      project.Id,
+      [SELECT Project__c FROM Work_Item__c WHERE Id = :orphan.Id].Project__c,
+      'An unlinked record picks up its project the next time it is delivered.'
+    );
+  }
+
   // ---------- applying changes ----------
 
   @IsTest
@@ -384,7 +606,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c updated = [
@@ -431,7 +653,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -463,7 +685,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c updated = [
@@ -502,7 +724,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c updated = [
@@ -545,7 +767,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -571,7 +793,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Work_Item__c updated = [
@@ -621,7 +843,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     List<Work_Item__c> created = [
@@ -664,7 +886,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -709,7 +931,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -739,7 +961,7 @@ private class JiraWebhookProcessorTest {
     seedItem('jira:10039', 'To Do', base);
 
     Test.startTest();
-    JiraWebhookProcessor.process(
+    WorkItemInboundProcessor.process(
       deliver(
         new List<String>{
           JiraWebhookPayloadFactory.issueUpdated(
@@ -801,7 +1023,7 @@ private class JiraWebhookProcessorTest {
 
     Test.startTest();
     Integer before = Limits.getQueueableJobs();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Integer after = Limits.getQueueableJobs();
     Test.stopTest();
 
@@ -926,7 +1148,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -993,7 +1215,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events); // must not throw
+    WorkItemInboundProcessor.process(events); // must not throw
     Test.stopTest();
 
     Webhook_Event__c event = [
@@ -1028,7 +1250,7 @@ private class JiraWebhookProcessorTest {
     );
 
     Test.startTest();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
     Assert.areEqual(
@@ -1046,48 +1268,15 @@ private class JiraWebhookProcessorTest {
   @IsTest
   static void emptyAndNullInputAreNoOps() {
     Test.startTest();
-    JiraWebhookProcessor.process(null);
-    JiraWebhookProcessor.process(new List<Webhook_Event__c>());
-    JiraWebhookProcessor.handle(new List<Webhook_Event_Received__e>());
+    WorkItemInboundProcessor.process(null);
+    WorkItemInboundProcessor.process(new List<Webhook_Event__c>());
+    WorkItemInboundProcessor.handle(new List<Webhook_Event_Received__e>());
     Test.stopTest();
     Assert.areEqual(
       0,
       [SELECT COUNT() FROM Work_Item__c],
       'Nothing to do, nothing done.'
     );
-  }
-
-  @IsTest
-  static void parsesJirasFourDigitOffsetTimestamps() {
-    Datetime expected = Datetime.newInstanceGmt(2026, 9, 12, 19, 13, 41);
-    Assert.areEqual(
-      expected,
-      JiraWebhookProcessor.parseIso('2026-09-12T19:13:41.000+0000'),
-      'Jira wire format.'
-    );
-    Assert.areEqual(
-      expected,
-      JiraWebhookProcessor.parseIso('2026-09-12T19:13:41.000+00:00'),
-      'RFC-3339 offset.'
-    );
-    // Real Jira sends the site's local offset, not UTC. The first live payload arrived as
-    // -0700 and rolled over a date boundary; the fixture factory only ever emits +0000, so
-    // nothing in this suite covered a negative offset until it turned up in production.
-    Assert.areEqual(
-      Datetime.newInstanceGmt(2026, 9, 13, 4, 18, 24),
-      JiraWebhookProcessor.parseIso('2026-09-12T21:18:24.000-0700'),
-      'A negative offset must convert to UTC and carry the date forward.'
-    );
-    Assert.areEqual(
-      Datetime.newInstanceGmt(2026, 9, 12, 14, 30, 0),
-      JiraWebhookProcessor.parseIso('2026-09-13T01:30:00.000+1100'),
-      'A large positive offset must carry the date backward.'
-    );
-    Assert.isNull(
-      JiraWebhookProcessor.parseIso('not a date'),
-      'Garbage yields null, not an exception.'
-    );
-    Assert.isNull(JiraWebhookProcessor.parseIso(null), 'Null yields null.');
   }
 
   // ---------- bulk ----------
@@ -1110,7 +1299,7 @@ private class JiraWebhookProcessorTest {
 
     Test.startTest();
     Integer dmlBefore = Limits.getDmlStatements();
-    JiraWebhookProcessor.process(events);
+    WorkItemInboundProcessor.process(events);
     Integer dmlUsed = Limits.getDmlStatements() - dmlBefore;
     Test.stopTest();
 

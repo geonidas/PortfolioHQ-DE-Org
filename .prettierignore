@@ -14,3 +14,17 @@ force-app/**/profiles/**
 force-app/**/sharingRules/**
 force-app/**/permissionsets/**
 force-app/**/*-meta.xml
+
+# Org-generated site scaffolding (login, self-registration, forgot-password pages and their
+# controllers). Kept in source for a future public site, never edited here. Same rule as the
+# profiles above: the org's format is canonical and prettier would only churn it.
+force-app/**/aura/**
+force-app/**/pages/**
+force-app/**/components/**
+force-app/**/classes/ChangePasswordController*.cls
+force-app/**/classes/Communities*.cls
+force-app/**/classes/ForgotPasswordController*.cls
+force-app/**/classes/Lightning*Controller*.cls
+force-app/**/classes/MicrobatchSelfRegController*.cls
+force-app/**/classes/MyProfilePageController*.cls
+force-app/**/classes/Site*Controller*.cls

@@ -9,34 +9,38 @@
  * reporting and page layouts.
  */
 public with sharing class WorkItemAdapterFactory {
-    public class UnsupportedSystemException extends Exception {
-    }
+  public class UnsupportedSystemException extends Exception {
+  }
 
-    // Set by tests to bypass HTTP entirely when the thing under test is the service, not the wire.
-    @TestVisible
-    private static IWorkItemAdapter injected;
+  // Set by tests to bypass HTTP entirely when the thing under test is the service, not the wire.
+  @TestVisible
+  private static IWorkItemAdapter injected;
 
-    /**
-     * @param workItem must carry a qualified External_Id__c, e.g. jira:10023
-     */
-    public static IWorkItemAdapter forWorkItem(Work_Item__c workItem) {
-        if (workItem == null) {
-            throw new UnsupportedSystemException('No work item supplied.');
-        }
-        return forSystem(ExternalIdUtil.namespaceOf(workItem.External_Id__c));
+  /**
+   * @param workItem must carry a qualified External_Id__c, e.g. jira:10023
+   */
+  public static IWorkItemAdapter forWorkItem(Work_Item__c workItem) {
+    if (workItem == null) {
+      throw new UnsupportedSystemException('No work item supplied.');
     }
+    return forSystem(ExternalIdUtil.namespaceOf(workItem.External_Id__c));
+  }
 
-    /**
-     * @param systemNamespace case-insensitive system key, e.g. 'jira' or the picklist's 'Jira'
-     */
-    public static IWorkItemAdapter forSystem(String systemNamespace) {
-        if (injected != null) {
-            return injected;
-        }
-        String key = systemNamespace == null ? '' : systemNamespace.trim().toLowerCase();
-        if (key == 'jira') {
-            return new JiraAdapter();
-        }
-        throw new UnsupportedSystemException('No adapter is registered for external system: ' + systemNamespace);
+  /**
+   * @param systemNamespace case-insensitive system key, e.g. 'jira' or the picklist's 'Jira'
+   */
+  public static IWorkItemAdapter forSystem(String systemNamespace) {
+    if (injected != null) {
+      return injected;
     }
+    String key = systemNamespace == null
+      ? ''
+      : systemNamespace.trim().toLowerCase();
+    if (key == 'jira') {
+      return new JiraAdapter();
+    }
+    throw new UnsupportedSystemException(
+      'No adapter is registered for external system: ' + systemNamespace
+    );
+  }
 }

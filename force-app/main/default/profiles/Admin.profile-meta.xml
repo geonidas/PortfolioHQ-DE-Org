@@ -93,11 +93,11 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
-        <apexClass>JiraWebhookProcessor</apexClass>
+        <apexClass>WorkItemInboundProcessor</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
-        <apexClass>JiraWebhookProcessorTest</apexClass>
+        <apexClass>WorkItemInboundProcessorTest</apexClass>
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>

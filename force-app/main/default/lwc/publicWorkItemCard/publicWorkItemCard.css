@@ -67,3 +67,9 @@ h3.is-fallback {
   background: var(--pwb-err-bg, #fdecea);
   color: var(--pwb-err, #b12b23);
 }
+/* When this card last agreed with its source. Quiet, because it is context rather than content. */
+.synced {
+  margin: 0;
+  font-size: 0.66rem;
+  color: var(--pwb-text-faint, #7c8b9e);
+}

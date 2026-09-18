@@ -76,6 +76,38 @@ public class JiraWebhookPayloadFactory {
     String issueTypeName,
     String parentId
   ) {
+    return issueUpdated(
+      issueId,
+      issueKey,
+      jiraStatus,
+      updated,
+      summary,
+      issueTypeName,
+      parentId,
+      null
+    );
+  }
+
+  /**
+   * The same payload with the project under the caller's control. A null projectKey omits the
+   * project object entirely. The default overloads send no project so that the many tests which
+   * seed a project per work item are not surprised by the processor linking to it.
+   */
+  public static String issueUpdated(
+    String issueId,
+    String issueKey,
+    String jiraStatus,
+    Datetime updated,
+    String summary,
+    String issueTypeName,
+    String parentId,
+    String projectKey
+  ) {
+    String projectField = projectKey == null
+      ? ''
+      : '"project":{"id":"10000","key":"' +
+        String.escapeSingleQuotes(projectKey) +
+        '"},';
     String summaryField = summary == null
       ? ''
       : '"summary":"' + String.escapeSingleQuotes(summary) + '",';
@@ -112,6 +144,7 @@ public class JiraWebhookPayloadFactory {
       '",' +
       typeField +
       parentField +
+      projectField +
       '"status":{"id":"3","name":"' +
       String.escapeSingleQuotes(jiraStatus) +
       '"}' +

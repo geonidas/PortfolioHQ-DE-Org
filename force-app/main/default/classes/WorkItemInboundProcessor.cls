@@ -1,0 +1,657 @@
+/**
+ * Applies verified inbound deliveries to Work_Item__c, in the platform event subscriber's
+ * transaction.
+ *
+ * Vendor-neutral. Each delivery names its source system; the matching adapter turns the raw
+ * payload into an InboundChange, and everything from there on is in Work_Item__c vocabulary.
+ * Adding Asana means an Asana adapter with its own parseInbound, not an edit here. Until the
+ * refactor pass after build 06 this class was JiraWebhookProcessor and parsed Jira's payload
+ * itself; older docs use that name.
+ *
+ * Runs as the Automated Process user, not the guest who received the delivery - that user switch
+ * is the entire reason the platform event exists. This is also the first point at which the
+ * payload is deserialised: by now the signature has proved where it came from.
+ *
+ * Loop prevention lives here, in two parts. The timestamp comparison is the durable one and
+ * decides whether a change is applied at all. The SyncContext suppression is narrower - it only
+ * covers this transaction's DML, stopping the outbound trigger from pushing straight back.
+ */
+public with sharing class WorkItemInboundProcessor {
+  private static final Integer EVENT_ERROR_MAX = Webhook_Event__c.Error_Message__c.getDescribe()
+    .getLength();
+  private static final Integer LOG_ERROR_MAX = Integration_Log__c.Error_Message__c.getDescribe()
+    .getLength();
+  private static final Integer EVENT_TYPE_MAX = Webhook_Event__c.Event_Type__c.getDescribe()
+    .getLength();
+  private static final Integer EXTERNAL_ID_MAX = Webhook_Event__c.External_Id__c.getDescribe()
+    .getLength();
+
+  /**
+   * One delivery, parsed, plus what this class learns about it while applying it.
+   *
+   * The field is sourceSystem, not externalSystem: Apex identifiers are case-insensitive, so a
+   * member or parameter named externalSystem shadows the ExternalSystem class and every call on
+   * it fails to compile. Found by the deploy, as the handoff warned it would be.
+   */
+  private class Delivery {
+    Id eventId;
+    String sourceSystem; // the picklist value the delivery carried, e.g. Jira
+    InboundChange change; // null when the adapter could not be resolved
+    String failure; // non-null means the delivery cannot be applied
+    Boolean ownerUnresolved = false;
+    Boolean projectUnresolved = false;
+    Id workItemId; // filled from the upsert result, for the second pass
+  }
+
+  /** Subscriber entry point. */
+  public static void handle(List<Webhook_Event_Received__e> events) {
+    Set<Id> eventIds = new Set<Id>();
+    for (Webhook_Event_Received__e event : events) {
+      if (String.isNotBlank(event.Webhook_Event_Id__c)) {
+        eventIds.add((Id) event.Webhook_Event_Id__c);
+      }
+    }
+    if (eventIds.isEmpty()) {
+      return;
+    }
+    process(
+      [
+        SELECT
+          Id,
+          Source_System__c,
+          Raw_Payload__c,
+          Processing_Status__c,
+          Signature_Valid__c
+        FROM Webhook_Event__c
+        WHERE
+          Id IN :eventIds
+          AND Processing_Status__c = :DeliveryStatus.PENDING
+          AND Signature_Valid__c = TRUE
+      ]
+    );
+  }
+
+  /**
+   * Bulk-safe. Callable directly so tests can exercise processing without standing up the
+   * event bus.
+   *
+   * @param rows deliveries carrying at least Id, Source_System__c and Raw_Payload__c
+   */
+  public static void process(List<Webhook_Event__c> rows) {
+    if (rows == null || rows.isEmpty()) {
+      return;
+    }
+
+    Map<String, IWorkItemAdapter> adapters = new Map<String, IWorkItemAdapter>();
+    Map<Id, Webhook_Event__c> updates = new Map<Id, Webhook_Event__c>();
+    List<Delivery> parsed = new List<Delivery>();
+
+    for (Webhook_Event__c row : rows) {
+      Delivery delivery = parse(row, adapters);
+      parsed.add(delivery);
+      if (delivery.failure != null) {
+        updates.put(
+          row.Id,
+          terminal(delivery, DeliveryStatus.FAILED, delivery.failure)
+        );
+      }
+    }
+
+    // Several deliveries in one batch can concern one issue. Keep only the newest per issue
+    // and retire the rest as Ignored, so a bulk batch cannot apply an older state last.
+    Map<String, Delivery> newestByExternalId = new Map<String, Delivery>();
+    for (Delivery delivery : parsed) {
+      if (delivery.failure != null) {
+        continue;
+      }
+      String externalId = delivery.change.externalId;
+      Delivery held = newestByExternalId.get(externalId);
+      if (
+        held == null ||
+        delivery.change.remoteUpdated > held.change.remoteUpdated
+      ) {
+        if (held != null) {
+          updates.put(held.eventId, superseded(held));
+        }
+        newestByExternalId.put(externalId, delivery);
+      } else {
+        updates.put(delivery.eventId, superseded(delivery));
+      }
+    }
+    if (newestByExternalId.isEmpty()) {
+      commitEvents(updates.values());
+      return;
+    }
+
+    Map<String, Work_Item__c> existing = new Map<String, Work_Item__c>();
+    for (Work_Item__c item : [
+      SELECT
+        Id,
+        External_Id__c,
+        Status__c,
+        Sync_Status__c,
+        Project__c,
+        Remote_Last_Modified__c
+      FROM Work_Item__c
+      WHERE External_Id__c IN :newestByExternalId.keySet()
+    ]) {
+      existing.put(item.External_Id__c, item);
+    }
+
+    Map<String, Id> projectIdByLookup = resolveProjects(
+      newestByExternalId.values()
+    );
+
+    List<Work_Item__c> toUpsert = new List<Work_Item__c>();
+    List<Delivery> applied = new List<Delivery>();
+
+    for (Delivery delivery : newestByExternalId.values()) {
+      InboundChange change = delivery.change;
+      Work_Item__c current = existing.get(change.externalId);
+
+      // Loop prevention, durable half. A delivery that is not strictly newer than what we
+      // already hold changes nothing - that covers the echo of our own push, a duplicate
+      // delivery, and an out-of-order one, without needing to know which it was.
+      if (
+        current != null &&
+        current.Remote_Last_Modified__c != null &&
+        change.remoteUpdated <= current.Remote_Last_Modified__c
+      ) {
+        updates.put(
+          delivery.eventId,
+          terminal(
+            delivery,
+            DeliveryStatus.IGNORED,
+            'Payload is not newer than Remote_Last_Modified__c; nothing applied.'
+          )
+        );
+        continue;
+      }
+
+      Work_Item__c item = new Work_Item__c(
+        External_Id__c = change.externalId,
+        External_Key__c = change.externalKey,
+        External_System__c = delivery.sourceSystem,
+        Status__c = change.normalizedStatus,
+        Remote_Last_Modified__c = change.remoteUpdated,
+        Last_Synced__c = System.now(),
+        // Synced is illegal alongside an Unspecified status - see the
+        // Sync_Status_Requires_Known_Status validation rule. An unmapped remote status
+        // therefore stays Pending, which is also honest: we have not reconciled it.
+        Sync_Status__c = change.normalizedStatus == WorkItemStatus.UNSPECIFIED
+          ? SyncStatus.PENDING
+          : SyncStatus.SYNCED
+      );
+
+      // Only on creation. This subscriber runs as the Automated Process user, so anything it
+      // inserts is owned by Automated Process - and guest sharing rules do not share records
+      // owned by that user, measured directly: reassigning one record took the guest from 2 of
+      // 6 public records to 3 of 6, instantly. Without this every newly synced issue would be
+      // invisible on the public board, with no error to notice.
+      //
+      // Deliberately not set on update, so an existing record keeps whatever owner it has.
+      if (current == null) {
+        Id owner = integrationOwnerId();
+        if (owner != null) {
+          item.OwnerId = owner;
+        } else {
+          // Logged after the upsert, once there is a record id to point the row at. The
+          // record still syncs; it is simply owned by Automated Process and invisible to
+          // guests, and the log row is what stops that being silent.
+          delivery.ownerUnresolved = true;
+        }
+      }
+
+      // The project link, on creation or when the record has none. Never on a record that
+      // already has one: someone may have linked it by hand to a project the key does not
+      // name, and the payload does not know better. Without this a new issue arrives as an
+      // orphan, and the public board - whose query demands a public parent project - never
+      // shows it, with nothing anywhere saying why.
+      if (
+        change.projectKey != null &&
+        (current == null ||
+        current.Project__c == null)
+      ) {
+        Id projectId = projectIdByLookup.get(
+          lookupKey(delivery.sourceSystem, change.projectKey)
+        );
+        if (projectId != null) {
+          item.Project__c = projectId;
+        } else {
+          delivery.projectUnresolved = true;
+        }
+      }
+
+      // Only when the payload actually carried one. Assigning a null would blank a title
+      // we already hold, and a delivery that omits the summary is not a retitling.
+      if (String.isNotBlank(change.title)) {
+        item.Title__c = change.title;
+      }
+
+      // The same rule, for the same reason. Most deliveries here are status transitions, whose
+      // payloads carry no issuetype at all; assigning a null would blank a known type on every
+      // one of them. Unspecified, by contrast, is a real value the payload asked for.
+      if (String.isNotBlank(change.normalizedType)) {
+        item.Type__c = change.normalizedType;
+      }
+
+      toUpsert.add(item);
+      applied.add(delivery);
+    }
+
+    if (!toUpsert.isEmpty()) {
+      // Loop prevention, narrow half: this transaction's DML must not push back out.
+      SyncContext.suppressOutbound();
+      List<Database.UpsertResult> results;
+      try {
+        results = Database.upsert(toUpsert, Work_Item__c.External_Id__c, false);
+      } finally {
+        SyncContext.resumeOutbound();
+      }
+
+      List<Delivery> succeeded = new List<Delivery>();
+      for (Integer i = 0; i < results.size(); i++) {
+        Delivery delivery = applied[i];
+        if (results[i].isSuccess()) {
+          delivery.workItemId = results[i].getId();
+          succeeded.add(delivery);
+          String note = delivery.change.normalizedStatus ==
+            WorkItemStatus.UNSPECIFIED
+            ? 'Applied, but remote status "' +
+              delivery.change.remoteStatus +
+              '" has no mapping; Status__c set to Unspecified.'
+            : null;
+          updates.put(
+            delivery.eventId,
+            terminal(delivery, DeliveryStatus.PROCESSED, note)
+          );
+        } else {
+          updates.put(
+            delivery.eventId,
+            terminal(delivery, DeliveryStatus.FAILED, errorsOf(results[i]))
+          );
+        }
+      }
+
+      List<Integration_Log__c> logs = new List<Integration_Log__c>();
+      for (Delivery delivery : succeeded) {
+        if (delivery.ownerUnresolved) {
+          logs.add(
+            inboundLog(
+              delivery.workItemId,
+              'No System Administrator resolved, so ' +
+                delivery.change.externalId +
+                ' was created owned by Automated Process. Guest sharing rules do not share ' +
+                'records owned by that user: if this record is flagged public it will sync ' +
+                'correctly and still not appear on the public board. Reassign the owner.'
+            )
+          );
+        }
+        if (delivery.projectUnresolved) {
+          logs.add(
+            inboundLog(
+              delivery.workItemId,
+              'Project "' +
+                delivery.change.projectKey +
+                '" named by ' +
+                delivery.change.externalId +
+                ' matches no single Project__c with External_Project_Key__c = ' +
+                delivery.change.projectKey +
+                ' and External_System__c = ' +
+                delivery.sourceSystem +
+                '. Project__c left null: the record synced, but the public board requires ' +
+                'a public parent project, so it cannot appear there until the project is ' +
+                'keyed and the issue is delivered again, or the lookup is set by hand.'
+            )
+          );
+        }
+      }
+      resolveParents(succeeded, logs);
+      writeLogs(logs);
+    }
+
+    commitEvents(updates.values());
+  }
+
+  // ---------- resolution passes ----------
+
+  /**
+   * Project__c ids by system and key, for every delivery in the batch that names a project.
+   *
+   * One query, whatever the batch size. A key that matches no project, or more than one,
+   * resolves to nothing: External_Project_Key__c is not unique, and guessing between two
+   * candidates would link work to the wrong project silently, which is worse than leaving it
+   * unlinked and saying so.
+   */
+  private static Map<String, Id> resolveProjects(List<Delivery> deliveries) {
+    Set<String> keys = new Set<String>();
+    for (Delivery delivery : deliveries) {
+      if (delivery.change.projectKey != null) {
+        keys.add(delivery.change.projectKey);
+      }
+    }
+    Map<String, Id> byLookup = new Map<String, Id>();
+    if (keys.isEmpty()) {
+      return byLookup;
+    }
+    Set<String> ambiguous = new Set<String>();
+    for (Project__c project : [
+      SELECT Id, External_Project_Key__c, External_System__c
+      FROM Project__c
+      WHERE External_Project_Key__c IN :keys
+    ]) {
+      String lookup = lookupKey(
+        project.External_System__c,
+        project.External_Project_Key__c
+      );
+      if (byLookup.containsKey(lookup)) {
+        ambiguous.add(lookup);
+      } else {
+        byLookup.put(lookup, project.Id);
+      }
+    }
+    for (String lookup : ambiguous) {
+      byLookup.remove(lookup);
+    }
+    return byLookup;
+  }
+
+  private static String lookupKey(String sourceSystem, String projectKey) {
+    return ExternalSystem.namespaceOf(sourceSystem) +
+      '|' +
+      (projectKey == null ? '' : projectKey.trim().toLowerCase());
+  }
+
+  /**
+   * Second pass: link children to parents, once every record in the batch exists.
+   *
+   * Two passes rather than one because a single delivery batch can carry a child and its parent
+   * together in either order. Resolving during the first pass would miss a parent that had not
+   * been inserted yet, and would do so intermittently - the failure would depend on payload
+   * order, which is the worst kind to debug.
+   *
+   * No stub records. An unresolvable parent leaves Parent_Work_Item__c null and writes a log row
+   * naming both sides. A stub would be a titleless, projectless Work_Item__c appearing on the
+   * internal board as a blank card, to buy a link the child's next delivery will make anyway.
+   *
+   * The known cost of that choice: nothing back-fills the link when the parent arrives later.
+   * Only a subsequent delivery for the child repairs it. The log row is the record of that gap.
+   */
+  private static void resolveParents(
+    List<Delivery> deliveries,
+    List<Integration_Log__c> logs
+  ) {
+    Map<String, Id> idByExternalId = new Map<String, Id>();
+    for (Delivery delivery : deliveries) {
+      idByExternalId.put(delivery.change.externalId, delivery.workItemId);
+    }
+
+    Set<String> wanted = new Set<String>();
+    for (Delivery delivery : deliveries) {
+      String parentExternalId = delivery.change.parentExternalId;
+      if (
+        parentExternalId != null &&
+        !idByExternalId.containsKey(parentExternalId)
+      ) {
+        wanted.add(parentExternalId);
+      }
+    }
+    // One query, and only for parents this batch did not itself carry - the batch's own records
+    // are already keyed above, straight off the upsert results.
+    if (!wanted.isEmpty()) {
+      for (Work_Item__c parent : [
+        SELECT Id, External_Id__c
+        FROM Work_Item__c
+        WHERE External_Id__c IN :wanted
+      ]) {
+        idByExternalId.put(parent.External_Id__c, parent.Id);
+      }
+    }
+
+    List<Work_Item__c> links = new List<Work_Item__c>();
+    List<Delivery> linked = new List<Delivery>();
+    for (Delivery delivery : deliveries) {
+      InboundChange change = delivery.change;
+      if (change.parentExternalId == null) {
+        continue;
+      }
+      Id parentId = idByExternalId.get(change.parentExternalId);
+      if (parentId == null) {
+        // Surfaced, not fatal. The delivery is still Processed: an unresolved reference is a
+        // data gap, and dropping a status change on account of one would trade a visible
+        // problem for an invisible one.
+        logs.add(
+          inboundLog(
+            delivery.workItemId,
+            'Parent ' +
+              change.parentExternalId +
+              ' referenced by ' +
+              change.externalId +
+              ' is not a Work_Item__c Salesforce has seen. Parent_Work_Item__c left null; the ' +
+              'status change in this delivery was applied. The link is made when the child is ' +
+              'next delivered, by which time the parent will normally exist.'
+          )
+        );
+        continue;
+      }
+      if (parentId == delivery.workItemId) {
+        // Nothing in the schema stops a self-lookup pointing at its own row, and a cycle of
+        // length one is still a cycle for anything walking ancestors.
+        logs.add(
+          inboundLog(
+            delivery.workItemId,
+            'Payload for ' +
+              change.externalId +
+              ' names itself as its own parent. Parent_Work_Item__c left null.'
+          )
+        );
+        continue;
+      }
+      links.add(
+        new Work_Item__c(
+          Id = delivery.workItemId,
+          Parent_Work_Item__c = parentId
+        )
+      );
+      linked.add(delivery);
+    }
+
+    if (links.isEmpty()) {
+      return;
+    }
+
+    // Suppressed for the same reason the upsert is. Parent_Work_Item__c is not Status__c, so
+    // the trigger's delta check would not fire outbound anyway - but relying on that couples
+    // this to a detail of another class.
+    SyncContext.suppressOutbound();
+    List<Database.SaveResult> linkResults;
+    try {
+      linkResults = Database.update(links, false);
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+
+    for (Integer i = 0; i < linkResults.size(); i++) {
+      if (linkResults[i].isSuccess()) {
+        continue;
+      }
+      logs.add(
+        inboundLog(
+          linked[i].workItemId,
+          'Could not link ' +
+            linked[i].change.externalId +
+            ' to parent ' +
+            linked[i].change.parentExternalId +
+            ': ' +
+            errorsOf(linkResults[i])
+        )
+      );
+    }
+  }
+
+  // ---------- ownership ----------
+
+  /**
+   * The user that should own records this subscriber creates.
+   *
+   * Resolved once per transaction and cached. Returning null is a tolerated outcome: the record
+   * still syncs, it is simply owned by Automated Process and therefore not visible to guests.
+   * Failing the whole delivery over an ownership nicety would be worse.
+   *
+   * Profile name is admittedly brittle - a dedicated integration user, named in configuration,
+   * is the better long-term answer.
+   */
+  @TestVisible
+  private static Id integrationOwner;
+  @TestVisible
+  private static Boolean integrationOwnerResolved = false;
+
+  private static Id integrationOwnerId() {
+    if (integrationOwnerResolved) {
+      return integrationOwner;
+    }
+    integrationOwnerResolved = true;
+    List<User> admins = [
+      SELECT Id
+      FROM User
+      WHERE IsActive = TRUE AND Profile.Name = 'System Administrator'
+      ORDER BY CreatedDate ASC
+      LIMIT 1
+    ];
+    integrationOwner = admins.isEmpty() ? null : admins[0].Id;
+    return integrationOwner;
+  }
+
+  // ---------- parsing ----------
+
+  /**
+   * Routes the delivery to the adapter for its source system and lets that adapter read it.
+   * Adapters are built once per system per transaction.
+   */
+  private static Delivery parse(
+    Webhook_Event__c row,
+    Map<String, IWorkItemAdapter> adapters
+  ) {
+    Delivery delivery = new Delivery();
+    delivery.eventId = row.Id;
+    delivery.sourceSystem = row.Source_System__c;
+
+    String namespace = ExternalSystem.namespaceOf(row.Source_System__c);
+    if (String.isBlank(namespace)) {
+      delivery.failure = 'Delivery names no source system.';
+      return delivery;
+    }
+    IWorkItemAdapter adapter = adapters.get(namespace);
+    if (adapter == null) {
+      try {
+        adapter = WorkItemAdapterFactory.forSystem(namespace);
+      } catch (Exception e) {
+        delivery.failure =
+          'No adapter for source system "' +
+          row.Source_System__c +
+          '": ' +
+          Strings.describe(e);
+        return delivery;
+      }
+      adapters.put(namespace, adapter);
+    }
+
+    delivery.change = adapter.parseInbound(row.Raw_Payload__c);
+    delivery.failure = delivery.change.failure;
+    return delivery;
+  }
+
+  // ---------- helpers ----------
+
+  private static Webhook_Event__c superseded(Delivery delivery) {
+    return terminal(
+      delivery,
+      DeliveryStatus.IGNORED,
+      'Superseded within the same batch by a newer delivery.'
+    );
+  }
+
+  private static Webhook_Event__c terminal(
+    Delivery delivery,
+    String status,
+    String note
+  ) {
+    InboundChange change = delivery.change;
+    return new Webhook_Event__c(
+      Id = delivery.eventId,
+      Processing_Status__c = status,
+      Event_Type__c = change == null
+        ? null
+        : Strings.truncate(change.eventType, EVENT_TYPE_MAX),
+      External_Id__c = change == null
+        ? null
+        : Strings.truncate(change.externalId, EXTERNAL_ID_MAX),
+      Error_Message__c = Strings.truncate(note, EVENT_ERROR_MAX)
+    );
+  }
+
+  /**
+   * An Integration_Log__c row describing a processing outcome rather than a callout.
+   *
+   * Endpoint__c and HTTP_Method__c stay null on purpose: no HTTP happened. Is_Success__c is
+   * false because every caller here is reporting something that did not go as intended - the
+   * delivery succeeded, but a piece of it did not land.
+   */
+  private static Integration_Log__c inboundLog(Id workItemId, String message) {
+    return new Integration_Log__c(
+      Direction__c = LogDirection.INBOUND,
+      Is_Success__c = false,
+      Work_Item__c = workItemId,
+      Error_Message__c = Strings.truncate(message, LOG_ERROR_MAX)
+    );
+  }
+
+  private static String errorsOf(Database.UpsertResult result) {
+    return errorsOf(result.getErrors());
+  }
+
+  private static String errorsOf(Database.SaveResult result) {
+    return errorsOf(result.getErrors());
+  }
+
+  private static String errorsOf(List<Database.Error> errors) {
+    List<String> messages = new List<String>();
+    for (Database.Error error : errors) {
+      messages.add(error.getStatusCode() + ': ' + error.getMessage());
+    }
+    return String.join(messages, ' | ');
+  }
+
+  /**
+   * Allow-partial, and never allowed to throw. These rows exist to report problems; a failure
+   * to write one must not become a second, larger problem by failing the delivery that was
+   * otherwise fine.
+   */
+  private static void writeLogs(List<Integration_Log__c> logs) {
+    if (logs.isEmpty()) {
+      return;
+    }
+    try {
+      Database.insert(logs, false);
+    } catch (Exception e) {
+      System.debug(
+        LoggingLevel.ERROR,
+        'Could not write Integration_Log__c rows: ' + e.getMessage()
+      );
+    }
+  }
+
+  private static void commitEvents(List<Webhook_Event__c> events) {
+    if (events.isEmpty()) {
+      return;
+    }
+    try {
+      Database.update(events, false);
+    } catch (Exception e) {
+      System.debug(
+        LoggingLevel.ERROR,
+        'Could not write Webhook_Event__c outcomes: ' + e.getMessage()
+      );
+    }
+  }
+}

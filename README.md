@@ -1,58 +1,56 @@
-# Salesforce DX Project
+# Portfolio HQ
 
-Salesforce DX is a development approach that brings source-driven development, team collaboration, and continuous integration to the Salesforce Platform. Instead of working directly in an org through a web browser, you work with metadata as source files in a local DX project, track changes in version control, and deploy through automated processes.
+A two-way Jira integration on a Salesforce org, with a Kanban board for the team and a
+read-only public board for anyone with the link. Built as a series of numbered builds on a
+scratch org; the next build adds Asana as a second source.
 
-This project template gets you started with the tools and structure you need to build Salesforce applications using source control, scratch orgs, and the Salesforce CLI.
+**Start with [docs/handoff.md](docs/handoff.md).** It holds what the repo cannot tell you: org
+state that is not in source control, the invariants that fail silently when broken, and the
+traps that have each cost real time. `CLAUDE.md` is the short version for a coding session.
 
-## Prerequisites
+## What is here
 
-Before you start, make sure you have:
+| Area           | Where                                                                            | What it does                                                                                                                                                     |
+| -------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data model     | `objects/`                                                                       | `Work_Item__c` keyed on a namespaced `External_Id__c`, `Project__c`, an integration log, a webhook delivery object, a protected secret, and a platform event     |
+| Outbound       | `WorkItemTrigger`, `WorkItemSyncQueueable`, `WorkItemSyncService`, `JiraAdapter` | A status change staged in a before-update trigger, pushed to Jira in chunks of 50 through a vendor-neutral `IWorkItemAdapter`                                    |
+| Inbound        | `JiraWebhookResource`, `WebhookEventTrigger`, `WorkItemInboundProcessor`         | A guest-reachable REST endpoint verifies an HMAC over raw bytes and stores the delivery; a platform event hands it to a processor that runs as Automated Process |
+| Internal board | `WorkItemBoardController`, `lwc/workItemBoard`                                   | Reads every work item the user can see, changes status                                                                                                           |
+| Public board   | `PublicBoardController`, `lwc/publicWorkItemBoard`                               | A separate controller, selector, permission set and DTOs so that read-only is a property of the code                                                             |
+| Shared         | `lwc/boardLayout`, `WorkItemStatus` and the other constants classes              | Pure layout helpers both boards import, and one home for every picklist API name                                                                                 |
 
-- **Salesforce CLI** - Download from [developer.salesforce.com/tools/salesforcecli](https://developer.salesforce.com/tools/salesforcecli). See [Install Salesforce CLI](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm) for details.
-- **VS Code with Salesforce Extension Pack** - See [Installation Instructions](https://developer.salesforce.com/docs/platform/sfvscode-extensions/guide/install.html) for details. Includes the Agentforce Vibes extension.
-- **A development org** - Sign up for a free Developer Edition org [here](https://developer.salesforce.com/signup).
-- **Dev Hub enabled** (optional, required to create scratch orgs) - You can enable Dev Hub in your development org under Setup > Dev Hub.  See [Provide Developers Access to Salesforce DX Tools](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_setup_dx_tools.htm).
+Decisions and their reasoning are in `docs/adr/`, one register per build. Per-build narrative,
+written for the planning chat, is in `docs/build-summaries/`.
 
-## Project Structure
+## Working on it
 
-Your DX project follows this structure:
+```bash
+# Deploy the code you changed. Deploy freely; retrieve minimally (see the handoff).
+sf project deploy start --source-dir force-app/main/default/classes --source-dir force-app/main/default/lwc --target-org MyScratchOrg
 
-- **`force-app/main/default/`** - Your metadata source files live in this default package directory. You can configure additional package directories in the `sfdx-project.json` file.
-- **`config/`** - Scratch org definitions and project settings
-- **`scripts/`** - Automation scripts for common tasks
-- **`sfdx-project.json`** - Project manifest that defines package directories, namespace, API version, and other project-level settings
+# Apex tests, on the org
+sf apex run test --target-org MyScratchOrg --test-level RunLocalTests --result-format human
 
-See [Salesforce DX Project Configuration](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_ws_config.htm).
+# Jest, lint and formatting, locally
+npm run test:unit
+npm run lint
+npm run prettier:verify
 
-## Get Started
+# Pull back only the declarative metadata you changed in Setup
+sf project retrieve start -x manifest/org-changes.xml --target-org MyScratchOrg
+```
 
-Ready to start developing? The [Get Started with Salesforce DX](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_get_started_dx.htm) guide walks you through your first project, from creating a scratch org to creating a simple Apex class or LWC to deploying your code to a sandbox.
+The pre-commit hook runs Prettier and ESLint on staged files, and Jest on staged components.
+Apex is formatted at Prettier's defaults; the org's own site scaffolding under `aura/`, `pages/`,
+`components/` and the `Communities*`, `Site*` and `Lightning*Controller` classes is excluded from
+both tools on purpose, as are profiles and permission sets.
 
-## Common Salesforce CLI Commands
+## Demo data
 
-Here are common CLI commands that you'll use the most:
+```bash
+sf apex run --file scripts/apex/flag-public-demo-data.apex --target-org MyScratchOrg
+```
 
-- `sf org login web`: Authorize an org
-- `sf org open`: Open your org in a browser
-- `sf org create scratch`: Create a scratch org
-- `sf project deploy start`: Deploy metadata to your org
-- `sf project retrieve start`: Retrieve metadata from your org
-- `sf template generate <artifact>`: Scaffold new components, such as Apex classes and triggers, LWC components, Lightning apps, and more
-- `sf apex <command>`: Run Apex tests, run anonymous Apex blocks, and view logs
-- `sf data <command>`: Work with test data
-- `sf alias <command>`: Manage org aliases
-- `sf config <command>`: Configure CLI settings
-
-## Use Agentforce Vibes to Build Lightning Apps
-
-Transform your ideas into custom Lightning apps that extend CRM workflows directly in Lightning Experience. Through natural conversations with Agentforce Vibes, implement custom objects and fields, complex business logic, and dynamic UI components. See [Build a Lightning App Using Agentforce Vibes](https://developer.salesforce.com/docs/platform/einstein-for-devs/guide/lexapp-overview.html).
-
-## Additional Resources
-
-- [Agentforce Vibes Developer Guide](https://developer.salesforce.com/docs/platform/einstein-for-devs/guide/einstein-overview.html)
-- [Salesforce CLI Installation Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_intro.htm)
-- [Salesforce DX Developer Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/)
-- [Salesforce CLI Command Reference](https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/)
-- [Salesforce CLI Plugin Development Guide](https://developer.salesforce.com/docs/platform/salesforce-cli-plugin/guide/conceptual-overview.html)
-- [Salesforce VS Code Extensions Documentation](https://developer.salesforce.com/tools/vscode/)
-
+Flags one project and a few of its work items public, shapes them into an epic hierarchy, and
+plants a canary that must never render. It never writes `Status__c`, because a status change
+pushes to live Jira.

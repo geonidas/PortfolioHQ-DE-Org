@@ -24,5 +24,9 @@
         <span class="proj">{card.projectLabel}</span>
       </template>
     </div>
+
+    <template lwc:if={card.hasLastSynced}>
+      <p class="synced" data-synced>{card.lastSyncedLabel}</p>
+    </template>
   </article>
 </template>
