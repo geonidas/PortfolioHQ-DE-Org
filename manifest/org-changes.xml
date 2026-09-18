@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Declarative metadata only - the things you change in the org, not in the editor.
+  Use with:  sf project retrieve start -x manifest/org-changes.xml
+
+  Deliberately excludes ApexClass, ApexTrigger, ApexPage, ApexComponent,
+  LightningComponentBundle, AuraDefinitionBundle and StaticResource: that source
+  lives in git and travels local -> org only. Retrieving it is what strips the
+  trailing newline Prettier puts back, which is the deploy/retrieve churn.
+
+  Also excludes DigitalExperience* - the org regenerates that JSON with its own
+  ordering, so it churns on every round trip. Add it back only when you have
+  actually edited the site in Experience Builder.
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>Integration_Log__c</members>
+        <members>Integration_Secret__mdt</members>
+        <members>Project__c</members>
+        <members>Webhook_Event_Received__e</members>
+        <members>Webhook_Event__c</members>
+        <members>Work_Item__c</members>
+        <name>CustomObject</name>
+    </types>
+    <types>
+        <members>Unified_Cross_Platform_Workflow</members>
+        <members>Work_Item_Board</members>
+        <name>FlexiPage</name>
+    </types>
+    <types>
+        <members>Jira_Demo_Access</members>
+        <members>Jira_Snapshot_Access</members>
+        <members>Jira_Webhook_Guest</members>
+        <members>Portfolio_HQ_Developer</members>
+        <members>Portfolio_HQ_Guest</members>
+        <name>PermissionSet</name>
+    </types>
+    <types>
+        <members>Project__c</members>
+        <members>Work_Item__c</members>
+        <name>SharingRules</name>
+    </types>
+    <types>
+        <members>Project__c.Public_Projects_To_Site_Guest</members>
+        <members>Work_Item__c.Public_Work_Items_To_Site_Guest</members>
+        <name>SharingGuestRule</name>
+    </types>
+    <types>
+        <members>External_System</members>
+        <name>GlobalValueSet</name>
+    </types>
+    <types>
+        <members>Jira_Atlassian</members>
+        <members>Jira_Classic</members>
+        <name>NamedCredential</name>
+    </types>
+    <types>
+        <members>Jira_Token</members>
+        <name>ExternalCredential</name>
+    </types>
+    <types>
+        <members>Project__c</members>
+        <members>Unified_Cross_Platform_Workflow</members>
+        <members>Work_Item_Board</members>
+        <members>Work_Item__c</members>
+        <name>CustomTab</name>
+    </types>
+    <types>
+        <members>Account-Account Layout</members>
+        <members>Account-Agency</members>
+        <members>Account-Internal</members>
+        <members>Integration_Secret__mdt-Integration Secret Layout</members>
+        <name>Layout</name>
+    </types>
+    <types>
+        <members>Account.Agency</members>
+        <members>Account.Internal</members>
+        <name>RecordType</name>
+    </types>
+    <version>67.0</version>
+</Package>
