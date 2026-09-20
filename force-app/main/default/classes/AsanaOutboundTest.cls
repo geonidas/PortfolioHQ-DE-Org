@@ -1,0 +1,469 @@
+/**
+ * The Asana outbound path: two writes that must both happen, and who is allowed to trigger them.
+ *
+ * Kept apart from AsanaAdapterTest because the inbound tests must not commit any DML - the
+ * adapter calls out from parseInbound, and DML before a callout throws. These tests need real
+ * records, and push callouts happen after the DML rather than before it, so the two halves
+ * cannot share a class without one of them lying about the ordering it depends on.
+ */
+@IsTest
+private class AsanaOutboundTest {
+  private static final String TASK_GID = '1210000000000042';
+
+  private static void mapStatuses() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = AsanaPayloadFactory.statusMappings();
+  }
+
+  private static Work_Item__c asanaItem(String status, Boolean isPublic) {
+    Project__c project = TestDataFactory.createProjects(1, false)[0];
+    project.External_System__c = ExternalSystem.ASANA;
+    project.External_Project_Key__c = AsanaPayloadFactory.PROJECT_GID;
+    insert project;
+
+    Work_Item__c item = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    item.External_Id__c = 'asana:' + TASK_GID;
+    item.External_Key__c = null;
+    item.External_System__c = ExternalSystem.ASANA;
+    item.Status__c = status;
+    item.Sync_Status__c = SyncStatus.PENDING;
+    item.Is_Public__c = isPublic;
+    insert item;
+    return item;
+  }
+
+  /** Every write Asana received, in order. */
+  private static AsanaWriteMock push(Work_Item__c item, String targetStatus) {
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    AsanaAdapter adapter = new AsanaAdapter();
+    lastResult = adapter.updateStatus(item, targetStatus);
+    lastLogs = adapter.drainLogs();
+    return mock;
+  }
+
+  private static SyncResult lastResult;
+  private static List<Integration_Log__c> lastLogs;
+
+  // ---------- the two writes ----------
+
+  @IsTest
+  static void movingToDoneWritesBothTheSectionAndTheFlag() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+
+    Test.startTest();
+    AsanaWriteMock mock = push(item, WorkItemStatus.DONE);
+    Test.stopTest();
+
+    Assert.isTrue(lastResult.isSuccess(), 'Failure: ' + lastResult.message);
+    Assert.areEqual(
+      2,
+      mock.callCount(),
+      'Two writes, not one. Asana models the column and the checkbox independently, and ' +
+      'writing only one authors the contradiction step 6 exists to absorb.'
+    );
+    Assert.isTrue(
+      mock.captured[0]
+        .endpoint.contains(
+          '/sections/' + AsanaPayloadFactory.SECTION_COMPLETED + '/addTask'
+        ),
+      'First the section move, to the gid the mapping table names: ' +
+      mock.captured[0].endpoint
+    );
+    Assert.isTrue(
+      mock.captured[0].body.contains(TASK_GID),
+      'Carrying the raw task gid, not the namespaced external id: ' +
+      mock.captured[0].body
+    );
+    Assert.isTrue(
+      mock.captured[1].endpoint.endsWith('/tasks/' + TASK_GID),
+      'Then the completion flag on the task itself: ' +
+      mock.captured[1].endpoint
+    );
+    Assert.areEqual('PUT', mock.captured[1].method);
+    Assert.isTrue(
+      mock.captured[1].body.contains('"completed":true'),
+      'Set, because the target is Done: ' + mock.captured[1].body
+    );
+  }
+
+  @IsTest
+  static void movingOutOfDoneWritesBothInReverse() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.DONE, false);
+
+    Test.startTest();
+    AsanaWriteMock mock = push(item, WorkItemStatus.IN_PROGRESS);
+    Test.stopTest();
+
+    Assert.isTrue(lastResult.isSuccess(), 'Failure: ' + lastResult.message);
+    Assert.areEqual(2, mock.callCount(), 'Still two writes.');
+    Assert.isTrue(
+      mock.captured[0]
+        .endpoint.contains(
+          '/sections/' + AsanaPayloadFactory.SECTION_IN_PROGRESS + '/addTask'
+        ),
+      'Moved to the target section: ' + mock.captured[0].endpoint
+    );
+    Assert.isTrue(
+      mock.captured[1].body.contains('"completed":false'),
+      'And un-ticked, or the task would stay struck through in a column that says otherwise: ' +
+      mock.captured[1].body
+    );
+  }
+
+  @IsTest
+  static void anUnmappedTargetStatusLogsAndCallsOutToNothing() {
+    // In Review has no Asana section, and that asymmetry is correct rather than a gap to paper
+    // over - Asana has no In Review column and inventing one would be a lie about the board.
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+
+    Test.startTest();
+    Integer before = Limits.getCallouts();
+    AsanaWriteMock mock = push(item, WorkItemStatus.IN_REVIEW);
+    Integer after = Limits.getCallouts();
+    Test.stopTest();
+
+    Assert.isFalse(lastResult.isSuccess(), 'There is nowhere to move it to.');
+    Assert.areEqual(
+      before,
+      after,
+      'And nothing was sent. The mapping is resolved before any callout, so a configuration ' +
+      'gap costs no HTTP at all.'
+    );
+    Assert.areEqual(0, mock.callCount());
+    Assert.areEqual(
+      1,
+      lastLogs.size(),
+      'One row says which mapping is missing.'
+    );
+    Assert.isTrue(
+      lastLogs[0].Error_Message__c.contains('In Review'),
+      'Naming the status: ' + lastLogs[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void aFailedSectionMoveNeverWritesTheFlag() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(500);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .updateStatus(item, WorkItemStatus.DONE);
+    Test.stopTest();
+
+    Assert.isFalse(result.isSuccess());
+    Assert.areEqual(
+      1,
+      mock.callCount(),
+      'The second write is not attempted. Ticking completed on a task still sitting in ' +
+      'In Progress would author the contradiction rather than avoid it.'
+    );
+  }
+
+  @IsTest
+  static void anItemWithNoAsanaIdIsRefusedWithoutCallingOut() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.External_Id__c = 'jira:10039';
+
+    Test.startTest();
+    Integer before = Limits.getCallouts();
+    AsanaWriteMock mock = push(item, WorkItemStatus.DONE);
+    Integer after = Limits.getCallouts();
+    Test.stopTest();
+
+    Assert.isFalse(
+      result(),
+      'An id for another system is not this adapter\'s to push.'
+    );
+    Assert.areEqual(before, after, 'And nothing was sent.');
+    Assert.areEqual(0, mock.callCount());
+  }
+
+  @IsTest
+  static void unspecifiedIsNeverPushed() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+
+    Test.startTest();
+    AsanaWriteMock mock = push(item, WorkItemStatus.UNSPECIFIED);
+    Test.stopTest();
+
+    Assert.isFalse(
+      result(),
+      'Unspecified means "no mapping", so there is nothing to ask Asana for.'
+    );
+    Assert.areEqual(0, mock.callCount());
+  }
+
+  @IsTest
+  static void aFailedCompletionWriteIsReportedAsSuchNotAsSuccess() {
+    // The half-applied case. The section move landed, so the board looks right; the flag did
+    // not, so Asana still thinks the task is unfinished. Reporting success here would leave a
+    // record marked Synced that disagrees with the remote system for ever.
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(new List<Integer>{ 200, 500 });
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult outcome = new AsanaAdapter()
+      .updateStatus(item, WorkItemStatus.DONE);
+    Test.stopTest();
+
+    Assert.isFalse(outcome.isSuccess(), 'Half applied is not applied.');
+    Assert.areEqual(2, mock.callCount(), 'Both writes were attempted.');
+    Assert.isTrue(
+      outcome.message.contains('completed=true'),
+      'And the message says which half failed: ' + outcome.message
+    );
+  }
+
+  @IsTest
+  static void remoteRefusalsAreClassified() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+
+    Test.startTest();
+    Test.setMock(HttpCalloutMock.class, new AsanaWriteMock(401));
+    SyncResult unauthorized = new AsanaAdapter()
+      .updateStatus(item, WorkItemStatus.DONE);
+    Test.setMock(HttpCalloutMock.class, new AsanaWriteMock(429));
+    SyncResult throttled = new AsanaAdapter()
+      .updateStatus(item, WorkItemStatus.DONE);
+    Test.stopTest();
+
+    Assert.areEqual(
+      SyncResult.Outcome.UNAUTHORIZED,
+      unauthorized.outcome,
+      'A credential problem is not a transient one, and should not be retried into working.'
+    );
+    Assert.areEqual(
+      SyncResult.Outcome.RATE_LIMITED,
+      throttled.outcome,
+      'And a 429 is, which is a different decision for whoever reads the log.'
+    );
+  }
+
+  @IsTest
+  static void badRequestsAreRefusedBeforeAnyCallout() {
+    mapStatuses();
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    AsanaAdapter adapter = new AsanaAdapter();
+    SyncResult noItem = adapter.updateStatus(null, WorkItemStatus.DONE);
+    SyncResult noStatus = adapter.updateStatus(
+      new Work_Item__c(External_Id__c = 'asana:' + TASK_GID),
+      ''
+    );
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.BAD_REQUEST, noItem.outcome);
+    Assert.areEqual(SyncResult.Outcome.BAD_REQUEST, noStatus.outcome);
+    Assert.areEqual(
+      0,
+      mock.callCount(),
+      'None of these reach the wire. The adapter contracts not to throw, so they come back ' +
+      'as results instead.'
+    );
+  }
+
+  @IsTest
+  static void reachableStatusesComeFromTheMappingTableNotACallout() {
+    // Asana has no workflow to ask: every mapped section is reachable from every other one,
+    // because moving a task between columns is never refused. So the answer does not depend on
+    // the task, and costs nothing.
+    mapStatuses();
+
+    Test.startTest();
+    Integer before = Limits.getCallouts();
+    List<TransitionOption> options = new AsanaAdapter()
+      .fetchAvailableTransitions('asana:' + TASK_GID);
+    Integer after = Limits.getCallouts();
+    Test.stopTest();
+
+    Assert.areEqual(before, after, 'No callout: there is nothing to ask.');
+    Set<String> statuses = new Set<String>();
+    for (TransitionOption option : options) {
+      statuses.add(option.targetStatus);
+    }
+    Assert.areEqual(
+      new Set<String>{
+        WorkItemStatus.TO_DO,
+        WorkItemStatus.IN_PROGRESS,
+        WorkItemStatus.DONE
+      },
+      statuses,
+      'The three the learning project maps. In Review is absent because Asana has no such ' +
+      'column, and that asymmetry is correct rather than a gap to invent a section for.'
+    );
+  }
+
+  @IsTest
+  static void anIdForAnotherSystemIsRefusedOutright() {
+    mapStatuses();
+
+    Test.startTest();
+    Boolean threw = false;
+    try {
+      new AsanaAdapter().fetchAvailableTransitions('jira:10039');
+    } catch (AdapterException e) {
+      threw = true;
+    }
+    Test.stopTest();
+
+    Assert.isTrue(
+      threw,
+      'Unlike updateStatus, this one throws: an empty list would mean "nowhere to go", which ' +
+      'is a different and misleading answer.'
+    );
+  }
+
+  // ---------- who triggers a push ----------
+
+  @IsTest
+  static void aPrivateItemsStatusChangeEnqueuesOneJob() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.TO_DO, false);
+
+    Test.startTest();
+    item.Status__c = WorkItemStatus.IN_PROGRESS;
+    update item;
+    Integer queued = Limits.getQueueableJobs();
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      queued,
+      'A private Asana record behaves exactly as a private Jira one does - the queueable does ' +
+      'not know which system it is pushing to.'
+    );
+  }
+
+  @IsTest
+  static void aPublicItemsStatusChangeEnqueuesNothing() {
+    // Build 07 step 8 made sync bidirectional for private items and inbound-only for public
+    // ones. A public item is a showcase mirror: the remote system is its source of truth, and
+    // a status typed into Salesforce should not rewrite what the portfolio is showing off.
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.TO_DO, true);
+
+    Test.startTest();
+    item.Status__c = WorkItemStatus.IN_PROGRESS;
+    update item;
+    Integer queued = Limits.getQueueableJobs();
+    Test.stopTest();
+
+    Assert.areEqual(
+      0,
+      queued,
+      'Nothing was enqueued. This rule lives in WorkItemTriggerHandler and is vendor-neutral, ' +
+      'so it applies to Jira too - which is a behaviour change, not a restatement.'
+    );
+    Assert.areEqual(
+      SyncStatus.PENDING,
+      [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :item.Id]
+      .Sync_Status__c,
+      'And it was not staged either, so the two halves of the trigger still agree.'
+    );
+  }
+
+  @IsTest
+  static void anItemWithNoExternalIdEnqueuesNothing() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.TO_DO, false);
+    item.External_Id__c = null;
+    update item;
+
+    Test.startTest();
+    item.Status__c = WorkItemStatus.IN_PROGRESS;
+    update item;
+    Integer queued = Limits.getQueueableJobs();
+    Test.stopTest();
+
+    Assert.areEqual(
+      0,
+      queued,
+      'Nothing remote to push to. Existing rule, still true for a second system.'
+    );
+  }
+
+  @IsTest
+  static void anInboundAppliedChangeEnqueuesNothing() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.TO_DO, false);
+
+    Test.startTest();
+    SyncContext.suppressOutbound();
+    try {
+      item.Status__c = WorkItemStatus.IN_PROGRESS;
+      update item;
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    Integer queued = Limits.getQueueableJobs();
+    Test.stopTest();
+
+    Assert.areEqual(
+      0,
+      queued,
+      'Applying a webhook must not bounce straight back out to the system it came from.'
+    );
+  }
+
+  @IsTest
+  static void twoHundredStatusChangesCostOneJob() {
+    mapStatuses();
+    Project__c project = TestDataFactory.createProjects(1, false)[0];
+    project.External_System__c = ExternalSystem.ASANA;
+    project.External_Project_Key__c = AsanaPayloadFactory.PROJECT_GID;
+    insert project;
+
+    List<Work_Item__c> items = TestDataFactory.createWorkItems(
+      200,
+      project.Id,
+      false
+    );
+    for (Integer i = 0; i < items.size(); i++) {
+      // Built as a string: a gid is longer than Apex's Integer range, and the literal
+      // arithmetic would not compile.
+      items[i].External_Id__c = 'asana:121000000' + String.valueOf(1000 + i);
+      items[i].External_Key__c = null;
+      items[i].External_System__c = ExternalSystem.ASANA;
+      items[i].Status__c = WorkItemStatus.TO_DO;
+      items[i].Sync_Status__c = SyncStatus.PENDING;
+    }
+    insert items;
+
+    Test.startTest();
+    for (Work_Item__c item : items) {
+      item.Status__c = WorkItemStatus.IN_PROGRESS;
+    }
+    update items;
+    Integer queued = Limits.getQueueableJobs();
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      queued,
+      'One job for the whole update, chunked inside. A job per record would blow the limit at ' +
+      'fifty and the trigger would fail the DML.'
+    );
+  }
+
+  private static Boolean result() {
+    return lastResult != null && lastResult.isSuccess();
+  }
+}

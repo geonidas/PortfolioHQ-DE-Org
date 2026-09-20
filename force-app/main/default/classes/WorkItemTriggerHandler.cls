@@ -66,14 +66,30 @@ public with sharing class WorkItemTriggerHandler {
 
   /**
    * The one rule both halves share: a genuine Status__c change, to a status that means
-   * something, on a record the remote system knows. Written once so the before and after
-   * contexts cannot drift apart - staging a record the after context then declines to push, or
-   * the reverse, would each be a silent failure.
+   * something, on a record the remote system knows, that is not on public display. Written once
+   * so the before and after contexts cannot drift apart - staging a record the after context
+   * then declines to push, or the reverse, would each be a silent failure.
+   *
+   * Vendor-neutral, and deliberately so: the public rule is a property of the work item, not of
+   * the system it came from, and a branch on Source_System__c here is exactly what the adapter
+   * seam exists to prevent.
+   *
+   * ---------------------------------------------------------------------------------------
+   * Is_Public__c ARRIVED IN BUILD 07 STEP 8 AND CHANGED JIRA'S BEHAVIOUR TOO.
+   *
+   * Sync is now bidirectional for private items and inbound-only for public ones. A public item
+   * is a showcase mirror of something that lives elsewhere: the remote system is its source of
+   * truth, and a status typed into Salesforce should not rewrite what the portfolio is showing
+   * off. Before this, a status change on ANY record carrying an External_Id__c pushed, public
+   * or not - so if a public Jira issue stops responding to a status change made in Salesforce,
+   * this is why, and it is intended.
+   * ---------------------------------------------------------------------------------------
    */
   private static Boolean isPushable(Work_Item__c item, Work_Item__c prior) {
     return prior != null &&
       prior.Status__c != item.Status__c &&
       item.Status__c != WorkItemStatus.UNSPECIFIED &&
-      String.isNotBlank(item.External_Id__c);
+      String.isNotBlank(item.External_Id__c) &&
+      item.Is_Public__c != true;
   }
 }

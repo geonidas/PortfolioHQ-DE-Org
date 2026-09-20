@@ -40,6 +40,41 @@ private class GuestAccessTest {
     ];
   }
 
+  /**
+   * Fields the board guest must never hold, whatever else it is granted.
+   *
+   * Source_Type__c carries the type string exactly as a vendor sent it - on the Asana board,
+   * whatever somebody typed into a custom field. Type__c is restricted precisely so that free
+   * text cannot reach a public card, and this is the field that would undo it.
+   */
+  @IsTest
+  static void theBoardGuestHoldsNoPrivateWorkItemFields() {
+    Set<String> forbiddenFields = new Set<String>{
+      'Work_Item__c.Source_Type__c',
+      'Work_Item__c.Description__c',
+      'Work_Item__c.Assignee__c',
+      'Work_Item__c.External_URL__c'
+    };
+
+    List<FieldPermissions> granted = [
+      SELECT Field, Parent.Name
+      FROM FieldPermissions
+      WHERE
+        Field IN :forbiddenFields
+        AND ParentId IN (
+          SELECT Id
+          FROM PermissionSet
+          WHERE Name IN ('Portfolio_HQ_Guest', 'Jira_Webhook_Guest')
+        )
+    ];
+    Assert.areEqual(
+      0,
+      granted.size(),
+      'A guest permission set granted a field that must never reach an anonymous visitor: ' +
+      granted
+    );
+  }
+
   @IsTest
   static void guestGrantsNoAccessToRestrictedObjects() {
     List<ObjectPermissions> grants = guestObjectGrants();
@@ -98,7 +133,7 @@ private class GuestAccessTest {
   }
 
   @IsTest
-  static void guestRunsOnlyTheEndpointClass() {
+  static void guestRunsOnlyTheEndpointClasses() {
     List<SetupEntityAccess> classAccess = [
       SELECT SetupEntityId
       FROM SetupEntityAccess
@@ -110,21 +145,23 @@ private class GuestAccessTest {
         )
         AND SetupEntityType = 'ApexClass'
     ];
-    Assert.areEqual(
-      1,
-      classAccess.size(),
-      'Exactly one class: the REST endpoint.'
-    );
-
+    // One per vendor, and nothing else. Apex class access is granted per CLASS, not per method,
+    // so every name on this list is every method a guest can invoke - which is why the set is
+    // asserted exactly rather than checked for absences. AsanaWebhookResource joined it in
+    // build 07 step 5, deliberately: this assertion failed first.
     Set<Id> allowed = new Set<Id>();
     for (SetupEntityAccess access : classAccess) {
       allowed.add(access.SetupEntityId);
     }
-    List<ApexClass> named = [SELECT Name FROM ApexClass WHERE Id IN :allowed];
+    Set<String> names = new Set<String>();
+    for (ApexClass named : [SELECT Name FROM ApexClass WHERE Id IN :allowed]) {
+      names.add(named.Name);
+    }
     Assert.areEqual(
-      'JiraWebhookResource',
-      named[0].Name,
-      'And it is the endpoint, not something else.'
+      new Set<String>{ 'AsanaWebhookResource', 'JiraWebhookResource' },
+      names,
+      'The endpoints, and nothing else. A board controller or a service here would expose ' +
+      'every method on it to an anonymous visitor.'
     );
   }
 

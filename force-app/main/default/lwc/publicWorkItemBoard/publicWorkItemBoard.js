@@ -29,6 +29,7 @@ export default class PublicWorkItemBoard extends LightningElement {
   viewColumns = [];
   otherCards = [];
   epicCards = [];
+  passThroughCards = [];
   epicColumns = [];
   otherEpics = [];
   errorMessage;
@@ -131,8 +132,10 @@ export default class PublicWorkItemBoard extends LightningElement {
     return this.isEpicView ? "view-btn is-on" : "view-btn";
   }
 
+  // Everything the epic view shows: the epics, plus the cards the toggle leaves alone. A board
+  // with no epics but some flat work is not an empty epic view.
   get epicCount() {
-    return this.epicCards.length;
+    return this.epicCards.length + this.passThroughCards.length;
   }
   get hasOtherEpics() {
     return this.otherEpics.length > 0;
@@ -202,8 +205,20 @@ export default class PublicWorkItemBoard extends LightningElement {
   }
 
   /**
-   * Lays the epic payload into the same columns as the task view, keyed on each epic's own
-   * status.
+   * Lays the epic view into the same columns as the task view.
+   *
+   * Two kinds of card share those columns, and which kind a card is was decided by the server:
+   * every card carries condensesIntoEpic, and the epic toggle is a transform that applies only
+   * to the ones where it is true.
+   *
+   * - A card that condenses is replaced by the epic it belongs to. That is the whole point of
+   *   the view: once a project is finished the individual tasks matter less than the epic did.
+   * - A card that does not condense passes through untouched, into the column its own status
+   *   names. It is not an epic and it is not an orphan - it is flat, and there is nothing to
+   *   roll it up into.
+   *
+   * No branch on a vendor name anywhere, because no vendor name is in the payload. The server
+   * asks BoardSourceRules and publishes the answer as a boolean.
    *
    * The server still decides which epics exist - every active one, plus at most the three most
    * recently updated completed ones. That cap is not re-implemented here and cannot drift from
@@ -212,7 +227,23 @@ export default class PublicWorkItemBoard extends LightningElement {
   rebuildEpics() {
     const epics = (this.board && this.board.epics) || [];
     this.epicCards = epics.map((epic, index) => this.toEpicCard(epic, index));
-    const laid = layoutColumns(this.epicCards, this.configuredColumns);
+
+    // Cards the toggle does not transform, shown identically in both views.
+    this.passThroughCards = ((this.board && this.board.items) || [])
+      .filter((item) => !item.condensesIntoEpic)
+      .map((item) => ({
+        ...this.toCard(item),
+        isEpic: false,
+        // The epic columns key on `key`, because epic cards carry no identifier of any kind.
+        // A pass-through card has an auto number, so it uses that rather than a position -
+        // stable across a re-render in a way an index is not.
+        key: `item-${item.recordNumber}`
+      }));
+
+    const laid = layoutColumns(
+      [...this.epicCards, ...this.passThroughCards],
+      this.configuredColumns
+    );
     this.epicColumns = laid.columns.map((col) => ({
       ...col,
       // Per column, because "no completed epics yet" and "nothing in progress" are different
@@ -237,6 +268,8 @@ export default class PublicWorkItemBoard extends LightningElement {
       // The list is rebuilt whole from each payload, so a positional key is stable for
       // exactly as long as it needs to be.
       key: `epic-${index}`,
+      // Tells the template which component to render, now that the epic columns hold both.
+      isEpic: true,
       // No fallback to an external key or record number, because neither is in the epic
       // payload. An untitled epic is labelled here rather than published differently.
       heading: epic.title || "Untitled epic",
@@ -286,7 +319,10 @@ export default class PublicWorkItemBoard extends LightningElement {
           : "sync-flag sync-pending",
       parentNumber: item.parentNumber || null,
       children: [],
-      hasChildren: false
+      hasChildren: false,
+      // Decided by the server, from BoardSourceRules. The client never sees a vendor name.
+      condensesIntoEpic: !!item.condensesIntoEpic,
+      isEpic: false
     };
   }
 }

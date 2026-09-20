@@ -3,6 +3,9 @@
  * to name a vendor, because something has to construct the concrete class - the rule everywhere
  * else is that business logic never mentions Jira.
  *
+ * Two systems as of build 07: jira and asana. Adding a third is a line here and a class, and
+ * nothing else anywhere - which is the property the whole adapter seam exists to buy.
+ *
  * Routing is by the external id's namespace rather than External_System__c. The namespace is what
  * actually determines which API an id is valid against, it is already required and validated by
  * the adapter, and it keeps one source of truth. External_System__c stays descriptive, for
@@ -36,8 +39,11 @@ public with sharing class WorkItemAdapterFactory {
     String key = systemNamespace == null
       ? ''
       : systemNamespace.trim().toLowerCase();
-    if (key == 'jira') {
+    if (key == ExternalSystem.JIRA_NAMESPACE) {
       return new JiraAdapter();
+    }
+    if (key == ExternalSystem.ASANA_NAMESPACE) {
+      return new AsanaAdapter();
     }
     throw new UnsupportedSystemException(
       'No adapter is registered for external system: ' + systemNamespace

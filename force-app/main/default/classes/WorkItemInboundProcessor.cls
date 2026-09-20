@@ -25,6 +25,8 @@ public with sharing class WorkItemInboundProcessor {
     .getLength();
   private static final Integer EXTERNAL_ID_MAX = Webhook_Event__c.External_Id__c.getDescribe()
     .getLength();
+  private static final Integer SOURCE_TYPE_MAX = Work_Item__c.Source_Type__c.getDescribe()
+    .getLength();
 
   /**
    * One delivery, parsed, plus what this class learns about it while applying it.
@@ -262,6 +264,23 @@ public with sharing class WorkItemInboundProcessor {
       // one of them. Unspecified, by contrast, is a real value the payload asked for.
       if (String.isNotBlank(change.normalizedType)) {
         item.Type__c = change.normalizedType;
+      }
+
+      // The vendor's own word for the type, kept beside the normalized one and under the same
+      // carried-or-absent rule. Type__c stays a restricted picklist so nothing free-text can
+      // reach the public board; Source_Type__c holds what was actually sent, so
+      // "which types am I really using" is a GROUP BY rather than a hunch:
+      //
+      //   SELECT Source_Type__c, COUNT(Id) FROM Work_Item__c
+      //   WHERE Type__c = 'Unspecified' GROUP BY Source_Type__c
+      //
+      // A raw value that shows up often enough earns a place in the picklist. Evidence, not
+      // guesswork - and never public: this field is on no DTO and on no guest permission set.
+      if (String.isNotBlank(change.remoteType)) {
+        item.Source_Type__c = Strings.truncate(
+          change.remoteType,
+          SOURCE_TYPE_MAX
+        );
       }
 
       toUpsert.add(item);

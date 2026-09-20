@@ -508,12 +508,20 @@ private class WorkItemSyncServiceTest {
       ) instanceof JiraAdapter,
       'A jira-namespaced id should route to the Jira adapter.'
     );
+    // Asana routes as of build 07 step 6. This assertion named it as the unregistered system
+    // until then, and updating it was the deliberate act of registering a second adapter.
+    Assert.isTrue(
+      WorkItemAdapterFactory.forWorkItem(
+        new Work_Item__c(External_Id__c = 'asana:1210000000000001')
+      ) instanceof AsanaAdapter,
+      'An asana-namespaced id should route to the Asana adapter.'
+    );
     try {
-      WorkItemAdapterFactory.forSystem('asana');
+      WorkItemAdapterFactory.forSystem('trello');
       Assert.fail('An unregistered system should be refused.');
     } catch (WorkItemAdapterFactory.UnsupportedSystemException e) {
       Assert.isTrue(
-        e.getMessage().contains('asana'),
+        e.getMessage().contains('trello'),
         'Message should name the system.'
       );
     }

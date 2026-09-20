@@ -4,10 +4,17 @@ What a new context window needs and cannot read from the repo. Decisions and the
 reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
 **This file holds only what git does not know: org state, invariants, and traps.**
 
-Current as of the refactor pass after Build 06 (`docs/build-summaries/refactor-01.md`).
+Current as of **Build 07** (`docs/build-summaries/build-07.md`), which added Asana as a second
+source system. Build 07's code is deployed and green; its **manual Asana setup has not been
+done**, so nothing has met live Asana yet - see section 6.
 Builds 01–06 are deployed and verified against live Jira. Class names below reflect the
-refactor: `JiraWebhookProcessor` became `WorkItemInboundProcessor`, and Jira payload parsing
-moved into `JiraAdapter.parseInbound`. Older ADRs and summaries use the old name.
+refactor after build 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`, and Jira
+payload parsing moved into `JiraAdapter.parseInbound`. Older ADRs and summaries use the old name.
+
+**Build 07 changed one thing about Jira, on purpose.** Sync is now bidirectional for private
+items and **inbound-only for public ones** (`WorkItemTriggerHandler.isPushable`). Before it, a
+status change on any record carrying an `External_Id__c` pushed. If a public Jira issue stops
+responding to a status change made in Salesforce, that is why.
 
 ---
 
@@ -391,6 +398,12 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
 | An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                                   | Cosmetic                              |
 | A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.                       | If `npm run test:unit` dies wholesale |
 | Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so. | After the next few live deliveries    |
+| **The whole manual Asana setup is outstanding** - no project record, no `Field_Mapping__mdt` rows, no registered webhook. Build 07's code is deployed and green but has never met live Asana. See section 6.                         | Before build 07 is done               |
+| A promoted secret leaves its `Webhook_Secret__c` staging row behind. The script says to delete it; nothing enforces it.                                                                                                              | After the first real registration     |
+| Rotating a secret means deleting the staged row first: `Resource_Id__c` is unique and the guest cannot update a row.                                                                                                                 | At first rotation                     |
+| Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                               | If re-registration becomes frequent   |
+| Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                  | At volume                             |
+| `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana reads `Field_Mapping__mdt`. Two mechanisms for one job.                                                                                             | Next time a Jira mapping changes      |
 
 ---
 
@@ -442,3 +455,78 @@ does, the only enforcement of the parent project flag has gone.
 A loop-prevention check: change one `Status__c`, then watch `Integration_Log__c`. It
 should gain exactly 2 rows and stop. Climbing by 2 repeatedly means the loop did not
 terminate.
+
+---
+
+## 6. Asana — the manual setup, which has NOT been done
+
+Build 07's code is deployed and tested. None of it has met live Asana, because all of this is by
+hand and out of build scope. Until it is done, an Asana delivery is rejected 401 and no Asana
+work item exists.
+
+### In Asana
+
+1. Create the learning project with sections named **Up Next**, **In Progress**, **Completed**.
+2. Capture the **project gid** and each **section gid**. The API returns them; the UI shows them
+   in the URL.
+3. Add a task custom field named **`Type`**. This is a convention this project invented, not an
+   Asana feature: a task has no native type, and `resource_subtype` is almost always
+   `default_task`. `AsanaAdapter` reads a custom field called `Type`, case-insensitively.
+
+### In Salesforce
+
+4. `Project__c` record with `External_Project_Key__c` = the project gid and
+   `External_System__c` = `Asana`. **Without this the adapter cannot tell which of a task's
+   memberships to read a section from**, so the item arrives with no project and no status.
+5. `Field_Mapping__mdt` records, created in Setup (`customMetadata/` is gitignored):
+
+   | External System | Mapping Type | External Value            | External Label | Normalized Value |
+   | --------------- | ------------ | ------------------------- | -------------- | ---------------- |
+   | Asana           | Status       | _Up Next section gid_     | Up Next        | To Do            |
+   | Asana           | Status       | _In Progress section gid_ | In Progress    | In Progress      |
+   | Asana           | Status       | _Completed section gid_   | Completed      | Done             |
+
+   Keyed on the **gid**, never the section name: a gid survives a rename and a name does not.
+   There is deliberately no `In Review` row — Asana has no such column, and that asymmetry is
+   correct.
+
+6. Type mappings as they are decided, with `Mapping_Type__c = Type`.
+
+### Register the webhook, by hand
+
+The target URL must carry the resource gid as its **last path segment** — the handshake carries
+no body and a delivery names only the resources that changed, so neither can say which secret to
+verify against.
+
+```bash
+curl -X POST https://app.asana.com/api/1.0/webhooks \
+  -H "Authorization: Bearer $ASANA_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"resource":"<project_gid>","target":"https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTestvforcesite/services/apexrest/v1/webhook/asana/<project_gid>"}}'
+```
+
+A **201** means the handshake succeeded and a `Webhook_Secret__c` row exists. Anything else means
+the endpoint did not echo correctly — check the row before retrying. A **409** means a secret is
+already staged for that resource: delete the row first, deliberately.
+
+### Then promote the secret — deliveries fail until you do
+
+```bash
+sf apex run --file scripts/apex/promote-webhook-secret.apex --target-org MyScratchOrg
+```
+
+The endpoint runs as the guest, and **a guest cannot read a custom object row** — so verification
+reads protected Custom Metadata instead, and something run by a real user has to carry the value
+across. Asana tolerates 24 hours of failures before deleting a webhook, so running this straight
+after registering is comfortably inside the window. **Delete the staged row once promoted.**
+
+### Known cost of the scratch org
+
+The site URL dies with the org, and Asana deletes a webhook after 24 hours of failed delivery.
+Re-registration is one curl plus one script run per org recreation.
+
+### Seeding
+
+Let real webhooks create Asana work items. If a script is ever needed, it sets the outbound
+suppression flag on its first line - a status write on a record carrying an `External_Id__c`
+enqueues a real push to real Asana.

@@ -3,6 +3,10 @@
     <description>Full CRUD and field access on Project__c, Work_Item__c, Integration_Log__c, Webhook_Event__c and Webhook_Secret__c, plus the Jira credential principal. View All on the two webhook objects, whose Private model hides them. Only set granting Secret__c.</description>
     <externalCredentialPrincipalAccesses>
         <enabled>true</enabled>
+        <externalCredentialPrincipal>Asana_Token-PAT1</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
         <externalCredentialPrincipal>Jira_Token-Personal Key</externalCredentialPrincipal>
     </externalCredentialPrincipalAccesses>
     <fieldPermissions>
@@ -88,6 +92,11 @@
     <fieldPermissions>
         <editable>true</editable>
         <field>Project__c.Status__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Work_Item__c.Source_Type__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>

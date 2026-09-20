@@ -31,6 +31,11 @@ public with sharing class PublicWorkItemSelector {
         Last_Synced__c,
         Parent_Work_Item__c,
         Project__r.Short_Name__c,
+        // Read, never published. The board asks BoardSourceRules whether this system's work
+        // condenses into epics and sends the ANSWER - a boolean - so no vendor name reaches
+        // an anonymous visitor. Same shape as LastModifiedDate below: queried for a decision,
+        // absent from every DTO.
+        External_System__c,
         // Ordering key only, for capping the completed epics on the epic view. Never
         // published - it is absent from every DTO. LastModifiedDate rather than
         // Remote_Last_Modified__c because it is a standard field needing no field-level

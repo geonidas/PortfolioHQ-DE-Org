@@ -66,6 +66,37 @@ private class PublicBoardControllerTest {
     return byTitle;
   }
 
+  /** A public work item from a system that has no epics. */
+  private static Work_Item__c flatItem(
+    Id projectId,
+    String status,
+    String title
+  ) {
+    Work_Item__c w = TestDataFactory.createWorkItems(1, projectId, false)[0];
+    w.Is_Public__c = true;
+    w.Status__c = status;
+    w.Sync_Status__c = 'Pending';
+    w.Type__c = WorkItemType.TASK;
+    w.Title__c = title;
+    w.External_System__c = ExternalSystem.ASANA;
+    w.External_Id__c = 'asana:' + Math.abs(Crypto.getRandomLong());
+    w.External_Key__c = null;
+    insert w;
+    return w;
+  }
+
+  private static PublicBoardController.PublicCard cardTitled(
+    PublicBoardController.PublicBoardData board,
+    String title
+  ) {
+    for (PublicBoardController.PublicCard card : board.items) {
+      if (card.title == title) {
+        return card;
+      }
+    }
+    return null;
+  }
+
   private static Set<String> numbersFrom(
     PublicBoardController.PublicBoardData board
   ) {
@@ -440,7 +471,11 @@ private class PublicBoardControllerTest {
       'projectLabel',
       'parentNumber',
       'syncStatus',
-      'lastSyncedAt'
+      'lastSyncedAt',
+      // Build 07 step 9. A boolean, not the source system's name: the client needs to know
+      // what the epic toggle does to this card, and does not need to know which vendor the
+      // work came from. Adding it here was the deliberate act - this assertion failed first.
+      'condensesIntoEpic'
     };
     Assert.areEqual(
       expected,
@@ -463,7 +498,13 @@ private class PublicBoardControllerTest {
         'Description__c',
         'Assignee__c',
         'External_URL__c',
-        'Is_Public__c'
+        'Is_Public__c',
+        // Build 07 step 7. Source_Type__c holds the type string exactly as a vendor sent it,
+        // which on the Asana board means whatever somebody typed into a custom field. It is on
+        // no DTO, and the exact key-set assertions above are what keep it that way; this is
+        // the belt to their braces.
+        'Source_Type__c',
+        'sourceType'
       }
     ) {
       Assert.isFalse(
@@ -804,5 +845,118 @@ private class PublicBoardControllerTest {
     }
     Assert.isTrue(logRefused, 'Integration_Log__c must stay out of reach.');
     Assert.isTrue(secretRefused, 'The signing secret must stay out of reach.');
+  }
+
+  // ---------- a second source on one board (build 07 step 9) ----------
+
+  @IsTest
+  static void aCardSaysWhetherTheEpicToggleRollsItUp() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c epic = epic(open.Id, true, 'In Progress');
+    item(open.Id, true, 'In Progress', 'Story', epic.Id);
+    flatItem(open.Id, 'In Progress', 'A course');
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    PublicBoardController.PublicCard flat = cardTitled(board, 'A course');
+    Assert.isNotNull(flat, 'The flat item is on the task view.');
+    Assert.isFalse(
+      flat.condensesIntoEpic,
+      'It has no epic to roll up into, so the toggle leaves it alone.'
+    );
+
+    Boolean sawCondensing = false;
+    for (PublicBoardController.PublicCard card : board.items) {
+      if (card.condensesIntoEpic) {
+        sawCondensing = true;
+      }
+    }
+    Assert.isTrue(
+      sawCondensing,
+      'And work from a system that does use epics says so - or the assertion above would ' +
+      'pass because nothing ever condenses.'
+    );
+  }
+
+  @IsTest
+  static void aFinishedFlatItemStaysOnTheBoard() {
+    // The orphan rule hides FINISHED unparented work, because it ought to sit under an epic.
+    // Work from a system with no epics has nothing to sit under, and hiding it the moment it
+    // is finished would make completing something look like deleting it.
+    Project__c open = project(true, 'OPEN');
+    flatItem(open.Id, 'Done', 'A finished course');
+    item(open.Id, true, 'Done', 'Story', null);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.isNotNull(
+      cardTitled(board, 'A finished course'),
+      'The flat item is still shown.'
+    );
+    Assert.areEqual(
+      1,
+      board.items.size(),
+      'And the finished orphan from a system that DOES use epics is still hidden, so this ' +
+      'is a per-source rule rather than the orphan rule quietly being switched off.'
+    );
+  }
+
+  @IsTest
+  static void aFlatItemIsNeverCountedTowardsAnEpic() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c parentEpic = epic(open.Id, true, 'In Progress');
+    item(open.Id, true, 'In Progress', 'Story', parentEpic.Id);
+    // Deliberately parented to the epic, which a flat source would never do - but nothing in
+    // the schema prevents it, and the count must not move if somebody sets it by hand.
+    Work_Item__c flat = TestDataFactory.createWorkItems(1, open.Id, false)[0];
+    flat.Is_Public__c = true;
+    flat.Status__c = 'In Progress';
+    flat.Sync_Status__c = 'Pending';
+    flat.Type__c = WorkItemType.TASK;
+    flat.Parent_Work_Item__c = parentEpic.Id;
+    flat.External_System__c = ExternalSystem.ASANA;
+    flat.External_Id__c = 'asana:' + Math.abs(Crypto.getRandomLong());
+    flat.External_Key__c = null;
+    insert flat;
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      board.epics[0].totalChildren,
+      'Only the card that condenses counts towards the epic. A flat card is shown as itself ' +
+      'in both views, so counting it too would show it twice.'
+    );
+  }
+
+  @IsTest
+  static void oneQueryWhateverTheMixOfSources() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c parentEpic = epic(open.Id, true, 'In Progress');
+    for (Integer i = 0; i < 4; i++) {
+      item(open.Id, true, 'In Progress', 'Story', parentEpic.Id);
+      flatItem(open.Id, 'To Do', 'Flat ' + i);
+    }
+
+    Test.startTest();
+    Integer before = Limits.getQueries();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Integer after = Limits.getQueries();
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      after - before,
+      'One SOQL query whatever the data shape. Ancestry and counts are computed in memory, ' +
+        'because a per-epic query would put the guest page one busy project away from the ' +
+        'governor limit.'
+    );
+    Assert.areEqual(8, board.items.size(), 'And every public card is there.');
   }
 }

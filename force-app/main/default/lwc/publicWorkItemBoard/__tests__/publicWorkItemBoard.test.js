@@ -28,9 +28,28 @@ function card(overrides) {
       projectLabel: "PHQ",
       parentNumber: null,
       syncStatus: "Synced",
-      lastSyncedAt: "2026-09-13T05:20:07.000Z"
+      lastSyncedAt: "2026-09-13T05:20:07.000Z",
+      // The server decides this from BoardSourceRules and publishes the answer, not the
+      // vendor's name. Jira-sourced work condenses; work from a system with no epics does not.
+      condensesIntoEpic: true
     },
     overrides
+  );
+}
+
+/** A card from a source with no epics: flat, and untouched by the epic toggle. */
+function flatCard(overrides) {
+  return card(
+    Object.assign(
+      {
+        recordNumber: "WI-9000",
+        title: "Superbadge: Apex Specialist",
+        externalKey: null,
+        type: "Task",
+        condensesIntoEpic: false
+      },
+      overrides
+    )
   );
 }
 
@@ -384,7 +403,9 @@ describe("c-public-work-item-board", () => {
 
     expect(
       element.shadowRoot.querySelector('[data-empty="epics"]').textContent
-    ).toContain("No epics yet");
+      // Reworded in build 07 step 9: the epic view can hold cards that are not epics, so
+      // "no epics yet" stopped being the whole truth about an empty one.
+    ).toContain("Nothing to roll up yet");
   });
 
   it("renders an epic as progress rather than as a status alone", async () => {
@@ -501,5 +522,146 @@ describe("c-public-work-item-board card freshness", () => {
     expect(
       cards(element)[0].shadowRoot.querySelector("[data-synced]")
     ).toBeNull();
+  });
+
+  // ---------- a second source on one board (build 07 step 9) ----------
+
+  it("shows flat cards in the task view alongside the rest", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([
+        card({ recordNumber: "WI-0001", status: "In Progress" }),
+        flatCard({ status: "In Progress" })
+      ])
+    );
+    await flush();
+
+    const titles = cards(element).map(
+      (c) => c.shadowRoot.querySelector("h3").textContent
+    );
+    expect(titles).toContain("Superbadge: Apex Specialist");
+    expect(titles).toHaveLength(2);
+  });
+
+  it("shows flat cards in the epic view too, in the same column", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(
+        [
+          card({ recordNumber: "WI-0001", status: "In Progress" }),
+          flatCard({ status: "In Progress" })
+        ],
+        [epic({ title: "Guest board", status: "To Do" })]
+      )
+    );
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const inProgress = epicColumn(element, "In Progress");
+    const rendered = Array.from(
+      inProgress.querySelectorAll("c-public-work-item-card")
+    ).map((c) => c.shadowRoot.querySelector("h3").textContent);
+    expect(rendered).toEqual(["Superbadge: Apex Specialist"]);
+  });
+
+  it("condenses cards that roll up and leaves flat ones alone", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(
+        [
+          card({ recordNumber: "WI-0001", title: "A story", status: "To Do" }),
+          flatCard({ status: "To Do" })
+        ],
+        [epic({ title: "Guest board", status: "To Do" })]
+      )
+    );
+    await flush();
+
+    // Task view: both cards, no epic cards.
+    expect(cards(element)).toHaveLength(2);
+    expect(epicCards(element)).toHaveLength(0);
+
+    toggle(element, "epics").click();
+    await flush();
+
+    const titles = cards(element).map(
+      (c) => c.shadowRoot.querySelector("h3").textContent
+    );
+    expect(titles).toEqual(["Superbadge: Apex Specialist"]);
+    expect(titles).not.toContain("A story");
+    expect(epicCards(element)).toHaveLength(1);
+  });
+
+  it("never puts a flat card in an orphan region", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(
+        [flatCard({ status: "In Progress" })],
+        [epic({ title: "Guest board", status: "To Do" })]
+      )
+    );
+    await flush();
+
+    toggle(element, "epics").click();
+    await flush();
+
+    // A flat card's status is a configured column, so it belongs in that column and nowhere
+    // else. The Other region exists for statuses the columns do not account for.
+    expect(
+      element.shadowRoot.querySelector('[data-region="other-epics"]')
+    ).toBeNull();
+    expect(
+      epicColumn(element, "In Progress").querySelector(
+        "c-public-work-item-card"
+      )
+    ).not.toBeNull();
+  });
+
+  it("toggling the view issues no new Apex call", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([flatCard({})], [epic({ title: "Guest board" })])
+    );
+    await flush();
+
+    // Asserted on the wire configuration rather than a call counter: getPublicBoardData takes
+    // no parameters, so there is nothing the client could send that would change what comes
+    // back, and a config that stays {} is what proves no narrower request was made.
+    const before = getPublicBoardData.getLastConfig();
+    expect(before).toEqual({});
+
+    toggle(element, "epics").click();
+    await flush();
+    toggle(element, "tasks").click();
+    await flush();
+
+    expect(getPublicBoardData.getLastConfig()).toEqual({});
+  });
+
+  it("carries data-view on every button on the board", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([flatCard({})], [epic({ title: "Guest board" })])
+    );
+    await flush();
+
+    const buttons = Array.from(element.shadowRoot.querySelectorAll("button"));
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons.forEach((button) => {
+      // Cards are inert. The view toggle is the only control on this page, and anything else
+      // that gained a button would be a write path on a read-only board.
+      expect(button.dataset.view).toBeTruthy();
+    });
+
+    toggle(element, "epics").click();
+    await flush();
+
+    Array.from(element.shadowRoot.querySelectorAll("button")).forEach(
+      (button) => {
+        expect(button.dataset.view).toBeTruthy();
+      }
+    );
   });
 });

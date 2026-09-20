@@ -375,6 +375,169 @@ private class WorkItemInboundProcessorTest {
     );
   }
 
+  // ---------- the raw vendor type (build 07 step 7) ----------
+
+  @IsTest
+  static void aMappedTypeStoresBothTheNormalizedAndTheRawValue() {
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10700',
+          'DOPP-700',
+          'To Do',
+          System.now(),
+          'Typed',
+          'Sub-task',
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c created = [
+      SELECT Type__c, Source_Type__c
+      FROM Work_Item__c
+      WHERE External_Id__c = 'jira:10700'
+    ];
+    Assert.areEqual(
+      WorkItemType.TASK,
+      created.Type__c,
+      'Sub-task normalises to Task - Type__c is restricted and has no Subtask value.'
+    );
+    Assert.areEqual(
+      'Sub-task',
+      created.Source_Type__c,
+      'And the vendor word is kept beside it, so the flattening is visible rather than lost.'
+    );
+  }
+
+  @IsTest
+  static void anUnmappedTypeLandsOnUnspecifiedAndKeepsTheRawValue() {
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10701',
+          'DOPP-701',
+          'To Do',
+          System.now(),
+          'Oddly typed',
+          'Reading: Negotiating After a Layoff',
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c created = [
+      SELECT Type__c, Source_Type__c
+      FROM Work_Item__c
+      WHERE External_Id__c = 'jira:10701'
+    ];
+    Assert.areEqual(
+      WorkItemType.UNSPECIFIED,
+      created.Type__c,
+      'Type__c stays a restricted picklist, so an unmapped value lands on the catch-all.'
+    );
+    Assert.areEqual(
+      'Reading: Negotiating After a Layoff',
+      created.Source_Type__c,
+      'The raw value is preserved for the GROUP BY that decides what earns a picklist entry - ' +
+        'and it is preserved somewhere private, which is the whole reason Type__c is not free ' +
+        'text. This exact string on a public card would be a leak nobody would notice.'
+    );
+  }
+
+  @IsTest
+  static void aPayloadCarryingNoTypeLeavesBothFieldsAlone() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10702', 'To Do', was);
+    item.Type__c = WorkItemType.STORY;
+    item.Source_Type__c = 'Story';
+    update item;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10702',
+          'DOPP-702',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          null,
+          null
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = [
+      SELECT Type__c, Source_Type__c, Status__c
+      FROM Work_Item__c
+      WHERE Id = :item.Id
+    ];
+    Assert.areEqual(
+      WorkItemType.STORY,
+      after.Type__c,
+      'Most deliveries are status transitions carrying no type at all. Writing a null through ' +
+      'would blank a known type on every one of them.'
+    );
+    Assert.areEqual(
+      'Story',
+      after.Source_Type__c,
+      'And the raw value with it.'
+    );
+    Assert.areEqual(
+      'In Progress',
+      after.Status__c,
+      'The status change the delivery was actually about still landed.'
+    );
+  }
+
+  @IsTest
+  static void aTypePresentButBlankCountsAsAbsent() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10703', 'To Do', was);
+    item.Type__c = WorkItemType.BUG;
+    item.Source_Type__c = 'Bug';
+    update item;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        '{"webhookEvent":"jira:issue_updated","issue":{"id":"10703","key":"DOPP-703",' +
+        '"fields":{"issuetype":{"name":""},"status":{"name":"In Progress"},' +
+        '"updated":"' +
+        JiraWebhookPayloadFactory.jiraTimestamp(was.addMinutes(30)) +
+        '"}}}'
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = [
+      SELECT Type__c, Source_Type__c
+      FROM Work_Item__c
+      WHERE Id = :item.Id
+    ];
+    Assert.areEqual(
+      WorkItemType.BUG,
+      after.Type__c,
+      'Build 06\'s rule holds: an object present but blank counts as absent, not as unmapped. ' +
+      'Overwriting a known type on the strength of malformed input is worse than leaving it.'
+    );
+    Assert.areEqual('Bug', after.Source_Type__c, 'And so does the raw value.');
+  }
+
   // ---------- project linkage (refactor after build 06) ----------
 
   @IsTest

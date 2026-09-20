@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Vendor value mappings: one row per external value that means something in Work_Item__c vocabulary. Read in both directions - inbound turns an Asana section gid into a Status__c, outbound turns a Status__c back into the section gid to move a task to - so the two can never drift, which two tables would. Records are created by hand in Setup and are not in source control, like every other custom metadata record in this project.</description>
+    <label>Field Mapping</label>
+    <pluralLabel>Field Mappings</pluralLabel>
+    <visibility>Public</visibility>
+</CustomObject>

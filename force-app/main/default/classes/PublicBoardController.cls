@@ -51,7 +51,10 @@ public with sharing class PublicBoardController {
       // leaving it out is what stops an epic counting towards its own children.
       Map<Id, Id> epicIdByItemId = new Map<Id, Id>();
       for (Work_Item__c record : records) {
-        if (record.Type__c != EPIC) {
+        if (
+          record.Type__c != EPIC &&
+          BoardSourceRules.condensesIntoEpics(record.External_System__c)
+        ) {
           epicIdByItemId.put(record.Id, epicAncestorOf(record, byId));
         }
       }
@@ -85,7 +88,14 @@ public with sharing class PublicBoardController {
 
         Id epicId = epicIdByItemId.get(record.Id);
         Boolean visible;
-        if (epicId == null) {
+        if (!BoardSourceRules.condensesIntoEpics(record.External_System__c)) {
+          // Flat by design, so not an orphan. The orphan rule below hides FINISHED unparented
+          // work, on the reasoning that it belongs under an epic and something has gone wrong
+          // if it does not. Work from a system with no epics at all has nothing to belong to,
+          // and hiding it the moment it is finished would make completing something look like
+          // deleting it.
+          visible = true;
+        } else if (epicId == null) {
           // Orphan. Visible only while unfinished. Real unparented work stays on the board,
           // but finished orphans would pile up into exactly the unbounded Done column the
           // two-view design exists to avoid.
@@ -263,6 +273,12 @@ public with sharing class PublicBoardController {
       : numberById.get(record.Parent_Work_Item__c);
     card.syncStatus = record.Sync_Status__c;
     card.lastSyncedAt = record.Last_Synced__c;
+    // Whether the epic view rolls this card up, not which system it came from. The client needs
+    // the decision; publishing the vendor's name would tell an anonymous visitor which tools
+    // this org runs, for no benefit to the page.
+    card.condensesIntoEpic = BoardSourceRules.condensesIntoEpics(
+      record.External_System__c
+    );
     return card;
   }
 
@@ -302,6 +318,19 @@ public with sharing class PublicBoardController {
     public String syncStatus { get; set; }
     @AuraEnabled
     public Datetime lastSyncedAt { get; set; }
+
+    /**
+     * Whether the epic view replaces this card with the epic it belongs to.
+     *
+     * Added deliberately in build 07 step 9, with the exact key-set assertion updated in the
+     * same commit - which is the only way a field is ever supposed to reach this payload.
+     *
+     * A boolean rather than the source system's name. The client needs to know what happens to
+     * the card when the view is toggled; it does not need to know which vendor the work came
+     * from.
+     */
+    @AuraEnabled
+    public Boolean condensesIntoEpic { get; set; }
   }
 
   /**

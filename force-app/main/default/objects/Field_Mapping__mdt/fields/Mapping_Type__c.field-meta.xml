@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Mapping_Type__c</fullName>
+    <description>Which Work_Item__c field this row maps onto. One metadata type rather than one per field: the lookup shape is identical, and splitting it would mean two classes doing the same thing to two tables that must agree about the same vocabulary.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Mapping Type</label>
+    <required>true</required>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Status</fullName>
+                <default>true</default>
+                <label>Status</label>
+            </value>
+            <value>
+                <fullName>Type</fullName>
+                <default>false</default>
+                <label>Type</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>
