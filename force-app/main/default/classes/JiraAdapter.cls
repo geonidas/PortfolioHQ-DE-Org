@@ -147,7 +147,67 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
   // ---------- inbound ----------
 
   /**
-   * Reads a jira:issue_updated delivery. This is the only place that knows the payload's shape.
+   * Reads a batch of jira:issue_updated deliveries.
+   *
+   * Jira's payloads are fat - every field the processor needs is already in the body - so this
+   * issues no callout and the batch is only a loop. It is batch-shaped because the interface is,
+   * and the interface is because Asana's payloads are thin enough to need a fetch per resource.
+   *
+   * One event that cannot be read does not discard the rest. Each is parsed inside its own
+   * try/catch, an unusable one comes back carrying `failure` so the caller can retire that
+   * delivery, and a buffered Integration_Log__c row names the event either way.
+   */
+  public List<InboundChange> parseInbound(List<Webhook_Event__c> events) {
+    List<InboundChange> changes = new List<InboundChange>();
+    if (events == null || events.isEmpty()) {
+      return changes;
+    }
+    for (Webhook_Event__c event : events) {
+      InboundChange change;
+      try {
+        change = parseOne(event.Raw_Payload__c);
+      } catch (Exception e) {
+        // parseOne contracts not to throw, so anything here is genuinely unexpected. Caught
+        // per event so one bad body cannot cost the other forty-nine.
+        change = new InboundChange();
+        change.failure = 'Could not read the payload: ' + Strings.describe(e);
+      }
+      change.sourceEventId = event.Id;
+      if (!change.isUsable()) {
+        logUnreadable(event, change.failure);
+      }
+      changes.add(change);
+    }
+    return changes;
+  }
+
+  /**
+   * An Integration_Log__c row for a delivery that could not be read.
+   *
+   * Buffered rather than inserted, like every other row this class produces: DML here would
+   * break the next callout in the transaction. The body is deliberately not copied into the
+   * row - it is already on Webhook_Event__c.Raw_Payload__c, and duplicating an unparseable
+   * payload into the log buys nothing.
+   */
+  private void logUnreadable(Webhook_Event__c event, String failure) {
+    pendingLogs.add(
+      new Integration_Log__c(
+        Direction__c = LogDirection.INBOUND,
+        Is_Success__c = false,
+        Status_Code__c = 0,
+        Error_Message__c = Strings.truncate(
+          'Delivery ' +
+            (event.Id == null ? '(unsaved)' : String.valueOf(event.Id)) +
+            ' could not be read and was skipped; the rest of the batch was not affected. ' +
+            failure,
+          BODY_MAX
+        )
+      )
+    );
+  }
+
+  /**
+   * Reads one jira:issue_updated delivery. This is the only place that knows the payload's shape.
    *
    * Optional fields - summary, issuetype, parent, project - are set on the change only when the
    * payload actually carries them, because most deliveries are status transitions carrying
@@ -160,7 +220,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
    * issue.fields.updated, because the envelope's own timestamp says when the event fired,
    * which on a redelivery is not when the issue changed.
    */
-  public InboundChange parseInbound(String rawPayload) {
+  private InboundChange parseOne(String rawPayload) {
     InboundChange change = new InboundChange();
     if (String.isBlank(rawPayload)) {
       change.failure = 'Empty payload.';

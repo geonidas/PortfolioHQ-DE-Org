@@ -15,13 +15,14 @@ moved into `JiraAdapter.parseInbound`. Older ADRs and summaries use the old name
 
 None of this survives an org rebuild, and none of it is visible in the repo.
 
-| Thing                     | Value / where                                                                                                                                                         |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scratch org alias         | `MyScratchOrg`                                                                                                                                                        |
-| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                         |
-| Webhook signing secret    | `Integration_Secret__mdt` record **`Jira_Webhook`**, `Is_Active__c = true`. Created in Setup. `customMetadata/` is gitignored on purpose.                             |
-| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                             |
-| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them. |
+| Thing                     | Value / where                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scratch org alias         | `MyScratchOrg`                                                                                                                                                                                                 |
+| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                                                                  |
+| Webhook signing secret    | `Integration_Secret__mdt` records, `Is_Active__c = true`. Jira's is **`Jira_Webhook`**, created in Setup. Asana's is `Webhook_<resource gid>`, promoted by script. `customMetadata/` is gitignored on purpose. |
+| Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                        |
+| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                      |
+| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                          |
 
 ### Permission set assignments — manual, not metadata
 
@@ -128,12 +129,30 @@ issue is invisible on the public board with no error anywhere.
 
 **Inbound-created records also need `Project__c` set, and since the refactor pass they get it
 from the payload.** `fields.project.key` is matched against `Project__c.External_Project_Key__c`
-with the same `External_System__c` as the delivery. Assigned on creation, or when the record has
-no project; an existing link is never overridden. No match, or more than one, leaves the lookup
+with the same `External_System__c` as the delivery. No match, or more than one, leaves the lookup
 null and writes an `Integration_Log__c` row naming the key. The public board's query requires a
 public parent project, so an unlinked record is public, synced and invisible - the same failure
 shape as the owner. Records created by hand before this existed are linked on their next
 delivery, provided the project record carries the key and the system.
+
+**Since build 07 step 2 the link follows a move, and the old rule is gone.** The refactor pass
+said "an existing link is never overridden", which protected links made by hand and froze stale
+ones in the same breath. On the guest path it failed open: an issue moved in Jira from a public
+project to a private one carries the new key, the key was ignored, and the record kept pointing
+at the public project - so the public board, whose only enforcement of the parent flag is
+`PublicWorkItemSelector`'s WHERE clause, kept rendering it to anonymous visitors after its remote
+home had become private. Three cases now, and they are distinct:
+
+| Record     | Payload               | Result                                |
+| ---------- | --------------------- | ------------------------------------- |
+| no project | names one             | assign. The back-fill path, unchanged |
+| a project  | names a different one | follow the move, and log both keys    |
+| a project  | names the same one    | nothing written, nothing logged       |
+
+A move whose new key resolves to nothing, or to more than one project, **keeps the link it has**
+and logs. Nulling a working link because a lookup failed would hide the record from the board
+rather than correct it. The `Is_Public__c` flag on the work item is deliberately left alone:
+following the move is what closes the leak, and the flag is a separate decision.
 
 **The guest must never reach `WorkItemBoardController`.** Apex class access is per class,
 not per method — reaching it at all exposes `changeStatus`. That is why
@@ -162,6 +181,28 @@ leaves `Parent_Work_Item__c` null, writes an `Integration_Log__c` row naming bot
 and the delivery still succeeds. **Nothing back-fills that link when the parent later
 arrives** — only a subsequent delivery for the _child_ repairs it. The log row is the
 only record of the gap.
+
+**A site guest can write a custom object row and can never read one back.** Not its own row,
+not in system mode, not through a `without sharing` class. This is the Guest User Security
+Policy and it is not configuration - in build 07 step 4 object access, field-level security,
+view-all and `without sharing` were each granted in turn and each only moved the error along
+(`sObject type not supported`, then `No such column`, then a silent null). `JiraWebhookResource`
+already relied on this for its rate-limit comment; step 4 measured it.
+
+**Consequently, a webhook signing secret cannot be verified from a custom object field.** The
+endpoint runs as the guest. So secrets live in two places on purpose:
+
+- `Webhook_Secret__c` is a **write-only staging row**. The registration handshake is the only
+  moment a vendor sends its secret, and staging it is all the guest can do. Insert only - the
+  guest licence forbids `Edit` on a custom object outright, and first-write-wins also stops an
+  unauthenticated caller replacing a live secret with one of their own.
+- `Integration_Secret__mdt` is what verification reads. Apex reads protected Custom Metadata
+  with **no object grant, no field-level security and no sharing rule**, from any user including
+  the guest. That is how Jira has verified since build 02.
+- `scripts/apex/promote-webhook-secret.apex` carries the value across, run by hand beside the
+  curl that registers the webhook. Apex cannot write Custom Metadata synchronously and the guest
+  could not deploy it anyway. Until it is run, deliveries are rejected 401 and the vendor
+  retries; Asana tolerates 24 hours of failures. **Delete the staged row once promoted.**
 
 **`In Review` is unreachable.** It exists in the picklist; the Jira board offers only
 To Do, In Progress and Done. Board columns are configurable so it can be added later
@@ -293,10 +334,38 @@ click, which the repo had never captured.
   `Project__r.Is_Public__c` is enforced **only** by `PublicBoardController`'s WHERE
   clause. Any future guest-reachable class touching `Work_Item__c` inherits that duty.
 
+**Encrypted Text is not readable by Apex the way everyone assumes.** Apex returns an encrypted
+field **masked** unless the running user holds the `ViewEncryptedData` USER PERMISSION - and
+system mode does **not** bypass it the way it bypasses field-level security. Proved with an A/B
+holding FLS constant: granting the permission to the permission set flipped the same system-mode
+read from asterisks to clear text and back. Worse, a **guest permission set silently cannot hold
+it**: the deploy reports success and the org keeps `PermissionsViewEncryptedData = false`. So
+Encrypted Text is unusable for anything a guest-run endpoint must read.
+
+**The Guest User licence refuses `Edit` on a custom object**, and says so at deploy time: `The
+user license doesn't allow the permission: Edit <Object>`. Guest-facing writes must be inserts.
+
 **Apex gotchas:**
 
+- `nulls` is a reserved word (SOQL's `ORDER BY ... NULLS FIRST`) and cannot be a variable name.
+  The Apex parser's message names the token but not the reason. Same family as the trailing
+  underscore rule below.
 - Identifiers are case-insensitive: a field named `outcome` shadows a type named
   `Outcome`. Qualify enums as `ClassName.Enum.VALUE`.
+- **No DML may happen before `IWorkItemAdapter.parseInbound` is called.** An adapter is
+  allowed to call out from there and `AsanaAdapter` does, because Asana's payloads name a
+  resource and an action and carry neither the task's title nor its section. Any earlier DML
+  in the transaction produces `CalloutException: You have uncommitted work pending`, and it
+  does so **for Asana deliveries only**, with an error that never mentions Asana. The same
+  shape of trap as the line above: the message does not name the cause. The rule is written
+  on the interface, in `CLAUDE.md` and here, because ordering alone happened to be safe and
+  nothing enforced it.
+- `Test.stopTest()` restores the limits context that was in force before `Test.startTest()`.
+  A `Limits.getCallouts()` reading taken _after_ `stopTest` therefore reports the outer
+  transaction's count, not the code under test - which makes
+  `Assert.areEqual(before, Limits.getCallouts())` a vacuous assertion that passes even when a
+  callout was made. Take both readings inside the window. Found in build 07 step 3 by breaking
+  the test on purpose, which is the only reason it was found at all.
 - Trailing underscores are illegal in identifiers (`update_` will not compile).
 - `@TestVisible` does not expose members to anonymous Apex.
 - Apex only type-checks server-side. Nothing is verified until it deploys.

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Active__c</fullName>
+    <defaultValue>true</defaultValue>
+    <description>Whether this secret is the one to verify against. A rotated secret is superseded rather than deleted, so the row that stopped working is still there to explain why deliveries began failing at a particular moment. An inactive row is never returned by the lookup.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Clear this instead of deleting the row when a secret is rotated.</inlineHelpText>
+    <label>Active</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

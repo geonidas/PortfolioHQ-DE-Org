@@ -585,6 +585,175 @@ private class JiraAdapterTest {
 
   // ---------- inbound: reading a delivery ----------
 
+  /**
+   * Deliveries the adapter can be handed, with real ids so correlation is real.
+   *
+   * Inserted as Processing rather than Pending on purpose: WebhookEventTriggerHandler publishes
+   * a platform event for a Pending row, and the subscriber would then process these payloads at
+   * Test.stopTest. This class is about what the adapter returns, not about what the processor
+   * does with it.
+   */
+  private static List<Webhook_Event__c> deliveries(List<String> payloads) {
+    List<Webhook_Event__c> events = new List<Webhook_Event__c>();
+    for (String payload : payloads) {
+      events.add(
+        new Webhook_Event__c(
+          Source_System__c = ExternalSystem.JIRA,
+          Received_At__c = System.now(),
+          Signature_Valid__c = true,
+          Processing_Status__c = DeliveryStatus.PROCESSING,
+          Raw_Payload__c = payload
+        )
+      );
+    }
+    insert events;
+    return events;
+  }
+
+  // ---------- the batch shape (build 07 step 3) ----------
+
+  @IsTest
+  static void aBatchComesBackInTheOrderItWasGiven() {
+    List<String> payloads = new List<String>();
+    for (Integer i = 0; i < 5; i++) {
+      payloads.add(
+        JiraWebhookPayloadFactory.issueUpdated(
+          '107' + i,
+          'DOPP-7' + i,
+          'In Progress',
+          System.now()
+        )
+      );
+    }
+    List<Webhook_Event__c> events = deliveries(payloads);
+
+    Test.startTest();
+    List<InboundChange> changes = new JiraAdapter().parseInbound(events);
+    Test.stopTest();
+
+    Assert.areEqual(5, changes.size(), 'Five deliveries, five changes.');
+    for (Integer i = 0; i < 5; i++) {
+      Assert.areEqual(
+        'jira:107' + i,
+        changes[i].externalId,
+        'Position ' + i + ' should be the delivery at that position.'
+      );
+      Assert.areEqual(
+        events[i].Id,
+        changes[i].sourceEventId,
+        'And each change names the delivery it was read from, which is what lets the ' +
+        'processor correlate a list that is allowed to come back shorter.'
+      );
+    }
+  }
+
+  @IsTest
+  static void oneUnreadableDeliveryDoesNotDiscardTheBatch() {
+    List<Webhook_Event__c> events = deliveries(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10801',
+          'DOPP-801',
+          'To Do',
+          System.now()
+        ),
+        'this is not json at all',
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10803',
+          'DOPP-803',
+          'Done',
+          System.now()
+        )
+      }
+    );
+
+    Test.startTest();
+    JiraAdapter adapter = new JiraAdapter();
+    List<InboundChange> changes = adapter.parseInbound(events);
+    List<Integration_Log__c> logs = adapter.drainLogs();
+    Test.stopTest();
+
+    Assert.areEqual(
+      3,
+      changes.size(),
+      'The unreadable one comes back too, carrying its failure, so the processor can ' +
+      'retire that delivery rather than leave it Pending for ever.'
+    );
+    Assert.isTrue(changes[0].isUsable(), 'First is fine.');
+    Assert.isFalse(changes[1].isUsable(), 'Second is the broken one.');
+    Assert.isTrue(
+      changes[2].isUsable(),
+      'And the third still parsed - one bad body must not cost the rest of the batch.'
+    );
+    Assert.areEqual('jira:10803', changes[2].externalId);
+
+    Assert.areEqual(
+      1,
+      logs.size(),
+      'One row, for the one delivery that failed.'
+    );
+    Assert.areEqual('Inbound', logs[0].Direction__c);
+    Assert.isFalse(logs[0].Is_Success__c);
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains(String.valueOf(events[1].Id)),
+      'The row names the delivery: ' + logs[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void anEmptyBatchReturnsNothingAndTouchesNothing() {
+    // A mock is registered although nothing should reach it. Without one a stray callout
+    // would throw before the assertion below could report it, and "it threw" is a weaker
+    // fact than "it called out twice".
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+
+    // Both readings are taken inside the startTest window. Test.stopTest restores the outer
+    // limits context, so a count taken after it reports the callouts made BEFORE startTest -
+    // which is zero either way, and an assertion that can never fail. Found by breaking this
+    // test on purpose: with a callout added to parseInbound it still passed.
+    Test.startTest();
+    Integer calloutsBefore = Limits.getCallouts();
+    List<InboundChange> fromEmpty = new JiraAdapter()
+      .parseInbound(new List<Webhook_Event__c>());
+    List<InboundChange> fromNull = new JiraAdapter().parseInbound(null);
+    Integer calloutsAfter = Limits.getCallouts();
+    Test.stopTest();
+
+    Assert.areEqual(0, fromEmpty.size(), 'Nothing in, nothing out.');
+    Assert.areEqual(0, fromNull.size(), 'And null is not a reason to throw.');
+    Assert.areEqual(
+      calloutsBefore,
+      calloutsAfter,
+      'No delivery means no callout. Jira needs none at all, but the assertion is what ' +
+      'stops an adapter that does need them from calling out over an empty list.'
+    );
+  }
+
+  /**
+   * One payload through the batch-shaped parseInbound.
+   *
+   * parseInbound takes deliveries rather than a body as of build 07 step 3, so that an adapter
+   * whose payloads need hydrating can fetch what a whole batch refers to in one go. The single
+   * payload cases below are about Jira's payload shape, not about batching, and this keeps them
+   * reading that way.
+   */
+  private static InboundChange parseOne(JiraAdapter adapter, String payload) {
+    List<InboundChange> changes = adapter.parseInbound(
+      new List<Webhook_Event__c>{
+        new Webhook_Event__c(Raw_Payload__c = payload)
+      }
+    );
+    Assert.areEqual(
+      1,
+      changes.size(),
+      'One delivery in, one change out - usable or not.'
+    );
+    return changes[0];
+  }
+
   @IsTest
   static void parsesAFullPayloadIntoAVendorNeutralChange() {
     Datetime updated = Datetime.newInstanceGmt(2026, 9, 12, 19, 13, 41);
@@ -599,7 +768,7 @@ private class JiraAdapterTest {
       'DOPP'
     );
 
-    InboundChange change = new JiraAdapter().parseInbound(payload);
+    InboundChange change = parseOne(new JiraAdapter(), payload);
 
     Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
     Assert.areEqual('jira:issue_updated', change.eventType);
@@ -649,7 +818,7 @@ private class JiraAdapterTest {
       null
     );
 
-    InboundChange change = new JiraAdapter().parseInbound(payload);
+    InboundChange change = parseOne(new JiraAdapter(), payload);
 
     Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
     Assert.isNull(
@@ -669,7 +838,7 @@ private class JiraAdapterTest {
       '"fields":{"issuetype":{"name":""},"status":{"name":"Done"},' +
       '"updated":"2026-09-12T19:13:41.000+0000"}}}';
 
-    InboundChange change = new JiraAdapter().parseInbound(payload);
+    InboundChange change = parseOne(new JiraAdapter(), payload);
 
     Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
     // Writing Unspecified over a known type on the strength of malformed input would be worse
@@ -690,7 +859,7 @@ private class JiraAdapterTest {
       'x'.repeat(400)
     );
 
-    InboundChange change = new JiraAdapter().parseInbound(payload);
+    InboundChange change = parseOne(new JiraAdapter(), payload);
 
     Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
     Assert.areEqual(255, change.title.length(), 'Title__c is 255 wide.');
@@ -709,7 +878,7 @@ private class JiraAdapterTest {
       '{"issue":{"id":"10039","fields":{"status":{"name":"Done"}}}}' => 'updated timestamp'
     };
     for (String payload : expected.keySet()) {
-      InboundChange change = adapter.parseInbound(payload);
+      InboundChange change = parseOne(adapter, payload);
       Assert.isFalse(change.isUsable(), 'Should be unusable: ' + payload);
       Assert.isTrue(
         change.failure.contains(expected.get(payload)),

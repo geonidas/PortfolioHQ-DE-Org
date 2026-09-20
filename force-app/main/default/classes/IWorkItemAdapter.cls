@@ -26,16 +26,38 @@ public interface IWorkItemAdapter {
   List<TransitionOption> fetchAvailableTransitions(String externalId);
 
   /**
-   * Turn one raw inbound delivery into a vendor-neutral change.
+   * Turn a batch of raw inbound deliveries into vendor-neutral changes.
    *
    * The payload shape is the vendor's business, so parsing lives here rather than in the
    * processor that applies the result. Never throws: a payload that cannot be applied comes back
    * with `failure` set, and the processor fails that one delivery and carries on with the rest.
    *
-   * @param rawPayload the delivery body exactly as stored on Webhook_Event__c
-   * @return           the change, with failure set when the payload is unusable
+   * ---------------------------------------------------------------------------------------
+   * NO DML MAY HAVE HAPPENED IN THE TRANSACTION BEFORE THIS IS CALLED.
+   *
+   * An implementation is allowed to call out from here, and one does. Jira's payloads are fat
+   * and need nothing; Asana's name a resource and an action and carry neither the task's title
+   * nor its section, so the task has to be fetched. Apex refuses a callout once a transaction
+   * holds uncommitted DML - "You have uncommitted work pending" - so any DML issued earlier in
+   * the transaction breaks this call. It breaks it for Asana only, with an error that never
+   * mentions Asana, which is why the rule is written here rather than trusted to ordering.
+   * ---------------------------------------------------------------------------------------
+   *
+   * The batch is the unit because the granularity is what makes hydration affordable: one
+   * adapter call per delivery batch can deduplicate the resources it needs and fetch them a few
+   * at a time, where a call per event could only ever fetch one at a time and would fail half
+   * way through a loop the caller cannot resume.
+   *
+   * Each returned change carries the `sourceEventId` of the delivery it was read from; that is
+   * how the caller correlates results, and it is the reason the returned list need not be the
+   * same length as the input. An event the adapter could not turn into anything at all is
+   * simply absent, and the caller leaves its row staged for another run. An event whose payload
+   * is unusable comes back present, with `failure` set, so the caller can retire it.
+   *
+   * @param events deliveries carrying at least Id and Raw_Payload__c, all from one system
+   * @return       zero or more changes, each naming the event it came from
    */
-  InboundChange parseInbound(String rawPayload);
+  List<InboundChange> parseInbound(List<Webhook_Event__c> events);
 
   /**
    * Translate a status name as the external system spells it into our normalized

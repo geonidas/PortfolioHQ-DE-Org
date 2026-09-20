@@ -504,19 +504,21 @@ private class WorkItemInboundProcessorTest {
   }
 
   @IsTest
-  static void anExistingProjectLinkIsNeverOverridden() {
+  static void aMoveToAnotherProjectIsFollowed() {
+    // The leak step 2 closes. Until now an existing link was never overridden, so an issue
+    // moved in Jira from a public project to a private one kept pointing at the public one -
+    // and the public board, which gates on the parent project's Is_Public__c, kept showing it
+    // to anonymous visitors after its remote home had become private.
     Datetime was = System.now().addHours(-1);
-    // seedItem links the record to a project of its own; a second project carries the key the
-    // payload will name.
-    Work_Item__c item = seedItem('jira:10603', 'To Do', was);
-    Project__c other = TestDataFactory.createProjects(1, false)[0];
-    other.External_Project_Key__c = 'OTHER';
-    insert other;
+    Work_Item__c item = seedItem('jira:10605', 'To Do', was);
+    Project__c destination = TestDataFactory.createProjects(1, false)[0];
+    destination.External_Project_Key__c = 'OTHER';
+    insert destination;
 
     List<Webhook_Event__c> events = deliver(
       new List<String>{
         JiraWebhookPayloadFactory.issueUpdated(
-          '10603',
+          '10605',
           'OTHER-1',
           'In Progress',
           was.addMinutes(30),
@@ -532,21 +534,154 @@ private class WorkItemInboundProcessorTest {
     WorkItemInboundProcessor.process(events);
     Test.stopTest();
 
-    Work_Item__c after = [
+    Work_Item__c moved = [
       SELECT Project__c, Status__c
       FROM Work_Item__c
       WHERE Id = :item.Id
     ];
     Assert.areEqual(
-      item.Project__c,
-      after.Project__c,
-      'A link someone already made is theirs; the payload does not know better.'
+      destination.Id,
+      moved.Project__c,
+      'The payload named a different project, so the link follows it.'
     );
-    Assert.areEqual('In Progress', after.Status__c, 'The rest still applies.');
+    Assert.areNotEqual(
+      item.Project__c,
+      moved.Project__c,
+      'And it is genuinely not the project it started on.'
+    );
+    Assert.areEqual('In Progress', moved.Status__c, 'The rest still applies.');
+
+    List<Integration_Log__c> logs = [
+      SELECT Direction__c, Is_Success__c, Error_Message__c
+      FROM Integration_Log__c
+    ];
+    Assert.areEqual(1, logs.size(), 'A move is reported exactly once.');
+    Assert.areEqual('Inbound', logs[0].Direction__c);
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('DOPP') &&
+      logs[0].Error_Message__c.contains('OTHER'),
+      'The row names the project left and the project joined: ' +
+      logs[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void aPayloadNamingTheProjectAlreadyLinkedWritesNothing() {
+    // seedItem links the record to a project keyed DOPP, which is the key this payload names.
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10606', 'To Do', was);
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10606',
+          'DOPP-606',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          null,
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      item.Project__c,
+      [SELECT Project__c FROM Work_Item__c WHERE Id = :item.Id].Project__c,
+      'Naming the project a record already has is not a move.'
+    );
     Assert.areEqual(
       0,
       [SELECT COUNT() FROM Integration_Log__c],
-      'Leaving an existing link alone is not a gap.'
+      'And nothing happened, so there is nothing to report.'
+    );
+  }
+
+  @IsTest
+  static void aMoveToAnUnknownProjectKeepsTheLinkItHas() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10607', 'To Do', was);
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10607',
+          'NOPE-1',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          null,
+          null,
+          'NOPE'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      item.Project__c,
+      [SELECT Project__c FROM Work_Item__c WHERE Id = :item.Id].Project__c,
+      'A lookup that failed is not a reason to null a link that works - doing so would ' +
+      'hide the record from the board rather than correct it.'
+    );
+    List<Integration_Log__c> logs = [
+      SELECT Error_Message__c
+      FROM Integration_Log__c
+    ];
+    Assert.areEqual(1, logs.size(), 'The unfollowable move is reported.');
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('NOPE'),
+      'And names the key it could not resolve: ' + logs[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void aMoveToAnAmbiguousProjectKeyKeepsTheLinkItHas() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10608', 'To Do', was);
+    // Two projects carrying the destination key. External_Project_Key__c is not unique, and
+    // choosing between candidates would move work to the wrong project silently.
+    for (Project__c candidate : TestDataFactory.createProjects(2, false)) {
+      candidate.External_Project_Key__c = 'TWICE';
+      insert candidate;
+    }
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10608',
+          'TWICE-1',
+          'In Progress',
+          was.addMinutes(30),
+          null,
+          null,
+          null,
+          'TWICE'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      item.Project__c,
+      [SELECT Project__c FROM Work_Item__c WHERE Id = :item.Id].Project__c,
+      'Neither candidate should have been chosen, and the working link stays.'
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Integration_Log__c],
+      'And the ambiguity is reported.'
     );
   }
 

@@ -39,7 +39,10 @@ public with sharing class WorkItemInboundProcessor {
     InboundChange change; // null when the adapter could not be resolved
     String failure; // non-null means the delivery cannot be applied
     Boolean ownerUnresolved = false;
-    Boolean projectUnresolved = false;
+    // The project link's story, already worded, or null when there is nothing to report. Built
+    // at decision time rather than after the upsert because that is where the prior link is
+    // still in hand; only the record id is missing then, and inboundLog supplies it.
+    String projectNote;
     Id workItemId; // filled from the upsert result, for the second pass
   }
 
@@ -82,16 +85,21 @@ public with sharing class WorkItemInboundProcessor {
       return;
     }
 
-    Map<String, IWorkItemAdapter> adapters = new Map<String, IWorkItemAdapter>();
     Map<Id, Webhook_Event__c> updates = new Map<Id, Webhook_Event__c>();
-    List<Delivery> parsed = new List<Delivery>();
 
-    for (Webhook_Event__c row : rows) {
-      Delivery delivery = parse(row, adapters);
-      parsed.add(delivery);
+    // Rows the adapters buffered while reading the batch, and everything this class adds
+    // later. Collected at method scope and written once, at the end, after the upsert: a
+    // parseInbound that called out must not be followed by DML until every callout is done.
+    List<Integration_Log__c> logs = new List<Integration_Log__c>();
+
+    // One adapter call per source system, before any DML in this transaction. See the rule on
+    // IWorkItemAdapter.parseInbound - an adapter is allowed to call out from there.
+    List<Delivery> parsed = parseAll(rows, logs);
+
+    for (Delivery delivery : parsed) {
       if (delivery.failure != null) {
         updates.put(
-          row.Id,
+          delivery.eventId,
           terminal(delivery, DeliveryStatus.FAILED, delivery.failure)
         );
       }
@@ -101,7 +109,10 @@ public with sharing class WorkItemInboundProcessor {
     // and retire the rest as Ignored, so a bulk batch cannot apply an older state last.
     Map<String, Delivery> newestByExternalId = new Map<String, Delivery>();
     for (Delivery delivery : parsed) {
-      if (delivery.failure != null) {
+      // No failure and no change means the adapter returned nothing for this delivery - it
+      // ran out of callouts, or it had nothing to say about the resource. The row is left
+      // exactly as it was found, still Pending, for the next run to pick up.
+      if (delivery.failure != null || delivery.change == null) {
         continue;
       }
       String externalId = delivery.change.externalId;
@@ -119,6 +130,7 @@ public with sharing class WorkItemInboundProcessor {
       }
     }
     if (newestByExternalId.isEmpty()) {
+      writeLogs(logs);
       commitEvents(updates.values());
       return;
     }
@@ -131,6 +143,9 @@ public with sharing class WorkItemInboundProcessor {
         Status__c,
         Sync_Status__c,
         Project__c,
+        // The key, not just the id: a delivery that moves an issue between projects has to
+        // name the project it is leaving, and this costs no extra query.
+        Project__r.External_Project_Key__c,
         Remote_Last_Modified__c
       FROM Work_Item__c
       WHERE External_Id__c IN :newestByExternalId.keySet()
@@ -202,23 +217,37 @@ public with sharing class WorkItemInboundProcessor {
         }
       }
 
-      // The project link, on creation or when the record has none. Never on a record that
-      // already has one: someone may have linked it by hand to a project the key does not
-      // name, and the payload does not know better. Without this a new issue arrives as an
-      // orphan, and the public board - whose query demands a public parent project - never
-      // shows it, with nothing anywhere saying why.
-      if (
-        change.projectKey != null &&
-        (current == null ||
-        current.Project__c == null)
-      ) {
-        Id projectId = projectIdByLookup.get(
+      // The project link, in the three cases the refactor pass after build 06 conflated into
+      // one rule ("an existing link is never overridden"). That rule protected links made by
+      // hand and froze stale ones in the same breath, and on the guest path it failed open:
+      // an issue moved in Jira from a public project to a private one carried the new key,
+      // the key was ignored, the record kept pointing at the public project, and the public
+      // board - which gates on the parent project's Is_Public__c - kept rendering it to
+      // anonymous visitors after its remote home had become private.
+      //
+      //   no link           -> assign. The back-fill path, unchanged.
+      //   link, other key   -> a move. Follow it, and log both keys.
+      //   link, same key    -> nothing to do, and nothing written.
+      //
+      // A move whose new key resolves to nothing, or to more than one project, keeps the link
+      // it has. Nulling a working link because a lookup failed would trade a naming problem
+      // for an invisible record, which is the failure this whole block exists to prevent.
+      if (change.projectKey != null) {
+        Id resolved = projectIdByLookup.get(
           lookupKey(delivery.sourceSystem, change.projectKey)
         );
-        if (projectId != null) {
-          item.Project__c = projectId;
-        } else {
-          delivery.projectUnresolved = true;
+        Id held = current == null ? null : current.Project__c;
+        if (held == null) {
+          if (resolved != null) {
+            item.Project__c = resolved;
+          } else {
+            delivery.projectNote = unlinkedNote(delivery);
+          }
+        } else if (resolved == null) {
+          delivery.projectNote = unresolvedMoveNote(delivery, current);
+        } else if (resolved != held) {
+          item.Project__c = resolved;
+          delivery.projectNote = movedNote(delivery, current);
         }
       }
 
@@ -273,7 +302,6 @@ public with sharing class WorkItemInboundProcessor {
         }
       }
 
-      List<Integration_Log__c> logs = new List<Integration_Log__c>();
       for (Delivery delivery : succeeded) {
         if (delivery.ownerUnresolved) {
           logs.add(
@@ -287,29 +315,15 @@ public with sharing class WorkItemInboundProcessor {
             )
           );
         }
-        if (delivery.projectUnresolved) {
-          logs.add(
-            inboundLog(
-              delivery.workItemId,
-              'Project "' +
-                delivery.change.projectKey +
-                '" named by ' +
-                delivery.change.externalId +
-                ' matches no single Project__c with External_Project_Key__c = ' +
-                delivery.change.projectKey +
-                ' and External_System__c = ' +
-                delivery.sourceSystem +
-                '. Project__c left null: the record synced, but the public board requires ' +
-                'a public parent project, so it cannot appear there until the project is ' +
-                'keyed and the issue is delivered again, or the lookup is set by hand.'
-            )
-          );
+        if (delivery.projectNote != null) {
+          logs.add(inboundLog(delivery.workItemId, delivery.projectNote));
         }
       }
       resolveParents(succeeded, logs);
-      writeLogs(logs);
     }
 
+    // Callouts, if any, finished inside parseAll. All DML happens from here down.
+    writeLogs(logs);
     commitEvents(updates.values());
   }
 
@@ -354,6 +368,62 @@ public with sharing class WorkItemInboundProcessor {
       byLookup.remove(lookup);
     }
     return byLookup;
+  }
+
+  /** Nothing to link to, on a record that had nothing to begin with. */
+  private static String unlinkedNote(Delivery delivery) {
+    return 'Project "' +
+      delivery.change.projectKey +
+      '" named by ' +
+      delivery.change.externalId +
+      ' matches no single Project__c with External_Project_Key__c = ' +
+      delivery.change.projectKey +
+      ' and External_System__c = ' +
+      delivery.sourceSystem +
+      '. Project__c left null: the record synced, but the public board requires ' +
+      'a public parent project, so it cannot appear there until the project is ' +
+      'keyed and the issue is delivered again, or the lookup is set by hand.';
+  }
+
+  /**
+   * The move happened. Both keys are named because the interesting question afterwards is
+   * always which project it came from, and the record itself no longer says.
+   */
+  private static String movedNote(Delivery delivery, Work_Item__c current) {
+    return delivery.change.externalId +
+      ' moved project in ' +
+      delivery.sourceSystem +
+      ': "' +
+      priorKeyOf(current) +
+      '" -> "' +
+      delivery.change.projectKey +
+      '". Project__c now points at the project carrying the new key. Recorded rather than ' +
+      'applied silently because the public board gates on the parent project\'s ' +
+      'Is_Public__c, so a move can change who is able to see this record.';
+  }
+
+  /** The move was named but cannot be followed. The link the record has is kept. */
+  private static String unresolvedMoveNote(
+    Delivery delivery,
+    Work_Item__c current
+  ) {
+    return delivery.change.externalId +
+      ' names project "' +
+      delivery.change.projectKey +
+      '", which is not the project it is linked to ("' +
+      priorKeyOf(current) +
+      '"), but that key matches no single Project__c with External_System__c = ' +
+      delivery.sourceSystem +
+      '. The existing link is kept: nulling a working link because a lookup failed would ' +
+      'hide the record from the board rather than correct it. Key the project and the move ' +
+      'is followed on the next delivery.';
+  }
+
+  private static String priorKeyOf(Work_Item__c current) {
+    String key = current.Project__r == null
+      ? null
+      : current.Project__r.External_Project_Key__c;
+    return String.isBlank(key) ? '(project carries no key)' : key;
   }
 
   private static String lookupKey(String sourceSystem, String projectKey) {
@@ -525,40 +595,109 @@ public with sharing class WorkItemInboundProcessor {
   // ---------- parsing ----------
 
   /**
-   * Routes the delivery to the adapter for its source system and lets that adapter read it.
-   * Adapters are built once per system per transaction.
+   * Groups the batch by source system and lets each system's adapter read its own rows, once.
+   *
+   * One call per system, not per event. That is what lets an adapter deduplicate the resources
+   * a batch refers to and fetch them a few at a time; a call per event could only ever fetch
+   * one at a time, and a failure half way through would leave a loop this class cannot resume.
+   * This class still learns nothing about any payload - it hands over rows and gets back
+   * InboundChange objects, each naming the delivery it came from.
+   *
+   * Nothing here writes. An adapter may call out from parseInbound, so the first DML in this
+   * transaction must come after this method returns.
+   *
+   * @param logs collects whatever the adapters buffered; written by the caller, after the upsert
    */
-  private static Delivery parse(
-    Webhook_Event__c row,
-    Map<String, IWorkItemAdapter> adapters
+  private static List<Delivery> parseAll(
+    List<Webhook_Event__c> rows,
+    List<Integration_Log__c> logs
   ) {
-    Delivery delivery = new Delivery();
-    delivery.eventId = row.Id;
-    delivery.sourceSystem = row.Source_System__c;
+    List<Delivery> deliveries = new List<Delivery>();
+    Map<Id, Delivery> byEventId = new Map<Id, Delivery>();
+    Map<String, List<Webhook_Event__c>> rowsByNamespace = new Map<String, List<Webhook_Event__c>>();
 
-    String namespace = ExternalSystem.namespaceOf(row.Source_System__c);
-    if (String.isBlank(namespace)) {
-      delivery.failure = 'Delivery names no source system.';
-      return delivery;
+    for (Webhook_Event__c row : rows) {
+      Delivery delivery = new Delivery();
+      delivery.eventId = row.Id;
+      delivery.sourceSystem = row.Source_System__c;
+      deliveries.add(delivery);
+      byEventId.put(row.Id, delivery);
+
+      String namespace = ExternalSystem.namespaceOf(row.Source_System__c);
+      if (String.isBlank(namespace)) {
+        delivery.failure = 'Delivery names no source system.';
+        continue;
+      }
+      if (!rowsByNamespace.containsKey(namespace)) {
+        rowsByNamespace.put(namespace, new List<Webhook_Event__c>());
+      }
+      rowsByNamespace.get(namespace).add(row);
     }
-    IWorkItemAdapter adapter = adapters.get(namespace);
-    if (adapter == null) {
+
+    for (String namespace : rowsByNamespace.keySet()) {
+      List<Webhook_Event__c> batch = rowsByNamespace.get(namespace);
+
+      IWorkItemAdapter adapter;
       try {
         adapter = WorkItemAdapterFactory.forSystem(namespace);
       } catch (Exception e) {
-        delivery.failure =
+        failBatch(
+          batch,
+          byEventId,
           'No adapter for source system "' +
-          row.Source_System__c +
-          '": ' +
-          Strings.describe(e);
-        return delivery;
+            batch[0].Source_System__c +
+            '": ' +
+            Strings.describe(e)
+        );
+        continue;
       }
-      adapters.put(namespace, adapter);
-    }
 
-    delivery.change = adapter.parseInbound(row.Raw_Payload__c);
-    delivery.failure = delivery.change.failure;
-    return delivery;
+      List<InboundChange> changes;
+      try {
+        changes = adapter.parseInbound(batch);
+      } catch (Exception e) {
+        // The interface contracts not to throw for a payload it cannot use, so anything here
+        // is genuinely unexpected. One system's batch fails; another system's does not.
+        failBatch(
+          batch,
+          byEventId,
+          'The adapter for "' +
+            batch[0].Source_System__c +
+            '" could not read this batch: ' +
+            Strings.describe(e)
+        );
+        logs.addAll(adapter.drainLogs());
+        continue;
+      }
+      logs.addAll(adapter.drainLogs());
+
+      if (changes == null) {
+        continue;
+      }
+      for (InboundChange change : changes) {
+        // Correlated by the id the adapter stamped on the change, never by position: the
+        // returned list is allowed to be shorter than the batch it was given.
+        Delivery delivery = change.sourceEventId == null
+          ? null
+          : byEventId.get(change.sourceEventId);
+        if (delivery == null) {
+          continue;
+        }
+        delivery.change = change;
+        delivery.failure = change.failure;
+      }
+    }
+    return deliveries;
+  }
+
+  private static void failBatch(
+    List<Webhook_Event__c> batch,
+    Map<Id, Delivery> byEventId,
+    String failure
+  ) {
+    for (Webhook_Event__c row : batch) {
+      byEventId.get(row.Id).failure = failure;
+    }
   }
 
   // ---------- helpers ----------

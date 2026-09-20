@@ -4,7 +4,7 @@
         <apexClass>JiraWebhookResource</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>Exactly what the Jira webhook endpoint needs: run JiraWebhookResource, create a Webhook_Event__c row, publish the handoff event. No access to Work_Item__c, Project__c, Integration_Log__c, the secret, or any standard object.</description>
+    <description>What an inbound webhook endpoint needs: run the endpoint class, create a Webhook_Event__c row, publish the handoff event, and stage a Webhook_Secret__c row. Create only: a guest cannot read a row back in any mode, so secrets verify from Custom Metadata.</description>
     <fieldPermissions>
         <editable>true</editable>
         <field>Webhook_Event__c.Error_Message__c</field>
@@ -35,6 +35,26 @@
         <field>Webhook_Event__c.Source_System__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Webhook_Secret__c.Active__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Webhook_Secret__c.Resource_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Webhook_Secret__c.Secret__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Webhook_Secret__c.Source_System__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>Jira Webhook Guest</label>
     <objectPermissions>
@@ -54,6 +74,16 @@
         <allowRead>true</allowRead>
         <modifyAllRecords>false</modifyAllRecords>
         <object>Webhook_Event__c</object>
+        <viewAllFields>false</viewAllFields>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>false</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>Webhook_Secret__c</object>
         <viewAllFields>false</viewAllFields>
         <viewAllRecords>false</viewAllRecords>
     </objectPermissions>

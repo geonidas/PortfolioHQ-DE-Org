@@ -58,9 +58,14 @@ private class GuestAccessTest {
 
   @IsTest
   static void guestHoldsOnlyCreateAndReadOnWhatItNeeds() {
+    // Webhook_Secret__c joined this set in build 07 step 4, deliberately and not quietly -
+    // this assertion failed first, which is what it is for. The endpoint stages a secret there
+    // during the registration handshake. Create only, and the guest can never read the row
+    // back in any mode, which is why verification reads Custom Metadata instead.
     Set<String> allowed = new Set<String>{
       'Webhook_Event__c',
-      'Webhook_Event_Received__e'
+      'Webhook_Event_Received__e',
+      'Webhook_Secret__c'
     };
 
     for (ObjectPermissions grant : guestObjectGrants()) {
@@ -124,7 +129,7 @@ private class GuestAccessTest {
   }
 
   @IsTest
-  static void guestFieldAccessIsConfinedToTheDeliveryObject() {
+  static void guestFieldAccessIsConfinedToWhatItWrites() {
     List<FieldPermissions> fields = [
       SELECT SobjectType, Field, PermissionsEdit
       FROM FieldPermissions
@@ -137,13 +142,19 @@ private class GuestAccessTest {
     ];
     Assert.isFalse(
       fields.isEmpty(),
-      'The endpoint needs field access to write its row.'
+      'The endpoint needs field access to write its rows.'
     );
+    // The two objects the endpoint writes and nothing else. Webhook_Secret__c is here because
+    // the handshake stages a secret on it; the guest still cannot read either object's rows
+    // back, which record access enforces regardless of what is granted here.
+    Set<String> writable = new Set<String>{
+      'Webhook_Event__c',
+      'Webhook_Secret__c'
+    };
     for (FieldPermissions field : fields) {
-      Assert.areEqual(
-        'Webhook_Event__c',
-        field.SobjectType,
-        'No field access outside the delivery object: ' + field.Field
+      Assert.isTrue(
+        writable.contains(field.SobjectType),
+        'No field access outside what the endpoint writes: ' + field.Field
       );
     }
   }

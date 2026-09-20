@@ -50,12 +50,24 @@ private class WorkItemSyncServiceTest {
       return 'Unspecified';
     }
 
-    public InboundChange parseInbound(String rawPayload) {
-      InboundChange change = new InboundChange();
+    public List<InboundChange> parseInbound(List<Webhook_Event__c> events) {
+      List<InboundChange> changes = new List<InboundChange>();
 
-      change.failure = 'FakeAdapter has no inbound path.';
+      for (
+        Webhook_Event__c event : events == null
+          ? new List<Webhook_Event__c>()
+          : events
+      ) {
+        InboundChange change = new InboundChange();
 
-      return change;
+        change.sourceEventId = event.Id;
+
+        change.failure = 'FakeAdapter has no inbound path.';
+
+        changes.add(change);
+      }
+
+      return changes;
     }
 
     public List<TransitionOption> fetchAvailableTransitions(String externalId) {

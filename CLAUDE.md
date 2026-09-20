@@ -33,6 +33,14 @@ guest board. This file is the short version.
 - `PublicBoardControllerTest` asserts the DTO key sets exactly. Adding a field to what an
   anonymous visitor receives is a deliberate act and the test is meant to fail.
 - All callouts in a transaction happen before any DML. Logs buffer in memory.
+- **No DML before `IWorkItemAdapter.parseInbound`.** An adapter is allowed to call out from
+  there, and `AsanaAdapter` does - Asana's payloads name a resource and an action and carry
+  neither title nor section, so the task must be fetched. Apex refuses a callout once the
+  transaction holds uncommitted DML, so any earlier write breaks the call. It breaks it **for
+  Asana only**, with `CalloutException: You have uncommitted work pending`, an error that never
+  mentions Asana. Same family as the case-insensitive identifier trap: the message does not name
+  the cause. `WorkItemInboundProcessor` therefore parses the whole batch first and does every
+  write afterwards, including the log rows the adapters buffered.
 - Inbound assigns title, type, parent and project only when the payload carries them.
 
 ## Workflow
