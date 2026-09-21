@@ -156,7 +156,7 @@ public with sharing class WorkItemInboundProcessor {
       existing.put(item.External_Id__c, item);
     }
 
-    Map<String, Id> projectIdByLookup = resolveProjects(
+    Map<String, Project__c> projectByLookup = resolveProjects(
       newestByExternalId.values()
     );
 
@@ -235,10 +235,12 @@ public with sharing class WorkItemInboundProcessor {
       // A move whose new key resolves to nothing, or to more than one project, keeps the link
       // it has. Nulling a working link because a lookup failed would trade a naming problem
       // for an invisible record, which is the failure this whole block exists to prevent.
+      Project__c resolvedProject = null;
       if (change.projectKey != null) {
-        Id resolved = projectIdByLookup.get(
+        resolvedProject = projectByLookup.get(
           lookupKey(delivery.sourceSystem, change.projectKey)
         );
+        Id resolved = resolvedProject == null ? null : resolvedProject.Id;
         Id held = current == null ? null : current.Project__c;
         if (held == null) {
           if (resolved != null) {
@@ -252,6 +254,29 @@ public with sharing class WorkItemInboundProcessor {
           item.Project__c = resolved;
           delivery.projectNote = movedNote(delivery, current);
         }
+      }
+
+      // Public visibility is inherited from the project, on creation only.
+      //
+      // The field defaults to false, so before this every newly synced item landed invisible
+      // and stayed that way until somebody ticked the box by hand - one silent manual step
+      // between a real task and the board this project exists to publish. Nothing errors when
+      // it is missed; the item simply never appears.
+      //
+      // Inherited rather than defaulted true, because the project flag is where the decision
+      // already lives: work synced into a private project must not become public just because
+      // it arrived over a webhook. The two flags together are what
+      // PublicWorkItemSelector's WHERE clause tests, so this makes the common case agree with
+      // the gate instead of fighting it.
+      //
+      // Creation only, and that is the important half. An item unpublished by hand must stay
+      // unpublished - a later status change from the remote system is not a request to put it
+      // back on the board, and writing this on update would silently overrule that decision
+      // every time the source system touched the record.
+      if (current == null) {
+        item.Is_Public__c =
+          resolvedProject != null &&
+          resolvedProject.Is_Public__c == true;
       }
 
       // Only when the payload actually carried one. Assigning a null would blank a title
@@ -350,27 +375,32 @@ public with sharing class WorkItemInboundProcessor {
   // ---------- resolution passes ----------
 
   /**
-   * Project__c ids by system and key, for every delivery in the batch that names a project.
+   * Projects by system and key, for every delivery in the batch that names one. The record
+   * rather than the id, because creation also needs its Is_Public__c.
    *
    * One query, whatever the batch size. A key that matches no project, or more than one,
    * resolves to nothing: External_Project_Key__c is not unique, and guessing between two
    * candidates would link work to the wrong project silently, which is worse than leaving it
    * unlinked and saying so.
    */
-  private static Map<String, Id> resolveProjects(List<Delivery> deliveries) {
+  private static Map<String, Project__c> resolveProjects(
+    List<Delivery> deliveries
+  ) {
     Set<String> keys = new Set<String>();
     for (Delivery delivery : deliveries) {
       if (delivery.change.projectKey != null) {
         keys.add(delivery.change.projectKey);
       }
     }
-    Map<String, Id> byLookup = new Map<String, Id>();
+    Map<String, Project__c> byLookup = new Map<String, Project__c>();
     if (keys.isEmpty()) {
       return byLookup;
     }
     Set<String> ambiguous = new Set<String>();
+    // Is_Public__c comes back for the inheritance above, so a newly created item can be given
+    // its project's visibility without a second query.
     for (Project__c project : [
-      SELECT Id, External_Project_Key__c, External_System__c
+      SELECT Id, External_Project_Key__c, External_System__c, Is_Public__c
       FROM Project__c
       WHERE External_Project_Key__c IN :keys
     ]) {
@@ -381,7 +411,7 @@ public with sharing class WorkItemInboundProcessor {
       if (byLookup.containsKey(lookup)) {
         ambiguous.add(lookup);
       } else {
-        byLookup.put(lookup, project.Id);
+        byLookup.put(lookup, project);
       }
     }
     for (String lookup : ambiguous) {

@@ -579,6 +579,134 @@ private class WorkItemInboundProcessorTest {
   }
 
   @IsTest
+  static void aNewIssueInheritsItsProjectsPublicFlag() {
+    // The default on Is_Public__c is false, so before this every synced item arrived invisible
+    // and stayed invisible until somebody ticked the box by hand. Nothing errored when that was
+    // missed; the item simply never reached the board this project exists to publish.
+    Project__c project = TestDataFactory.createProjects(1, false)[0];
+    project.Is_Public__c = true;
+    insert project;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10620',
+          'DOPP-620',
+          'To Do',
+          System.now(),
+          'Public on arrival',
+          'Story',
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.isTrue(
+      [
+        SELECT Is_Public__c
+        FROM Work_Item__c
+        WHERE External_Id__c = 'jira:10620'
+      ]
+      .Is_Public__c,
+      'Inherited from the project, so work synced into a public project is on the board the ' +
+      'moment it arrives rather than after a manual step nobody is reminded to take.'
+    );
+  }
+
+  @IsTest
+  static void aNewIssueInAPrivateProjectStaysPrivate() {
+    // The half that matters more. Inheriting rather than defaulting to true is the whole point:
+    // arriving over a webhook is not a reason to publish work whose project is not published.
+    TestDataFactory.createProjects(1, true);
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10621',
+          'DOPP-621',
+          'To Do',
+          System.now(),
+          'Private on arrival',
+          'Story',
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.isFalse(
+      [
+        SELECT Is_Public__c
+        FROM Work_Item__c
+        WHERE External_Id__c = 'jira:10621'
+      ]
+      .Is_Public__c,
+      'A private project publishes nothing.'
+    );
+  }
+
+  @IsTest
+  static void anExistingItemUnpublishedByHandStaysUnpublished() {
+    // Creation only, and this is why. A later delivery from the source system is a status
+    // change, not a request to put the item back on the public board - writing the inherited
+    // value on update would silently overrule a deliberate decision every time Jira touched
+    // the record.
+    Project__c project = TestDataFactory.createProjects(1, false)[0];
+    project.Is_Public__c = true;
+    insert project;
+
+    Work_Item__c item = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    item.External_Id__c = 'jira:10622';
+    item.Status__c = WorkItemStatus.TO_DO;
+    item.Sync_Status__c = SyncStatus.PENDING;
+    item.Remote_Last_Modified__c = System.now();
+    item.Is_Public__c = false;
+    insert item;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10622',
+          'DOPP-622',
+          'In Progress',
+          System.now().addMinutes(5),
+          'Still private',
+          'Story',
+          null,
+          'DOPP'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.isFalse(
+      [
+        SELECT Is_Public__c
+        FROM Work_Item__c
+        WHERE External_Id__c = 'jira:10622'
+      ]
+      .Is_Public__c,
+      'Unpublished by hand, and an inbound delivery does not undo that.'
+    );
+  }
+
+  @IsTest
   static void anUnknownProjectKeyIsLoggedAndTheRecordStillSyncs() {
     List<Webhook_Event__c> events = deliver(
       new List<String>{

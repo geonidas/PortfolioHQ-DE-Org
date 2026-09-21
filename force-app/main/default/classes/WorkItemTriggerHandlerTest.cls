@@ -179,15 +179,22 @@ private class WorkItemTriggerHandlerTest {
   }
 
   /**
-   * The rule that arrived in build 07 step 8 and changed Jira's behaviour as well as Asana's.
+   * The rule build 07 step 8 added here, and step 9 took back out.
    *
-   * Sync is bidirectional for private items and inbound-only for public ones. A public item is a
-   * showcase mirror: the remote system is its source of truth, and a status typed into
-   * Salesforce should not rewrite what the portfolio is showing off. Asserted here, on a Jira
-   * record, precisely because the rule is vendor-neutral and it is Jira whose behaviour moved.
+   * Step 8 made sync inbound-only for anything flagged public, on the reasoning that a public
+   * item is a showcase mirror whose remote system owns the truth. That conflated two different
+   * questions. Is_Public__c answers who may READ a record - it is the guest board's gate. Who
+   * may WRITE it is a permissions question, and the answer does not change because a visitor
+   * can see the card.
+   *
+   * The practical effect was that the internal board's status control silently stopped working
+   * on exactly the records the portfolio exists to show off, with no error anywhere. Asserted
+   * on a Jira record, because Jira is whose behaviour moved and moved back.
+   *
+   * This test exists to fail if the clause is ever restored.
    */
   @IsTest
-  static void aPublicJiraItemNoLongerPushesOnAStatusChange() {
+  static void aPublicJiraItemStillPushesOnAStatusChange() {
     Project__c project = TestDataFactory.createProjects(1, true)[0];
     Work_Item__c item = TestDataFactory.createWorkItems(
       1,
@@ -206,24 +213,17 @@ private class WorkItemTriggerHandlerTest {
     Test.stopTest();
 
     Assert.areEqual(
-      0,
+      1,
       queued,
-      'Before step 8 this enqueued a real push to a real Jira issue. If a public issue stops ' +
-      'responding to a status change made in Salesforce, this is why, and it is intended.'
-    );
-    Assert.areEqual(
-      SyncStatus.PENDING,
-      [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :item.Id]
-      .Sync_Status__c,
-      'And the before-update half agrees: nothing was staged either, so the two halves of the ' +
-      'trigger cannot drift apart.'
+      'Public means visible, not frozen. If this reads 0, the Is_Public__c clause is back in ' +
+      'isPushable and every item on the public board has quietly become read-only.'
     );
   }
 
   @IsTest
-  static void aPrivateJiraItemStillPushes() {
-    // The other half of the same rule, so the assertion above cannot pass because nothing
-    // pushes at all.
+  static void aPrivateJiraItemAlsoPushes() {
+    // The same assertion with the flag off, so the one above cannot pass merely because
+    // everything pushes regardless of what it is asserting about.
     Project__c project = TestDataFactory.createProjects(1, true)[0];
     Work_Item__c item = TestDataFactory.createWorkItems(
       1,
@@ -241,6 +241,10 @@ private class WorkItemTriggerHandlerTest {
     Integer queued = Limits.getQueueableJobs();
     Test.stopTest();
 
-    Assert.areEqual(1, queued, 'A private item is still bidirectional.');
+    Assert.areEqual(
+      1,
+      queued,
+      'Visibility is not a sync rule in either direction.'
+    );
   }
 }

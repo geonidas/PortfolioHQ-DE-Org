@@ -353,10 +353,11 @@ private class AsanaOutboundTest {
   }
 
   @IsTest
-  static void aPublicItemsStatusChangeEnqueuesNothing() {
-    // Build 07 step 8 made sync bidirectional for private items and inbound-only for public
-    // ones. A public item is a showcase mirror: the remote system is its source of truth, and
-    // a status typed into Salesforce should not rewrite what the portfolio is showing off.
+  static void aPublicItemsStatusChangeEnqueuesOneJobToo() {
+    // Build 07 step 8 made sync inbound-only for anything flagged public; step 9 took that
+    // back out. Is_Public__c is a read gate for the guest board and nothing else, so an item
+    // being visible to a visitor is no reason for the internal board to stop being able to
+    // move it. Asana's half of the same assertion in WorkItemTriggerHandlerTest.
     mapStatuses();
     Work_Item__c item = asanaItem(WorkItemStatus.TO_DO, true);
 
@@ -367,16 +368,10 @@ private class AsanaOutboundTest {
     Test.stopTest();
 
     Assert.areEqual(
-      0,
+      1,
       queued,
-      'Nothing was enqueued. This rule lives in WorkItemTriggerHandler and is vendor-neutral, ' +
-      'so it applies to Jira too - which is a behaviour change, not a restatement.'
-    );
-    Assert.areEqual(
-      SyncStatus.PENDING,
-      [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :item.Id]
-      .Sync_Status__c,
-      'And it was not staged either, so the two halves of the trigger still agree.'
+      'Public and private behave identically. The rule lives in WorkItemTriggerHandler and is ' +
+      'vendor-neutral, so a 0 here means every public Jira item has gone read-only as well.'
     );
   }
 

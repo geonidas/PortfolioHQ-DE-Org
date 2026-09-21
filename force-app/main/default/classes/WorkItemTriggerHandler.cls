@@ -66,30 +66,32 @@ public with sharing class WorkItemTriggerHandler {
 
   /**
    * The one rule both halves share: a genuine Status__c change, to a status that means
-   * something, on a record the remote system knows, that is not on public display. Written once
-   * so the before and after contexts cannot drift apart - staging a record the after context
-   * then declines to push, or the reverse, would each be a silent failure.
+   * something, on a record the remote system knows. Written once so the before and after
+   * contexts cannot drift apart - staging a record the after context then declines to push, or
+   * the reverse, would each be a silent failure.
    *
-   * Vendor-neutral, and deliberately so: the public rule is a property of the work item, not of
-   * the system it came from, and a branch on Source_System__c here is exactly what the adapter
-   * seam exists to prevent.
+   * Vendor-neutral, and deliberately so: a branch on Source_System__c here is exactly what the
+   * adapter seam exists to prevent.
    *
    * ---------------------------------------------------------------------------------------
-   * Is_Public__c ARRIVED IN BUILD 07 STEP 8 AND CHANGED JIRA'S BEHAVIOUR TOO.
+   * Is_Public__c WAS A CONDITION HERE FOR PART OF BUILD 07 AND IS NOT ONE ANY MORE.
    *
-   * Sync is now bidirectional for private items and inbound-only for public ones. A public item
-   * is a showcase mirror of something that lives elsewhere: the remote system is its source of
-   * truth, and a status typed into Salesforce should not rewrite what the portfolio is showing
-   * off. Before this, a status change on ANY record carrying an External_Id__c pushed, public
-   * or not - so if a public Jira issue stops responding to a status change made in Salesforce,
-   * this is why, and it is intended.
+   * Step 8 added `item.Is_Public__c != true`, making sync inbound-only for anything on public
+   * display. That was wrong, and it silently changed Jira's behaviour too. Is_Public__c answers
+   * "who may READ this record" - it is the guest board's gate, enforced in
+   * PublicWorkItemSelector's WHERE clause and in the guest sharing rules. It says nothing about
+   * who may WRITE it. Conflating the two made the internal board's edit controls quietly stop
+   * working on exactly the records the project exists to show off, and there is no reason a
+   * visible item should also be a frozen one.
+   *
+   * Writability is governed by object and field permissions, not by this flag. Do not put it
+   * back.
    * ---------------------------------------------------------------------------------------
    */
   private static Boolean isPushable(Work_Item__c item, Work_Item__c prior) {
     return prior != null &&
       prior.Status__c != item.Status__c &&
       item.Status__c != WorkItemStatus.UNSPECIFIED &&
-      String.isNotBlank(item.External_Id__c) &&
-      item.Is_Public__c != true;
+      String.isNotBlank(item.External_Id__c);
   }
 }
