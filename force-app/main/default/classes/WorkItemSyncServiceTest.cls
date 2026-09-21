@@ -288,7 +288,11 @@ private class WorkItemSyncServiceTest {
       project.Id,
       false
     );
-    items[0].External_Id__c = 'asana:998877'; // no adapter registered
+    // trello, not asana: Asana gained an adapter in build 07 step 6. Worse, once real
+    // Field_Mapping__mdt rows existed in the org this test started PASSING the Asana item
+    // through - FieldMappingService reads live custom metadata when nothing is injected, so
+    // org data quietly changed what this test measured.
+    items[0].External_Id__c = 'trello:998877'; // genuinely no adapter registered
     for (Work_Item__c item : items) {
       item.Status__c = 'In Progress';
       item.Sync_Status__c = 'Pending';

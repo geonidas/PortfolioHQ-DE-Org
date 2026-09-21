@@ -349,6 +349,43 @@ read from asterisks to clear text and back. Worse, a **guest permission set sile
 it**: the deploy reports success and the org keeps `PermissionsViewEncryptedData = false`. So
 Encrypted Text is unusable for anything a guest-run endpoint must read.
 
+**Callouts are forbidden from triggers, and the inbound subscriber IS a trigger.** The
+subscriber on `Webhook_Event_Received__e` therefore only ENQUEUES: `WorkItemInboundProcessor.handle`
+hands the batch to `WorkItemInboundQueueable`, which is where `parseInbound` runs and where an
+adapter is allowed to call out. Jira never revealed this because it calls out for nothing; the
+first live Asana delivery failed with `System.CalloutException: Callout from triggers are
+currently not supported` while the whole test suite stayed green, because every test calls
+`WorkItemInboundProcessor.process` directly. **A test that drives processing directly is not
+testing the path that runs in production.** The outbound path has always had this shape - the
+trigger enqueues `WorkItemSyncQueueable` - and inbound now matches it.
+
+**A queueable enqueued while `Test.stopTest()` delivers a platform event does not execute.** So
+an endpoint test cannot assert an end-to-end outcome any more; `JiraWebhookResourceTest` drives
+the second half itself via a `drainStagedDeliveries()` helper. The async boundary is real, not a
+test artefact.
+
+**`FieldMappingService` reads live custom metadata when nothing is injected, so org data can
+change what a test measures.** Deploying the three real Asana status mappings made
+`anItemForAnUnsupportedSystemFailsWithoutStoppingTheRest` pass an Asana item through that it had
+always rejected - it had used `asana:` as its example of an unregistered system. It uses
+`trello:` now. Any test asserting "no mapping exists" must inject an empty table rather than
+assume the org has none.
+
+**Asana's batch endpoint rejects query parameters in `relative_path`**, and rejects them as a
+**400 inside an otherwise 200 response** - so the batch call looks like it worked and every task
+inside it silently fails. `opt_fields` goes in `options.fields` as an array per action. The mock
+did not catch this because it read the gid out of the path and answered happily whatever else
+was in it.
+
+**Guest field-level security is enforced on DML, so one ungranted field fails the whole insert -
+silently, if the caller catches.** Apex runs in system mode for every other user and ignores
+field-level security on writes; the guest is the exception. `AsanaWebhookResource.record()` set
+`Webhook_Event__c.External_Id__c`, which `Jira_Webhook_Guest` does not grant, so every rejection
+and handshake row failed to insert while the endpoint still answered correctly. **No Apex test
+could catch it, because tests run as the admin.** Found by POSTing to the live endpoint and
+finding no row. Any guest-written field must be in that permission set, and any endpoint test
+worth trusting runs inside `System.runAs(<the site guest>)`.
+
 **The Guest User licence refuses `Edit` on a custom object**, and says so at deploy time: `The
 user license doesn't allow the permission: Edit <Object>`. Guest-facing writes must be inserts.
 

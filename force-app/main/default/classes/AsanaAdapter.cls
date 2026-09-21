@@ -35,12 +35,25 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
    * Asana returns a minimal object unless fields are asked for. Every one of these is needed:
    * without memberships the section is unknowable, and without completed a finished task reads
    * as whatever column it was left in.
+   *
+   * A LIST, sent as options.fields on each batch action - not a comma-separated opt_fields query
+   * string. Asana refuses a query string inside a batch action with "Parameters are not accepted
+   * in a batch action's path", and it refuses it as a 400 INSIDE an otherwise 200 response, so
+   * the batch call itself looks like it worked. Found against the live API: the mock had been
+   * reading the gid out of the path and answering happily whatever else was in it.
    */
-  private static final String OPT_FIELDS =
-    'name,completed,modified_at,resource_subtype,' +
-    'memberships.project.gid,memberships.project.name,' +
-    'memberships.section.gid,memberships.section.name,' +
-    'custom_fields.name,custom_fields.display_value';
+  private static final List<String> OPT_FIELDS = new List<String>{
+    'name',
+    'completed',
+    'modified_at',
+    'resource_subtype',
+    'memberships.project.gid',
+    'memberships.project.name',
+    'memberships.section.gid',
+    'memberships.section.name',
+    'custom_fields.name',
+    'custom_fields.display_value'
+  };
 
   private static final Integer ENDPOINT_MAX = Integration_Log__c.Endpoint__c.getDescribe()
     .getLength();
@@ -357,10 +370,9 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
       actions.add(
         new Map<String, Object>{
           'method' => 'get',
-          'relative_path' => '/tasks/' +
-          EncodingUtil.urlEncode(gid, 'UTF-8') +
-          '?opt_fields=' +
-          OPT_FIELDS
+          // No query string here: Asana rejects one per action, as a 400 inside a 200.
+          'relative_path' => '/tasks/' + gid,
+          'options' => new Map<String, Object>{ 'fields' => OPT_FIELDS }
         }
       );
     }

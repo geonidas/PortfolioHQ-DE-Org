@@ -292,6 +292,17 @@ global with sharing class AsanaWebhookResource {
    * this runs as the guest, which has no access to Integration_Log__c and should not gain any.
    * The row is always Failed and always Signature_Valid__c = false, so WebhookEventTrigger never
    * publishes it and nothing downstream ever looks at it.
+   *
+   * WRITES ONLY FIELDS THE GUEST IS GRANTED, and the resource id goes in the message rather than
+   * in External_Id__c. Guest field-level security is enforced on DML - unlike every other user,
+   * for whom Apex runs in system mode - so one ungranted field fails the whole insert. The catch
+   * below then swallows it and the row is simply never written. That is exactly what happened
+   * when this class first met the live endpoint: a 400 came back correctly and nothing was
+   * recorded. No Apex test could have caught it, because tests run as the admin.
+   *
+   * External_Id__c is also the wrong home for it. On this object that field means the WORK
+   * ITEM's external id, which the processor fills in later; JiraWebhookResource leaves it null
+   * here for the same reason.
    */
   private static void record(
     String resourceId,
@@ -305,9 +316,14 @@ global with sharing class AsanaWebhookResource {
         Received_At__c = System.now(),
         Signature_Valid__c = signatureValid,
         Processing_Status__c = DeliveryStatus.FAILED,
-        External_Id__c = resourceId,
         Raw_Payload__c = payload,
-        Error_Message__c = Strings.truncate(note, EVENT_ERROR_MAX)
+        Error_Message__c = Strings.truncate(
+          'resource=' +
+            (String.isBlank(resourceId) ? '(none)' : resourceId) +
+            ' ' +
+            note,
+          EVENT_ERROR_MAX
+        )
       );
     } catch (Exception e) {
       // Best effort. Failing to record a rejection must not turn into a 500 and an endless

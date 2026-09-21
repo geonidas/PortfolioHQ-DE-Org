@@ -29,6 +29,32 @@ private class JiraWebhookResourceTest {
     );
   }
 
+  /**
+   * Run the processor over whatever the endpoint just staged.
+   *
+   * Since build 07 the subscriber ENQUEUES rather than applying inline - an adapter is allowed
+   * to call out from parseInbound, and Apex refuses a callout made from a trigger. A queueable
+   * enqueued while Test.stopTest delivers a platform event does not execute, so these tests
+   * drive the second half themselves. The boundary is real, not a test artefact: in production
+   * the same work happens in WorkItemInboundQueueable a moment later.
+   */
+  private static void drainStagedDeliveries() {
+    WorkItemInboundProcessor.process(
+      [
+        SELECT
+          Id,
+          Source_System__c,
+          Raw_Payload__c,
+          Processing_Status__c,
+          Signature_Valid__c
+        FROM Webhook_Event__c
+        WHERE
+          Processing_Status__c = :DeliveryStatus.PENDING
+          AND Signature_Valid__c = TRUE
+      ]
+    );
+  }
+
   @IsTest
   static void acceptsAGenuineDelivery() {
     String secret = JiraWebhookPayloadFactory.randomSecret();
@@ -356,6 +382,7 @@ private class JiraWebhookResourceTest {
     Test.startTest();
     post(junk, WebhookSignature.sign(Blob.valueOf(junk), secret));
     Test.stopTest();
+    drainStagedDeliveries();
 
     Assert.areEqual(
       200,
@@ -395,7 +422,8 @@ private class JiraWebhookResourceTest {
 
     Test.startTest();
     post(payload, WebhookSignature.sign(Blob.valueOf(payload), secret));
-    Test.stopTest(); // delivers the platform event, which runs the processor
+    Test.stopTest(); // delivers the platform event, which enqueues the processor
+    drainStagedDeliveries();
 
     Work_Item__c updated = [
       SELECT Status__c, Sync_Status__c, Remote_Last_Modified__c

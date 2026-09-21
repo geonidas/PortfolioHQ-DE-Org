@@ -48,7 +48,19 @@ public with sharing class WorkItemInboundProcessor {
     Id workItemId; // filled from the upsert result, for the second pass
   }
 
-  /** Subscriber entry point. */
+  /**
+   * Subscriber entry point. Hands the batch to a queueable and does nothing else.
+   *
+   * This runs in a TRIGGER - the subscriber on Webhook_Event_Received__e - and Apex refuses a
+   * callout made from one. An adapter is allowed to call out from parseInbound, and AsanaAdapter
+   * must, so applying a delivery here would fail with "Callout from triggers are currently not
+   * supported" for Asana and work fine for Jira. It did exactly that on the first live delivery.
+   *
+   * Enqueuing instead is the same move the outbound path makes: WorkItemTriggerHandler does not
+   * call out either, it enqueues WorkItemSyncQueueable. Every system goes async, not just the
+   * ones that hydrate, because choosing per system would mean this class knowing which adapters
+   * call out.
+   */
   public static void handle(List<Webhook_Event_Received__e> events) {
     Set<Id> eventIds = new Set<Id>();
     for (Webhook_Event_Received__e event : events) {
@@ -59,21 +71,10 @@ public with sharing class WorkItemInboundProcessor {
     if (eventIds.isEmpty()) {
       return;
     }
-    process(
-      [
-        SELECT
-          Id,
-          Source_System__c,
-          Raw_Payload__c,
-          Processing_Status__c,
-          Signature_Valid__c
-        FROM Webhook_Event__c
-        WHERE
-          Id IN :eventIds
-          AND Processing_Status__c = :DeliveryStatus.PENDING
-          AND Signature_Valid__c = TRUE
-      ]
-    );
+    // Queueables cannot be enqueued from a test's platform event delivery at stopTest, and a
+    // failure to enqueue would silently strand every delivery. The processor is still callable
+    // directly, which is how the existing tests drive it.
+    System.enqueueJob(new WorkItemInboundQueueable(eventIds));
   }
 
   /**

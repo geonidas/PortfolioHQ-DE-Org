@@ -397,6 +397,111 @@ private class AsanaWebhookResourceTest {
     Assert.areEqual(0, staged().size(), 'Nothing processable was staged.');
   }
 
+  // ---------- as the user that actually runs it ----------
+
+  /**
+   * The endpoint writing a row AS THE GUEST, which is the only way this can be tested.
+   *
+   * Every other test here runs as the admin, for whom Apex ignores field-level security. The
+   * guest is the exception: its field-level security IS enforced on DML, so one ungranted field
+   * fails the whole insert - and record() catches the failure, so the row is simply never
+   * written and the response still looks right.
+   *
+   * That is not hypothetical. The first live request to this endpoint returned a correct 400 and
+   * recorded nothing, because record() set External_Id__c, which the guest is not granted. No
+   * admin-context test could have caught it.
+   */
+  @IsTest
+  static void theGuestCanActuallyWriteTheRowsThisEndpointRecords() {
+    List<User> guests = [
+      SELECT Id
+      FROM User
+      WHERE UserType = 'Guest' AND IsActive = TRUE
+      ORDER BY CreatedDate ASC
+      LIMIT 1
+    ];
+    Assert.isFalse(
+      guests.isEmpty(),
+      'This org serves a public site, so it has a guest user. If this ever fails on a fresh ' +
+        'scratch org with no site, make it conditional rather than deleting it - it is the only ' +
+        'test here that runs as the user the endpoint actually runs as.'
+    );
+
+    Test.startTest();
+    System.runAs(guests[0]) {
+      // Neither header: the rejection path, which is pure record().
+      post(RESOURCE_GID, eventsBody(1), null, null);
+    }
+    Test.stopTest();
+
+    Assert.areEqual(
+      400,
+      RestContext.response.statusCode,
+      'The answer was right before the fix too - that is what made this invisible.'
+    );
+    List<Webhook_Event__c> recorded = [
+      SELECT Error_Message__c, Signature_Valid__c, External_Id__c
+      FROM Webhook_Event__c
+    ];
+    Assert.areEqual(
+      1,
+      recorded.size(),
+      'And the row exists. Before the fix this was zero: the insert set External_Id__c, which ' +
+      'the guest cannot write, and the catch swallowed the failure.'
+    );
+    Assert.isFalse(recorded[0].Signature_Valid__c);
+    Assert.isNull(
+      recorded[0].External_Id__c,
+      'Left null deliberately. On this object that field means the WORK ITEM\'s external id, ' +
+      'which the processor fills in later.'
+    );
+    Assert.isTrue(
+      recorded[0].Error_Message__c.contains(RESOURCE_GID),
+      'The resource id is in the message instead: ' +
+      recorded[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void theGuestCanStageAHandshakeSecret() {
+    List<User> guests = [
+      SELECT Id
+      FROM User
+      WHERE UserType = 'Guest' AND IsActive = TRUE
+      ORDER BY CreatedDate ASC
+      LIMIT 1
+    ];
+    Assert.isFalse(guests.isEmpty(), 'This org has a guest user.');
+    String offered = randomSecret();
+
+    Test.startTest();
+    System.runAs(guests[0]) {
+      post(RESOURCE_GID, '{}', offered, null);
+    }
+    Test.stopTest();
+
+    Assert.areEqual(
+      200,
+      RestContext.response.statusCode,
+      'The registration handshake has to succeed as the guest, or no webhook can ever be ' +
+      'registered at all.'
+    );
+    Assert.areEqual(
+      offered,
+      RestContext.response.headers.get('X-Hook-Secret'),
+      'Echoed exactly.'
+    );
+    Assert.areEqual(
+      1,
+      [
+        SELECT COUNT()
+        FROM Webhook_Secret__c
+        WHERE Resource_Id__c = :RESOURCE_GID
+      ],
+      'And the secret really was staged by the guest, not merely by an admin in a test.'
+    );
+  }
+
   // ---------- the gateway seam ----------
 
   @IsTest
