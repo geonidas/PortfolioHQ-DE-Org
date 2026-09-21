@@ -560,8 +560,10 @@ private class AsanaAdapterTest {
     rows.add(
       AsanaPayloadFactory.mapping(
         FieldMappingService.TYPE,
+        // The enum option gid, not the option name - renaming "Spike" in Asana must not
+        // silently stop this matching.
+        AsanaPayloadFactory.FORMAT_OPTION_GID,
         'Spike',
-        null,
         WorkItemType.SPIKE
       )
     );

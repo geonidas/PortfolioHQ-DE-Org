@@ -52,7 +52,9 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     'memberships.section.gid',
     'memberships.section.name',
     'custom_fields.name',
-    'custom_fields.display_value'
+    'custom_fields.display_value',
+    // The chosen enum option's gid, which is what a Type mapping is keyed on.
+    'custom_fields.enum_value.gid'
   };
 
   private static final Integer ENDPOINT_MAX = Integration_Log__c.Endpoint__c.getDescribe()
@@ -63,15 +65,16 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     .getLength();
 
   /**
-   * The name of the Asana custom field that carries a work item's type.
+   * The Asana custom field that carries what kind of work a task is.
    *
    * Asana has no native type on a task - resource_subtype only distinguishes a task from a
-   * milestone - so the learning project carries one in a custom field. Read case-insensitively,
-   * and absent is absent: a task with no such field leaves Type__c alone rather than being
-   * retyped to Unspecified. See the build 07 report for why this is a convention rather than an
-   * API feature.
+   * milestone - so the learning project carries an enum custom field called Format, whose
+   * options are Book, Online course, Article / paper and so on. Matched case-insensitively, and
+   * absent is absent: a task with no Format leaves Type__c alone rather than being retyped to
+   * Unspecified. This is a convention this project chose, not an API feature; the handoff says
+   * so where the manual setup is described.
    */
-  private static final String TYPE_CUSTOM_FIELD = 'type';
+  private static final String TYPE_CUSTOM_FIELD = 'format';
 
   private final List<Integration_Log__c> pendingLogs = new List<Integration_Log__c>();
 
@@ -259,11 +262,27 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     }
 
     // Step 7: the raw vendor string is kept whatever happens to the normalized one, and a type
-    // that is absent or blank is absent, never unmapped.
-    String rawType = rawTypeFrom(task);
-    if (String.isNotBlank(rawType)) {
-      change.remoteType = rawType;
-      change.normalizedType = normalizeType(rawType);
+    // that is absent or blank is absent, never unmapped. The mapping is looked up on the enum
+    // option gid; Source_Type__c gets the name a person would recognise.
+    RawType rawType = rawTypeFrom(task);
+    if (rawType != null) {
+      change.remoteType = rawType.display;
+      change.normalizedType = normalizeType(rawType.matchOn);
+      if (
+        change.normalizedType == WorkItemType.UNSPECIFIED &&
+        String.isNotBlank(rawType.matchOn)
+      ) {
+        log(
+          'Format "' +
+            rawType.display +
+            '" (' +
+            rawType.matchOn +
+            ') on task ' +
+            gid +
+            ' has no Field_Mapping__mdt row, so Type__c is Unspecified. Source_Type__c keeps ' +
+            'the raw value - query it grouped to see which formats are worth mapping.'
+        );
+      }
     }
 
     // Asana items are flat in this build: no parents, no sub-tasks, no epic equivalent.
@@ -299,13 +318,27 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
   }
 
   /**
-   * The raw type string, from a custom field named "Type".
+   * What a task's Format field says, as a gid to match on and a name to keep.
+   *
+   * Two values, because they serve different purposes and the difference is load-bearing:
+   *
+   * - the enum OPTION GID is what the mapping is keyed on, for the same reason section mappings
+   *   are: a gid survives a rename and a name does not, and a mapping that silently stopped
+   *   matching because somebody retitled "Online course" would be invisible until the board
+   *   went wrong;
+   * - the display NAME is what Source_Type__c keeps, because a gid in that field would tell a
+   *   person reading the promotion query nothing at all.
    *
    * resource_subtype is the fallback and is nearly always default_task, which maps to nothing -
-   * so in practice a task with no Type custom field carries no type, and the processor leaves
-   * Type__c alone. That is build 06's rule: present but blank counts as absent, not unmapped.
+   * so in practice a task with no Format carries no type, and the processor leaves Type__c
+   * alone. That is build 06's rule: present but blank counts as absent, not unmapped.
    */
-  private String rawTypeFrom(Map<String, Object> task) {
+  private class RawType {
+    String matchOn; // enum option gid, or the subtype when there is no Format
+    String display; // what a person would call it
+  }
+
+  private RawType rawTypeFrom(Map<String, Object> task) {
     Object raw = task.get('custom_fields');
     if (raw instanceof List<Object>) {
       for (Object entry : (List<Object>) raw) {
@@ -315,16 +348,33 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
         }
         String name = asString(field.get('name'));
         if (
-          String.isNotBlank(name) &&
-          name.trim().toLowerCase() == TYPE_CUSTOM_FIELD
+          String.isBlank(name) || name.trim().toLowerCase() != TYPE_CUSTOM_FIELD
         ) {
-          String value = asString(field.get('display_value'));
-          return String.isBlank(value) ? null : value.trim();
+          continue;
         }
+        String display = asString(field.get('display_value'));
+        if (String.isBlank(display)) {
+          // The field is on the task but nobody set it. Absent, not unmapped.
+          return null;
+        }
+        RawType found = new RawType();
+        found.display = display.trim();
+        Map<String, Object> chosen = asMap(field.get('enum_value'));
+        String optionGid = chosen == null ? null : asString(chosen.get('gid'));
+        // Falling back to the display name keeps a non-enum Format field usable; it simply
+        // loses the rename-safety a gid gives.
+        found.matchOn = String.isBlank(optionGid) ? found.display : optionGid;
+        return found;
       }
     }
     String subtype = asString(task.get('resource_subtype'));
-    return subtype == 'default_task' ? null : subtype;
+    if (subtype == null || subtype == 'default_task') {
+      return null;
+    }
+    RawType fromSubtype = new RawType();
+    fromSubtype.matchOn = subtype;
+    fromSubtype.display = subtype;
+    return fromSubtype;
   }
 
   // ---------- hydration ----------

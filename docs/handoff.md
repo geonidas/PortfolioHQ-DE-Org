@@ -506,9 +506,11 @@ work item exists.
 1. Create the learning project with sections named **Up Next**, **In Progress**, **Completed**.
 2. Capture the **project gid** and each **section gid**. The API returns them; the UI shows them
    in the URL.
-3. Add a task custom field named **`Type`**. This is a convention this project invented, not an
-   Asana feature: a task has no native type, and `resource_subtype` is almost always
-   `default_task`. `AsanaAdapter` reads a custom field called `Type`, case-insensitively.
+3. Add an **enum** task custom field named **`Format`**, with an option per kind of work
+   (`Book`, `Online course`, `Video series`, ...). This is a convention this project chose, not
+   an Asana feature: a task has no native type, and `resource_subtype` is almost always
+   `default_task`. `AsanaAdapter` matches the field name case-insensitively and reads the chosen
+   option's **gid**, falling back to the display name for a non-enum field.
 
 ### In Salesforce
 
@@ -527,7 +529,15 @@ work item exists.
    There is deliberately no `In Review` row — Asana has no such column, and that asymmetry is
    correct.
 
-6. Type mappings as they are decided, with `Mapping_Type__c = Type`.
+6. Type mappings, with `Mapping_Type__c = Type`, keyed on the **enum option gid** for the same
+   reason status mappings are keyed on section gids. `scripts/apex/add-asana-type-mappings.apex`
+   deploys them; read the gids with
+   `GET /projects/<gid>/custom_field_settings?opt_fields=custom_field.name,custom_field.enum_options.name`.
+
+   `Type__c` is a restricted picklist and carries both vocabularies: Jira's `Epic`, `Story`,
+   `Bug`, `Task`, `Spike`, and the learning board's `Book`, `Online Course`, `Video`, `Tutorial`,
+   `Trailhead`, `Superbadge`. An Asana option with no mapping lands on `Unspecified` with
+   `Source_Type__c` keeping the raw name - that is the promotion path working, not a failure.
 
 ### Register the webhook, by hand
 

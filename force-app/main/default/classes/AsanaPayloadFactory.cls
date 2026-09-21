@@ -20,6 +20,9 @@ public class AsanaPayloadFactory {
   public static final String SECTION_COMPLETED = '1209933333333333';
   public static final String SECTION_UNMAPPED = '1209944444444444';
 
+  /** The Format enum option a typedTask carries. Mappings key on this, not on the name. */
+  public static final String FORMAT_OPTION_GID = '1209988888888888';
+
   /** One element of the events array, as AsanaWebhookResource stages it. */
   public static String taskEvent(String taskGid) {
     return taskEvent(taskGid, 'changed');
@@ -123,9 +126,17 @@ public class AsanaPayloadFactory {
           '}}'
       );
     }
+    // The learning project's Format field: an ENUM, so it carries both a chosen option gid and
+    // a display value. The gid is what a Type mapping is keyed on; the display value is what
+    // Source_Type__c keeps. A factory that only produced the name would let the adapter look
+    // correct while matching on something no mapping uses.
     String customFields = typeValue == null
       ? '[]'
-      : '[{"gid":"55","name":"Type","display_value":' +
+      : '[{"gid":"1218523733859541","name":"Format","enum_value":{"gid":' +
+        JSON.serialize(FORMAT_OPTION_GID) +
+        ',"name":' +
+        JSON.serialize(typeValue) +
+        '},"display_value":' +
         JSON.serialize(typeValue) +
         '}]';
     return '{"gid":"' +

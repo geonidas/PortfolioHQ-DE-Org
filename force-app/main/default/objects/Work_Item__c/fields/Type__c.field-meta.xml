@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Type__c</fullName>
-    <description>Issue type in the external system. Unspecified is the default and the landing value for any external type that has no Salesforce equivalent yet, which is what lets this picklist stay restricted without the sync failing on custom Jira issue types.</description>
+    <description>What kind of work this is. Epic, Story, Bug, Task and Spike are Jira&apos;s vocabulary; Book, Online Course, Video, Tutorial, Trailhead and Superbadge are the learning board&apos;s. One restricted picklist for both, because the board nests on this field and two type fields would mean two code paths through one shared column builder. Restricted on purpose: this value reaches the public board, so an unrestricted picklist would publish whatever somebody typed into Asana. The raw vendor string is kept privately in Source_Type__c. Unspecified is the default and the landing value for any external type that has no mapping yet, which is what lets this picklist stay restricted without the sync failing.</description>
     <inlineHelpText>Unspecified means the external issue type has not been mapped to a Salesforce value yet.</inlineHelpText>
     <label>Type</label>
     <required>false</required>
@@ -40,6 +40,36 @@
                 <fullName>Spike</fullName>
                 <default>false</default>
                 <label>Spike</label>
+            </value>
+            <value>
+                <fullName>Book</fullName>
+                <default>false</default>
+                <label>Book</label>
+            </value>
+            <value>
+                <fullName>Online Course</fullName>
+                <default>false</default>
+                <label>Online Course</label>
+            </value>
+            <value>
+                <fullName>Video</fullName>
+                <default>false</default>
+                <label>Video</label>
+            </value>
+            <value>
+                <fullName>Tutorial</fullName>
+                <default>false</default>
+                <label>Tutorial</label>
+            </value>
+            <value>
+                <fullName>Trailhead</fullName>
+                <default>false</default>
+                <label>Trailhead</label>
+            </value>
+            <value>
+                <fullName>Superbadge</fullName>
+                <default>false</default>
+                <label>Superbadge</label>
             </value>
         </valueSetDefinition>
     </valueSet>
