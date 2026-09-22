@@ -5,16 +5,17 @@ reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summarie
 **This file holds only what git does not know: org state, invariants, and traps.**
 
 Current as of **Build 07** (`docs/build-summaries/build-07.md`), which added Asana as a second
-source system. Build 07's code is deployed and green; its **manual Asana setup has not been
-done**, so nothing has met live Asana yet - see section 6.
-Builds 01–06 are deployed and verified against live Jira. Class names below reflect the
+source system. The manual Asana setup in section 6 **has been done** and the integration is live:
+real tasks sync in, six Asana work items render on the public board, and the Format field types
+them. Builds 01–06 are deployed and verified against live Jira. Class names below reflect the
 refactor after build 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`, and Jira
 payload parsing moved into `JiraAdapter.parseInbound`. Older ADRs and summaries use the old name.
 
-**Build 07 changed one thing about Jira, on purpose.** Sync is now bidirectional for private
-items and **inbound-only for public ones** (`WorkItemTriggerHandler.isPushable`). Before it, a
-status change on any record carrying an `External_Id__c` pushed. If a public Jira issue stops
-responding to a status change made in Salesforce, that is why.
+**Two things changed late in build 07 and reversed an earlier decision within it.** Step 8 made
+sync inbound-only for anything flagged public; step 9 removed that, because `Is_Public__c` gates
+reading and says nothing about writing - see section 2. And inbound now inherits the project's
+`Is_Public__c` when it creates a record, so synced work reaches the public board without a manual
+tick.
 
 ---
 
@@ -30,6 +31,25 @@ None of this survives an org rebuild, and none of it is visible in the repo.
 | Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                        |
 | Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                      |
 | Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                          |
+
+### Scheduled jobs — manual, not metadata
+
+`WorkItemInboundSweeper` runs every 15 minutes via **four** CronTriggers named
+`Work Item Inbound Sweeper :00/:15/:30/:45`. Deploying the class does not create them.
+
+```bash
+sf apex run --file scripts/apex/schedule-inbound-sweeper.apex --target-org MyScratchOrg
+```
+
+**Run that script as a user holding the `Asana_Token-PAT1` external credential grant.** That is
+the mechanism, not a convention: an async job runs as the user who started it and a Queueable
+inherits the user of whatever enqueued it, so the Asana callout inside `WorkItemInboundQueueable`
+is made as whoever ran the script. Schedule it as a user without the grant and every sweep ends in
+`We couldn't access the credential(s)`.
+
+Four jobs rather than one because Salesforce cron rejects a list in the seconds or minutes field -
+`0 0,15,30,45 * * * ?` throws `Seconds and minutes must be specified as integers`. The org allows
+100 scheduled Apex jobs, so four is cheap, but it is four.
 
 ### Permission set assignments — manual, not metadata
 
@@ -235,6 +255,24 @@ without a code change.
 ---
 
 ## 3. Traps, each of which cost real time here
+
+**A schedulable class cannot be deployed while it has scheduled jobs.** The deploy fails whole -
+every other class in the same command with it - with `This schedulable class has jobs pending or in
+progress - CronTrigger IDs (...)`. The message names ids and never says "unschedule it first". So
+any change to `WorkItemInboundSweeper` is a three-step loop:
+
+```bash
+sf apex run --file scripts/apex/unschedule-inbound-sweeper.apex --target-org MyScratchOrg
+```
+
+then deploy, then re-run `schedule-inbound-sweeper.apex`. The alternative is the "Allow deployments
+of components when corresponding Apex jobs are pending or in progress" checkbox in
+Setup > Deployment Settings, deliberately not enabled: the schedule script is also the thing that
+records which user the sweeps run as, and that matters more here than the convenience does.
+
+**Scheduled Apex cannot make callouts.** Which is why `WorkItemInboundSweeper` enqueues
+`WorkItemInboundQueueable` rather than calling `WorkItemInboundProcessor.process` itself. Same
+family of refusal as the trigger-context one that created the queueable in the first place.
 
 **A `PlatformEventSubscriberConfig` does not take effect until the subscriber is restarted.**
 The inbound queueable calls Asana, and a callout needs the `Asana_Token-PAT1` external
@@ -464,7 +502,7 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
 | Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                                                                      | Before a second admin exists          |
 | `Integration_Log__c` and `Webhook_Event__c` grow unbounded; no purge job.                                                                                                                                                                                      | At volume                             |
 | Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run.                                              | If the endpoint sees hostile traffic  |
-| `Retry_Count__c` is inert; retry policy was never built.                                                                                                                                                                                                       | When retries are wanted               |
+| `JiraAdapter` deliveries go through the same sweeper as Asana's, but Jira never strands one - it calls out for nothing, so the retry budget is exercised by Asana alone.                                                                                       | Informational                         |
 | Bare page layouts on four objects.                                                                                                                                                                                                                             | Cosmetic                              |
 | An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.                                                           | When hierarchy gaps are noticed       |
 | Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                                                             | Next time a full retrieve is needed   |
@@ -474,7 +512,7 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
 | Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so.                           | After the next few live deliveries    |
 | The Asana `Format` option "Article / paper" (`1218523733859544`) has no `Field_Mapping__mdt` row, because `Work_Item__c.Type__c` has no value to map it to. A task carrying it lands on `Unspecified` with the raw word in `Source_Type__c`.                   | When an article is added in Asana     |
 | A project's `Is_Public__c` is read at creation time only, so flipping a project public does not retroactively publish the work already synced into it. Fix by hand, or with a one-off update that touches `Is_Public__c` and nothing else - never `Status__c`. | When a project is made public         |
-| A promoted secret leaves its `Webhook_Secret__c` staging row behind. The script says to delete it; nothing enforces it.                                                                                                                                        | After the first real registration     |
+| Nothing enforces deletion of a `Webhook_Secret__c` staging row after promotion; the script only says to. The Asana row was deleted by hand on 2026-09-21.                                                                                                      | After the next real registration      |
 | Rotating a secret means deleting the staged row first: `Resource_Id__c` is unique and the guest cannot update a row.                                                                                                                                           | At first rotation                     |
 | Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                                                         | If re-registration becomes frequent   |
 | Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                                            | At volume                             |
