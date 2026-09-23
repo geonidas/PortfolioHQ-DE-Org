@@ -38,7 +38,7 @@ if (existing.isEmpty()) {
   System.debug(
     LoggingLevel.INFO,
     '>>> Aborted ' +
-    existing.size() +
-    '. Deploy now, then re-run scripts/apex/schedule-inbound-sweeper.apex.'
+      existing.size() +
+      '. Deploy now, then re-run scripts/apex/schedule-inbound-sweeper.apex.'
   );
 }

@@ -51,6 +51,26 @@ Four jobs rather than one because Salesforce cron rejects a list in the seconds 
 `0 0,15,30,45 * * * ?` throws `Seconds and minutes must be specified as integers`. The org allows
 100 scheduled Apex jobs, so four is cheap, but it is four.
 
+The nightly purge is a **fifth** job, scheduled separately:
+
+```bash
+sf apex run --file scripts/apex/schedule-data-purge.apex --target-org MyScratchOrg
+```
+
+`IntegrationDataPurge` holds `Webhook_Event__c` and `Integration_Log__c` at their **50 most
+recent rows each**, at 23:00. **The cron runs in the scheduling user's time zone, not the org's
+and not UTC** - the admin is `America/Los_Angeles`, so this is 11pm Pacific and follows daylight
+saving on its own. Schedule it as a user in another zone and it fires at 11pm in that zone.
+
+It hard-deletes: rows are removed from the recycle bin too, so there is no undelete. It will never
+take a `Webhook_Event__c` still `Pending` - that is work in progress, not history - and Pending
+rows are excluded from the row count as well as the delete, so stuck deliveries cannot push real
+history over the cap.
+
+**What the 50-row cap costs, deliberately.** Rejected-signature rows age out like everything else,
+and they are the only record that unauthenticated traffic reached a public endpoint. Version 2
+archives to a Big Object before deleting; until then the cap is simply the policy.
+
 ### Permission set assignments — manual, not metadata
 
 Deploying a permission set does **not** assign it. This has broken the build three
@@ -132,6 +152,14 @@ reports an unmapped status, and handles it by staying `Pending`.
 so the first half is always true. `WorkItemTrigger`'s **before update** context resets
 `Sync_Status__c` on a real status change. Remove that and a record syncs exactly once,
 then goes silent forever **while reporting success**.
+
+**`Ignored` means two different things, and `Ignore_Reason__c` is which.** `Superseded` is a
+newer delivery for the same external id winning inside the batch - the winner carries the whole
+story. `Not Applicable` is the adapter having nothing to say about the resource, so no retry would
+ever produce a change; Asana story events are the bulk of these. Retention rules read the field.
+Before it existed the only way to tell them apart was to string-match `Error_Message__c`, which
+breaks silently the day somebody rewords a message. Values live in `IgnoreReason`; do not write
+the literal.
 
 **`Is_Public__c` is a READ gate and nothing else.** It gates the guest board, in two
 places: `PublicWorkItemSelector`'s `WHERE` clause and the two criteria-based guest sharing
@@ -259,7 +287,7 @@ without a code change.
 **A schedulable class cannot be deployed while it has scheduled jobs.** The deploy fails whole -
 every other class in the same command with it - with `This schedulable class has jobs pending or in
 progress - CronTrigger IDs (...)`. The message names ids and never says "unschedule it first". So
-any change to `WorkItemInboundSweeper` is a three-step loop:
+any change to `WorkItemInboundSweeper` **or `IntegrationDataPurge`** is a three-step loop:
 
 ```bash
 sf apex run --file scripts/apex/unschedule-inbound-sweeper.apex --target-org MyScratchOrg
@@ -500,7 +528,7 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
 | Item                                                                                                                                                                                                                                                           | Trigger point                         |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
 | Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                                                                      | Before a second admin exists          |
-| `Integration_Log__c` and `Webhook_Event__c` grow unbounded; no purge job.                                                                                                                                                                                      | At volume                             |
+| ~~`Integration_Log__c` and `Webhook_Event__c` grow unbounded~~ **Closed.** `IntegrationDataPurge` caps both at 50 rows nightly. The cost is that rejected-signature rows and Processed history age out; version 2 archives them to a Big Object first          | Closed                                |
 | Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run.                                              | If the endpoint sees hostile traffic  |
 | `JiraAdapter` deliveries go through the same sweeper as Asana's, but Jira never strands one - it calls out for nothing, so the retry budget is exercised by Asana alone.                                                                                       | Informational                         |
 | Bare page layouts on four objects.                                                                                                                                                                                                                             | Cosmetic                              |

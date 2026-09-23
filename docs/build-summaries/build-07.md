@@ -1,16 +1,20 @@
 # Build 07 — Asana as a second source system
 
-**Status:** built, deployed and green against the scratch org. **Not yet exercised against live
-Asana**, because the manual setup that build depends on — an Asana project, its section gids, the
-`Field_Mapping__mdt` rows and a registered webhook — was deliberately out of build scope and has
-not been done. Everything that does not need those is verified; everything that does is listed
-below as blocked, not as passed.
+**Status:** complete and live. The manual Asana setup was done after the ninth step, and
+everything the original nine steps could only assert in tests has now been exercised against real
+Asana: a registered webhook, tasks syncing in, statuses moving in both directions, and six Asana
+work items rendering on the public board alongside Jira's.
 
-**Verified:** 289 Apex tests, 100% pass, 88% org-wide coverage; 72 Jest; eslint and prettier
-clean; site republished; the public board answers an anonymous visitor with HTTP 200 and exactly
-one SOQL query; `Integration_Log__c` held at 14 rows across the whole build.
+Meeting live Asana cost four more steps, and they are the substance of this summary rather than a
+postscript. Two were defects the tests could not have found, one was a reversal of a decision made
+inside this same build, and one closed a gap the build itself opened. The pattern behind three of
+the four is recorded under "Mistakes worth recording": every one was a path verified as the
+**wrong user**.
 
-Nine commits on `feature/first-branch`, one per step.
+**Verified:** 316 Apex tests, 100% pass; 72 Jest; eslint and prettier clean; site republished; the
+public board answers an anonymous visitor with HTTP 200 and exactly one SOQL query.
+
+Thirteen commits on `feature/first-branch`.
 
 ---
 
@@ -128,6 +132,47 @@ no new Apex method, no new parameter, no second layout.
 
 ---
 
+## What meeting live Asana changed
+
+**Step 10 — hydration could not run where it was placed.** The first real delivery returned
+`Callout from triggers are currently not supported`. `AsanaAdapter` must fetch a task because
+Asana's payloads name a gid and an action and nothing else, and the inbound entry point is a
+platform event subscriber — a trigger. Every test called `WorkItemInboundProcessor.process`
+directly, so nothing ever ran the adapter as the thing that actually runs it.
+`WorkItemInboundQueueable` now sits between them, which also gave the outbound and inbound paths
+one shared answer to "where do callouts happen".
+
+**Step 11 — typing from the Format field.** Asana's type comes from a customer-named custom
+field, which the build flagged as an invented convention. Live, it is `Format`, and it is keyed on
+the enum option gid rather than the display name, so renaming an option in Asana does not break
+the mapping.
+
+**Step 12 — `Is_Public__c` was never a write rule, and step 8 was wrong to make it one.** Step 8
+added `item.Is_Public__c != true` to `WorkItemTriggerHandler.isPushable`, on the reasoning that a
+public item is a showcase mirror whose remote system owns the truth. That conflated two questions.
+`Is_Public__c` answers who may READ a record — it is the guest board's gate, enforced in
+`PublicWorkItemSelector`'s `WHERE` clause and in the guest sharing rules. Who may WRITE it is a
+permissions question, and the answer does not change because a visitor can see the card. The
+effect was that the internal board's status control silently stopped working on exactly the
+records the portfolio exists to show off, Jira's included. Removed, with two tests that fail if it
+returns.
+
+The same step made inbound inherit the project's `Is_Public__c` on creation. The field defaults to
+false, so before it every synced item arrived invisible and stayed invisible until somebody ticked
+a box — no error when that was missed. Inherited rather than defaulted true, so work synced into a
+private project is not published by arriving over a webhook; and creation-only, so an item
+unpublished by hand is not republished by the next delivery.
+
+**Step 13 — the "next run" that did not exist.** `WorkItemInboundProcessor` had always said of a
+delivery the adapter returned nothing for that the row is "left still Pending, for the next run to
+pick up". Nothing swept Pending rows, so that sentence described an intention rather than a
+mechanism, and thirty rows had collected behind it. `WorkItemInboundSweeper` retries a delivery
+three times and then retires it to `Ignored`; `IntegrationDataPurge` holds both audit tables at
+their fifty most recent rows nightly. The ceiling matters more than the retry — a sweeper without
+one re-reads the stuck rows for ever until its own query hits a governor.
+
+---
+
 ## Verdict on build 06's bets
 
 | Bet                                                                         | Verdict                                                                                                                                 |
@@ -159,6 +204,16 @@ no new Apex method, no new parameter, no second layout.
   case-insensitive shadowing trap again, where a `scenario` field hid its own `Scenario` enum.
 - **The `PermissionSet.description` 255-cap, twice.** The handoff warns about it; the assertion
   in the edit script caught it both times rather than the deploy.
+- **Three defects, one mistake: verifying a path as the wrong user.** The guest-FLS failure on
+  inbound DML, the callout-from-trigger defect, and the external credential failure were all found
+  live, all after a hand-run check from anonymous Apex passed — and anonymous Apex runs as you.
+  Anything reached by a guest, by Automated Process, or by a platform event subscriber has to be
+  exercised as that user or the check is vacuous. This is the same family as the
+  `Limits.getCallouts()` trap above: a green result that measured the wrong context.
+- **A half-fix that was worse than no fix.** `IntegrationDataPurge` excluded Pending rows from its
+  delete but counted them towards its cap, so five stuck deliveries silently cost five rows of
+  real history — backwards in precisely the case that makes history worth reading. Caught by the
+  test that asserted the documented behaviour rather than the written one.
 - **An `@AuraEnabled` scan that flagged its own documentation.** `WebhookSecretStore` explains
   why it is never `@AuraEnabled`, and a substring search read the explanation as the violation.
 
@@ -166,51 +221,42 @@ no new Apex method, no new parameter, no second layout.
 
 ## Open items carried forward
 
-| Item                                                                                                                                                                                             | Trigger point                       |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
-| **The whole manual Asana setup.** No Asana project record, no `Field_Mapping__mdt` rows, no registered webhook. Everything in "blocked" below depends on it                                      | Before build 07 can be called done  |
-| Asana's type comes from a **custom field named "Type"**, which is a convention this project invented, not an API feature. `resource_subtype` is the fallback and is nearly always `default_task` | When the learning project is built  |
-| A promoted secret leaves its `Webhook_Secret__c` row behind. The script says to delete it; nothing enforces that                                                                                 | After the first real registration   |
-| Rotating a secret means **deleting** the staged row first — `Resource_Id__c` is unique and the guest cannot update                                                                               | At first rotation                   |
-| Promotion is manual. A platform event plus a Metadata API deployment from the Automated Process user would automate it, if that user can deploy metadata — untested                              | If re-registration becomes frequent |
-| Flat items are always visible on the board, so a Done column of finished Asana work grows unbounded. The orphan cap does not apply to them                                                       | At volume                           |
-| `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana uses `Field_Mapping__mdt`. Two mechanisms for one job                                                           | Next time a Jira mapping changes    |
-| `Retry_Count__c` still inert                                                                                                                                                                     | Carried from build 06               |
-| Unresolved parent references are never back-filled                                                                                                                                               | Carried from build 06               |
-| Epic card title truncation                                                                                                                                                                       | Carried from build 06               |
+| Item                                                                                                                                                                                                                                                   | Trigger point                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
+| ~~The whole manual Asana setup~~ **Done.** Project record, `Field_Mapping__mdt` rows for six Format options and three statuses, webhook registered, secret promoted                                                                                    | Closed                              |
+| Asana's type comes from a custom field this project named. Live it is **`Format`**, keyed on the enum option gid so renaming an option in Asana does not break the mapping. "Article / paper" is deliberately unmapped - `Type__c` has no value for it | When an article is added            |
+| Nothing enforces deleting a `Webhook_Secret__c` staging row after promotion; the script only says to. The Asana row was deleted by hand                                                                                                                | Next registration                   |
+| Rotating a secret means **deleting** the staged row first — `Resource_Id__c` is unique and the guest cannot update                                                                                                                                     | At first rotation                   |
+| Promotion is manual. A platform event plus a Metadata API deployment from the Automated Process user would automate it, if that user can deploy metadata — untested                                                                                    | If re-registration becomes frequent |
+| Flat items are always visible on the board, so a Done column of finished Asana work grows unbounded. The orphan cap does not apply to them                                                                                                             | At volume                           |
+| `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana uses `Field_Mapping__mdt`. Two mechanisms for one job                                                                                                                 | Next time a Jira mapping changes    |
+| ~~`Retry_Count__c` still inert~~ **Closed.** It is the sweeper's retry counter                                                                                                                                                                         | Closed                              |
+| Unresolved parent references are never back-filled                                                                                                                                                                                                     | Carried from build 06               |
+| Epic card title truncation                                                                                                                                                                                                                             | Carried from build 06               |
 
 ---
 
-## Verified, and blocked
+## Verified against live Asana
 
-**Verified against the org**
+Every criterion the original nine steps could only assert in tests:
 
-- 289 Apex tests, 100%, 88% org-wide coverage. 72 Jest. eslint and prettier clean.
-- Single atomic deploys throughout; `sf project reset tracking` after each scoped deploy.
-- The public board answers an anonymous visitor HTTP 200.
-- The guest payload uses **exactly one SOQL query**, and carries exactly ten card keys and four
-  epic keys. `Source_Type__c` does not appear in it.
-- `Integration_Log__c` held at 14 rows across the entire build — no unexpected rows.
-- A guest cannot read a `Webhook_Secret__c` row, asserted against the **real site guest user**.
-
-**Blocked on the manual setup, and therefore NOT verified**
-
-- A webhook registered by curl returning 201, and a `Webhook_Secret__c` row existing.
+- A webhook registered and answering; a handshake staged and its secret promoted.
 - A task created in Asana producing a `Work_Item__c` with the right title, project, status and
   `Source_Type__c`.
-- Moving a task between sections updating `Status__c`.
-- Ticking the completion box setting `Status__c` to Done without moving the task.
-- A private Asana item's status change in Salesforce moving the task and setting its flag.
-- A public Asana item's status change not writing to Asana.
-- A tampered signature returning 401 against the live endpoint.
-- Asana items rendering on the public board in a logged-out browser.
+- Moving a task between sections updating `Status__c`; the completion flag honoured.
+- **Outbound**: a status change in Salesforce moving the task in Asana. Verified by hand.
+- A tampered signature returning 401 — four rejected deliveries are recorded, bodies not stored.
+- Asana items rendering on the public board in a logged-out browser, alongside Jira's.
 
-Every one of these is covered by an Apex or Jest test. None of them has met live Asana.
+**One criterion was deliberately abandoned rather than met.** "A public Asana item's status change
+does not write to Asana" was step 8's rule, and step 12 removed it — see above. A public item is
+now editable from Salesforce exactly like a private one, which is what the project is for.
 
-**A behaviour change to flag loudly**
+---
 
-Build 07 step 8 made sync **inbound-only for public items**, in the shared
-`WorkItemTriggerHandler`. The step described this as Jira's existing shape; it was not — there
-was no `Is_Public__c` check anywhere on the outbound path. **A public Jira issue no longer
-responds to a status change made in Salesforce.** That is a real change to a working integration,
-made because the step and the acceptance criteria both asked for it.
+## Version 1 is feature complete
+
+Build 08 is design and UI, after which this goes live as version 1 of the unified cross-platform
+project resource manager demo. Version 2 is refinement, and the Big Object archive is its first
+item: `IntegrationDataPurge` currently deletes what that archive would otherwise keep, which is a
+known and accepted trade for version 1 rather than an oversight.

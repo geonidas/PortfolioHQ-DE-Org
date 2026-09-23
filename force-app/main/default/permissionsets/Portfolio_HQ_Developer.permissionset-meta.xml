@@ -116,6 +116,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>Webhook_Event__c.Ignore_Reason__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>Webhook_Event__c.Processing_Status__c</field>
         <readable>true</readable>
     </fieldPermissions>

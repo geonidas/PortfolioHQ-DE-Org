@@ -753,11 +753,15 @@ public with sharing class WorkItemInboundProcessor {
   // ---------- helpers ----------
 
   private static Webhook_Event__c superseded(Delivery delivery) {
-    return terminal(
+    Webhook_Event__c row = terminal(
       delivery,
       DeliveryStatus.IGNORED,
       'Superseded within the same batch by a newer delivery.'
     );
+    // The same fact as the message above, as a value. Retention reads the field; the message is
+    // for a person reading one row.
+    row.Ignore_Reason__c = IgnoreReason.SUPERSEDED;
+    return row;
   }
 
   private static Webhook_Event__c terminal(

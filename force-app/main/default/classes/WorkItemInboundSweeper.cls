@@ -136,6 +136,9 @@ public without sharing class WorkItemInboundSweeper implements Schedulable {
           new Webhook_Event__c(
             Id = row.Id,
             Processing_Status__c = DeliveryStatus.IGNORED,
+            // The retirement reason as a value, so a retention rule does not have to
+            // string-match the note below to tell this apart from a superseded delivery.
+            Ignore_Reason__c = IgnoreReason.NOT_APPLICABLE,
             Error_Message__c = retirementNote(row, attempts)
           )
         );

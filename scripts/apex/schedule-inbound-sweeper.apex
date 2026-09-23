@@ -34,7 +34,11 @@ for (CronTrigger job : existing) {
   System.abortJob(job.Id);
   System.debug(
     LoggingLevel.INFO,
-    '>>> Aborted ' + job.CronJobDetail.Name + ' (' + job.Id + ') so it can be replaced.'
+    '>>> Aborted ' +
+      job.CronJobDetail.Name +
+      ' (' +
+      job.Id +
+      ') so it can be replaced.'
   );
 }
 
@@ -50,7 +54,9 @@ for (Integer minute : MINUTES) {
 
 System.debug(
   LoggingLevel.INFO,
-  '>>> Running as ' + UserInfo.getUserName() + ' - every sweep calls Asana as this user.'
+  '>>> Running as ' +
+    UserInfo.getUserName() +
+    ' - every sweep calls Asana as this user.'
 );
 System.debug(
   LoggingLevel.INFO,

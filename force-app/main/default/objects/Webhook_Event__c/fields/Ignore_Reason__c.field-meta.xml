@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Ignore_Reason__c</fullName>
+    <description>Why a delivery reached Ignored, as a value rather than as prose. Ignored conflates two different outcomes: Superseded means a newer delivery for the same external id won inside the batch, and the winner carries the whole story. Not Applicable means the adapter had nothing to say about the resource - an Asana story event, for instance - so no retry would ever produce a change. Retention rules read this field; before it existed the only way to tell them apart was to string-match Error_Message__c, which breaks silently the day somebody rewords a message. Null on every row that is not Ignored.</description>
+    <label>Ignore Reason</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Superseded</fullName>
+                <default>false</default>
+                <label>Superseded</label>
+            </value>
+            <value>
+                <fullName>Not Applicable</fullName>
+                <default>false</default>
+                <label>Not Applicable</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>
