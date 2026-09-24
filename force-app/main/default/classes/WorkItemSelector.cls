@@ -17,7 +17,11 @@ public with sharing class WorkItemSelector {
   private static final String FIELDS =
     'Id, Name, Title__c, External_Key__c, External_URL__c, Status__c, Type__c, Sync_Status__c, ' +
     'Story_Points__c, Description__c, Last_Synced__c, Remote_Last_Modified__c, ' +
-    'Parent_Work_Item__c, Project__c, Project__r.Name, Project__r.Short_Name__c';
+    'Parent_Work_Item__c, Project__c, Project__r.Name, Project__r.Short_Name__c, ' +
+    // Build 08: which source the item belongs to and whether it has a remote record, for the
+    // save path's rules and messages; the dates it edits; and why the last push failed.
+    'External_Id__c, External_System__c, Source_Created__c, Start_Date__c, Due_Date__c, ' +
+    'Sync_Error__c';
 
   /**
    * One query, whether or not a project was supplied.

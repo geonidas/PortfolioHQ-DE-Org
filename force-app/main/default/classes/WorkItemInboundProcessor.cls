@@ -45,6 +45,9 @@ public with sharing class WorkItemInboundProcessor {
     // at decision time rather than after the upsert because that is where the prior link is
     // still in hand; only the record id is missing then, and inboundLog supplies it.
     String projectNote;
+    // Which fields this delivery carried but did not write, because Salesforce holds an edit to
+    // them that has not reached the source yet. Null when nothing was held back.
+    String heldBack;
     Id workItemId; // filled from the upsert result, for the second pass
   }
 
@@ -149,7 +152,8 @@ public with sharing class WorkItemInboundProcessor {
         // The key, not just the id: a delivery that moves an issue between projects has to
         // name the project it is leaving, and this costs no extra query.
         Project__r.External_Project_Key__c,
-        Remote_Last_Modified__c
+        Remote_Last_Modified__c,
+        Pending_Push_Fields__c
       FROM Work_Item__c
       WHERE External_Id__c IN :newestByExternalId.keySet()
     ]) {
@@ -190,16 +194,40 @@ public with sharing class WorkItemInboundProcessor {
         External_Id__c = change.externalId,
         External_Key__c = change.externalKey,
         External_System__c = delivery.sourceSystem,
-        Status__c = change.normalizedStatus,
-        Remote_Last_Modified__c = change.remoteUpdated,
-        Last_Synced__c = System.now(),
+        Remote_Last_Modified__c = change.remoteUpdated
+      );
+
+      // Fields Salesforce has changed and not yet pushed. Their local value wins until the push
+      // settles it: a delivery that happens to arrive between a user's save and the push is
+      // genuinely newer than anything we hold, so the timestamp check lets it through, and
+      // writing its values would silently undo the edit - and then the push would find the
+      // record already "agreeing" and send nothing. A field the source refused stays listed too,
+      // so a refused change keeps showing as Failed with its reason until somebody acts on it,
+      // rather than being quietly reverted by the next delivery.
+      Set<SyncField> pending = current == null
+        ? new Set<SyncField>()
+        : SyncFields.parse(current.Pending_Push_Fields__c);
+      Set<SyncField> keptLocal = new Set<SyncField>();
+
+      if (pending.contains(SyncField.STATUS)) {
+        keptLocal.add(SyncField.STATUS);
+      } else {
+        item.Status__c = change.normalizedStatus;
+      }
+
+      // Salesforce and the source agree only when nothing is waiting to go out. Until then the
+      // sync fields are left exactly as the outbound path set them.
+      if (pending.isEmpty()) {
+        item.Last_Synced__c = System.now();
+        item.Sync_Error__c = null;
         // Synced is illegal alongside an Unspecified status - see the
         // Sync_Status_Requires_Known_Status validation rule. An unmapped remote status
         // therefore stays Pending, which is also honest: we have not reconciled it.
-        Sync_Status__c = change.normalizedStatus == WorkItemStatus.UNSPECIFIED
+        item.Sync_Status__c = change.normalizedStatus ==
+          WorkItemStatus.UNSPECIFIED
           ? SyncStatus.PENDING
-          : SyncStatus.SYNCED
-      );
+          : SyncStatus.SYNCED;
+      }
 
       // Only on creation. This subscriber runs as the Automated Process user, so anything it
       // inserts is owned by Automated Process - and guest sharing rules do not share records
@@ -282,7 +310,11 @@ public with sharing class WorkItemInboundProcessor {
       // Only when the payload actually carried one. Assigning a null would blank a title
       // we already hold, and a delivery that omits the summary is not a retitling.
       if (String.isNotBlank(change.title)) {
-        item.Title__c = change.title;
+        if (pending.contains(SyncField.TITLE)) {
+          keptLocal.add(SyncField.TITLE);
+        } else {
+          item.Title__c = change.title;
+        }
       }
 
       // The same rule, for the same reason. Most deliveries here are status transitions, whose
@@ -319,10 +351,26 @@ public with sharing class WorkItemInboundProcessor {
       // flag rather than the null rule: carried and null clears the field, not carried leaves
       // it alone. An explicit null assignment is what makes the upsert blank it.
       if (change.carriesStartDate) {
-        item.Start_Date__c = change.startDate;
+        if (pending.contains(SyncField.START_DATE)) {
+          keptLocal.add(SyncField.START_DATE);
+        } else {
+          item.Start_Date__c = change.startDate;
+        }
       }
       if (change.carriesDueDate) {
-        item.Due_Date__c = change.dueDate;
+        if (pending.contains(SyncField.DUE_DATE)) {
+          keptLocal.add(SyncField.DUE_DATE);
+        } else {
+          item.Due_Date__c = change.dueDate;
+        }
+      }
+      if (!keptLocal.isEmpty()) {
+        delivery.heldBack =
+          'Kept Salesforce\'s ' +
+          SyncFields.describe(keptLocal) +
+          ', which ' +
+          (keptLocal.size() == 1 ? 'is' : 'are') +
+          ' waiting to be pushed.';
       }
       if (change.carriesDescription) {
         item.Description__c = change.description;
@@ -354,6 +402,11 @@ public with sharing class WorkItemInboundProcessor {
               delivery.change.remoteStatus +
               '" has no mapping; Status__c set to Unspecified.'
             : null;
+          if (delivery.heldBack != null) {
+            note = note == null
+              ? 'Applied. ' + delivery.heldBack
+              : note + ' ' + delivery.heldBack;
+          }
           updates.put(
             delivery.eventId,
             terminal(delivery, DeliveryStatus.PROCESSED, note)

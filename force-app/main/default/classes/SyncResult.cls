@@ -7,8 +7,9 @@
  */
 public with sharing class SyncResult {
   public enum Outcome {
-    SUCCESS, // transition applied remotely
-    ALREADY_IN_TARGET_STATUS, // no callout needed, already there
+    SUCCESS, // every requested field applied remotely
+    ALREADY_IN_TARGET_STATUS, // the remote status was already the one asked for
+    NOTHING_TO_PUSH, // the record had no fields waiting; nothing sent and nothing to write back
     NO_TRANSITION_AVAILABLE, // handled business outcome, not a fault
     BAD_REQUEST, // caller error: unusable status or malformed external id
     UNAUTHORIZED, // 401/403 - token missing, wrong, or principal not granted
@@ -24,26 +25,51 @@ public with sharing class SyncResult {
   public String externalId { get; set; }
   public String appliedStatus { get; set; }
 
+  /**
+   * The fields the remote system confirmed, which is what the write-back clears from
+   * Pending_Push_Fields__c. Set on a failure too, and that is the point of it: a push can land
+   * its field edit and have its status transition refused, and forgetting the half that landed
+   * would push it again for nothing, while clearing the half that did not would mark a refused
+   * change as synced.
+   */
+  public Set<SyncField> confirmedFields { get; set; }
+
   private SyncResult(Outcome outcome, String message, Integer statusCode) {
     this.outcome = outcome;
     this.message = message;
     this.statusCode = statusCode;
+    this.confirmedFields = new Set<SyncField>();
   }
 
-  public static SyncResult success(String appliedStatus, Integer statusCode) {
+  /** Every field asked for was applied. */
+  public static SyncResult pushed(
+    Set<SyncField> confirmed,
+    Integer statusCode
+  ) {
     SyncResult result = new SyncResult(
       SyncResult.Outcome.SUCCESS,
-      'Transitioned to ' + appliedStatus + '.',
+      'Pushed ' + SyncFields.describe(confirmed) + '.',
       statusCode
     );
-    result.appliedStatus = appliedStatus;
+    result.confirmedFields = new Set<SyncField>(confirmed);
     return result;
+  }
+
+  /** A record that reached the push with nothing waiting - an earlier job already sent it. */
+  public static SyncResult nothingToPush() {
+    return new SyncResult(
+      SyncResult.Outcome.NOTHING_TO_PUSH,
+      'Nothing was waiting to be pushed.',
+      null
+    );
   }
 
   public static SyncResult alreadyInTargetStatus(String status) {
     SyncResult result = new SyncResult(
       SyncResult.Outcome.ALREADY_IN_TARGET_STATUS,
-      'Already in status ' + status + '; no callout made.',
+      'Already in status ' +
+        status +
+        ' in the source system; nothing to transition.',
       null
     );
     result.appliedStatus = status;
@@ -59,13 +85,14 @@ public with sharing class SyncResult {
   }
 
   /**
-   * True when the work item ended up in the requested status, whether or not that took a callout.
+   * True when everything asked for is now true remotely, whether or not that took a callout.
    */
   public Boolean isSuccess() {
     // Qualified with the class name: Apex identifiers are case-insensitive, so inside an
     // instance method the field `outcome` shadows the type `Outcome`.
     return outcome == SyncResult.Outcome.SUCCESS ||
-      outcome == SyncResult.Outcome.ALREADY_IN_TARGET_STATUS;
+      outcome == SyncResult.Outcome.ALREADY_IN_TARGET_STATUS ||
+      outcome == SyncResult.Outcome.NOTHING_TO_PUSH;
   }
 
   /**

@@ -638,64 +638,149 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
   // ---------- outbound ----------
 
   /**
-   * Push a status change to Asana, as TWO writes that must both happen.
+   * Push the changed fields to Asana: at most TWO writes, a section move and one task update.
    *
-   * Asana models a board column and a completion checkbox as independent things, and step 6
-   * exists to absorb the contradiction that creates on the way in. Writing only one of them on
-   * the way out would author exactly that contradiction ourselves:
+   * A status change is two writes that must both happen. Asana models a board column and a
+   * completion checkbox as independent things, and step 6 exists to absorb the contradiction
+   * that creates on the way in. Writing only one of them on the way out would author exactly
+   * that contradiction ourselves:
    *
    *   to Done     move the task to the Completed section AND set completed true
    *   out of Done move it to the target section AND set completed false
    *
-   * Writing only the section move to Done leaves a task sitting in Completed that Asana does not
-   * consider finished. Writing only the flag leaves a struck-through task in the In Progress
-   * column. Both are states a person would have to reconcile by hand.
+   * Title and due date ride on the same task update as the completion flag - name and due_on -
+   * so a status change plus an edit is still two callouts. Writing due_on clears any due TIME
+   * the task had (due_at): the board works in calendar days, and Asana holds one or the other.
    *
-   * Two callouts per item, the same budget as Jira, so WorkItemSyncService's chunking needs no
-   * change. Never throws for a business outcome: an unmapped target status comes back as a
-   * result, because a status this org cannot express in Asana is a configuration gap rather
-   * than a fault.
+   * Never start_on. Start dates are a paid Asana feature this workspace does not have, and
+   * Board_Source__mdt says so; a start date asked for here is refused as a bad request without a
+   * callout, while clearing one - there never is one to clear - counts as done.
+   *
+   * Never throws for a business outcome: an unmapped target status comes back as a result,
+   * because a status this org cannot express in Asana is a configuration gap, not a fault.
    */
-  public SyncResult updateStatus(Work_Item__c item, String targetStatus) {
-    SyncResult rejection = validate(item, targetStatus);
+  public SyncResult push(Work_Item__c item, Set<SyncField> changed) {
+    SyncResult rejection = validatePush(item, changed);
     if (rejection != null) {
       return rejection;
     }
-
     String externalId = item.External_Id__c;
     String rawId = ExternalIdUtil.rawIdOf(externalId);
-    Boolean toDone = targetStatus == WorkItemStatus.DONE;
 
-    // Resolved BEFORE any callout, so an unmapped status costs nothing. The same
-    // Field_Mapping__mdt rows step 6 reads on the way in, read in the other direction.
-    String sectionGid = FieldMappingService.externalValueFor(
-      SOURCE_SYSTEM,
-      FieldMappingService.STATUS,
-      targetStatus
-    );
-    if (String.isBlank(sectionGid)) {
-      log(
-        'No Asana section is mapped to "' +
-          targetStatus +
-          '", so ' +
-          externalId +
-          ' was not pushed. Add a Status Field_Mapping__mdt row keyed on the section gid, or ' +
-          'check whether two sections both claim that status - an ambiguous reverse mapping ' +
-          'resolves to nothing rather than guessing which column to move work to.'
-      );
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.NO_TRANSITION_AVAILABLE,
-          'No Asana section is mapped to "' + targetStatus + '".',
+    Set<SyncField> confirmed = new Set<SyncField>();
+    SyncResult failure = null;
+    Map<String, Object> taskUpdate = new Map<String, Object>();
+    Set<SyncField> riding = new Set<SyncField>();
+
+    if (changed.contains(SyncField.START_DATE)) {
+      if (item.Start_Date__c == null) {
+        // Salesforce never sent Asana a start date, so there is none to clear.
+        confirmed.add(SyncField.START_DATE);
+      } else {
+        failure = SyncResult.failure(
+          SyncResult.Outcome.BAD_REQUEST,
+          'Asana does not support start dates here, so the start date was not pushed.',
           null
-        ),
-        item,
-        externalId
-      );
+        );
+      }
+    }
+    if (changed.contains(SyncField.TITLE)) {
+      taskUpdate.put('name', item.Title__c);
+      riding.add(SyncField.TITLE);
+    }
+    if (changed.contains(SyncField.DUE_DATE)) {
+      taskUpdate.put('due_on', IsoDate.format(item.Due_Date__c));
+      riding.add(SyncField.DUE_DATE);
     }
 
-    // The section move first. If the second write fails the task is at least in the right
+    String sectionGid = null;
+    if (changed.contains(SyncField.STATUS)) {
+      SyncResult statusRejection = validateStatus(item.Status__c);
+      if (statusRejection == null) {
+        // Resolved BEFORE any callout, so an unmapped status costs nothing. The same
+        // Field_Mapping__mdt rows step 6 reads on the way in, read in the other direction.
+        sectionGid = FieldMappingService.externalValueFor(
+          SOURCE_SYSTEM,
+          FieldMappingService.STATUS,
+          item.Status__c
+        );
+        if (String.isBlank(sectionGid)) {
+          log(
+            'No Asana section is mapped to "' +
+              item.Status__c +
+              '", so the status of ' +
+              externalId +
+              ' was not pushed. Add a Status Field_Mapping__mdt row keyed on the section gid, ' +
+              'or check whether two sections both claim that status - an ambiguous reverse ' +
+              'mapping resolves to nothing rather than guessing which column to move work to.'
+          );
+          statusRejection = SyncResult.failure(
+            SyncResult.Outcome.NO_TRANSITION_AVAILABLE,
+            'No Asana section is mapped to "' + item.Status__c + '".',
+            null
+          );
+        }
+      }
+      if (statusRejection != null) {
+        failure = combine(failure, statusRejection);
+        sectionGid = null;
+      }
+    }
+
+    // The section move first. If the task update then fails, the task is at least in the right
     // column, which is the half a person can see on the board.
+    if (sectionGid != null) {
+      SyncResult moved = moveToSection(rawId, sectionGid);
+      if (moved == null) {
+        taskUpdate.put('completed', item.Status__c == WorkItemStatus.DONE);
+        riding.add(SyncField.STATUS);
+      } else {
+        // The flag is not written after a failed move: ticking completed on a task still in
+        // In Progress would author the contradiction rather than avoid it.
+        failure = combine(failure, moved);
+      }
+    }
+
+    Integer statusCode = null;
+    if (!taskUpdate.isEmpty()) {
+      HttpResponse updated;
+      String phase = describeUpdate(taskUpdate, sectionGid);
+      try {
+        updated = send(
+          'PUT',
+          '/tasks/' + EncodingUtil.urlEncode(rawId, 'UTF-8'),
+          JSON.serialize(new Map<String, Object>{ 'data' => taskUpdate })
+        );
+      } catch (Exception e) {
+        updated = null;
+        failure = combine(
+          failure,
+          SyncResult.failure(
+            SyncResult.Outcome.CALLOUT_FAILED,
+            phase + ' failed: ' + Strings.describe(e),
+            0
+          )
+        );
+      }
+      if (updated != null) {
+        if (updated.getStatusCode() >= 200 && updated.getStatusCode() < 300) {
+          confirmed.addAll(riding);
+          statusCode = updated.getStatusCode();
+        } else {
+          failure = combine(failure, toFailure(updated, phase));
+        }
+      }
+    }
+
+    SyncResult result = failure == null
+      ? SyncResult.pushed(confirmed, statusCode)
+      : failure;
+    result.confirmedFields = confirmed;
+    return stamp(result, item, externalId);
+  }
+
+  /** The section move. Null on success; the failure otherwise. */
+  private SyncResult moveToSection(String rawId, String sectionGid) {
     HttpResponse moved;
     try {
       moved = send(
@@ -708,65 +793,54 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
         )
       );
     } catch (Exception e) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.CALLOUT_FAILED,
-          Strings.describe(e),
-          0
-        ),
-        item,
-        externalId
+      return SyncResult.failure(
+        SyncResult.Outcome.CALLOUT_FAILED,
+        Strings.describe(e),
+        0
       );
     }
     if (moved.getStatusCode() < 200 || moved.getStatusCode() >= 300) {
-      return stamp(
-        toFailure(moved, 'moving the task to section ' + sectionGid),
-        item,
-        externalId
-      );
+      return toFailure(moved, 'moving the task to section ' + sectionGid);
     }
+    return null;
+  }
 
-    HttpResponse flagged;
-    try {
-      flagged = send(
-        'PUT',
-        '/tasks/' + EncodingUtil.urlEncode(rawId, 'UTF-8'),
-        JSON.serialize(
-          new Map<String, Object>{
-            'data' => new Map<String, Object>{ 'completed' => toDone }
-          }
-        )
-      );
-    } catch (Exception e) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.CALLOUT_FAILED,
-          'The section move succeeded but the completion flag did not: ' +
-          Strings.describe(e),
-          0
-        ),
-        item,
-        externalId
+  /**
+   * What the task update was doing, for a failure message a person has to act on. When it
+   * carried the completion flag the section move had already landed, and saying so is what tells
+   * them the task is in the right column but not ticked.
+   */
+  private static String describeUpdate(
+    Map<String, Object> taskUpdate,
+    String sectionGid
+  ) {
+    List<String> parts = new List<String>();
+    if (taskUpdate.containsKey('completed')) {
+      parts.add(
+        'setting completed=' +
+          taskUpdate.get('completed') +
+          ' after moving the task to section ' +
+          sectionGid
       );
     }
-    if (flagged.getStatusCode() < 200 || flagged.getStatusCode() >= 300) {
-      return stamp(
-        toFailure(
-          flagged,
-          'setting completed=' +
-            toDone +
-            ' after moving the task to section ' +
-            sectionGid
-        ),
-        item,
-        externalId
-      );
+    if (taskUpdate.containsKey('name')) {
+      parts.add('renaming the task');
     }
+    if (taskUpdate.containsKey('due_on')) {
+      parts.add('setting due_on');
+    }
+    return String.join(parts, ' and ');
+  }
 
-    return stamp(
-      SyncResult.success(targetStatus, flagged.getStatusCode()),
-      item,
-      externalId
+  /** Two failed parts reported as one, keeping the first part's classification. */
+  private static SyncResult combine(SyncResult first, SyncResult second) {
+    if (first == null) {
+      return second;
+    }
+    return SyncResult.failure(
+      first.outcome,
+      first.message + ' Also: ' + second.message,
+      first.statusCode
     );
   }
 
@@ -799,7 +873,7 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     WorkItemStatus.DONE
   };
 
-  private SyncResult validate(Work_Item__c item, String targetStatus) {
+  private SyncResult validatePush(Work_Item__c item, Set<SyncField> changed) {
     if (item == null) {
       return SyncResult.failure(
         SyncResult.Outcome.BAD_REQUEST,
@@ -807,27 +881,8 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
         null
       );
     }
-    if (String.isBlank(targetStatus)) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.BAD_REQUEST,
-          'No target status supplied.',
-          null
-        ),
-        item,
-        item.External_Id__c
-      );
-    }
-    if (targetStatus == WorkItemStatus.UNSPECIFIED) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.BAD_REQUEST,
-          'Unspecified is a placeholder for an unmapped status and cannot be a push target.',
-          null
-        ),
-        item,
-        item.External_Id__c
-      );
+    if (changed == null || changed.isEmpty()) {
+      return stamp(SyncResult.nothingToPush(), item, item.External_Id__c);
     }
     if (!ExternalIdUtil.belongsTo(item.External_Id__c, SYSTEM_NAMESPACE)) {
       return stamp(
@@ -842,8 +897,25 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     }
     // Deliberately no "already in the target status" short circuit. Jira has one because its
     // first leg is a read that would otherwise be wasted; here both legs are writes, and
-    // re-asserting a section and a flag is idempotent and cheap. Skipping on Sync_Status__c
-    // alone would also leave the completion flag unrepaired after a partial failure.
+    // re-asserting a section and a flag is idempotent and cheap.
+    return null;
+  }
+
+  private SyncResult validateStatus(String targetStatus) {
+    if (String.isBlank(targetStatus)) {
+      return SyncResult.failure(
+        SyncResult.Outcome.BAD_REQUEST,
+        'No target status supplied.',
+        null
+      );
+    }
+    if (targetStatus == WorkItemStatus.UNSPECIFIED) {
+      return SyncResult.failure(
+        SyncResult.Outcome.BAD_REQUEST,
+        'Unspecified is a placeholder for an unmapped status and cannot be a push target.',
+        null
+      );
+    }
     return null;
   }
 

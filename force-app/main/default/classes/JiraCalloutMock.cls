@@ -16,8 +16,15 @@ public class JiraCalloutMock implements HttpCalloutMock {
     RATE_LIMITED, // 429 on the first call
     SERVER_ERROR, // 500 on the first call
     POST_FAILS, // GET fine, POST 500 - failure on the second leg
-    MALFORMED_BODY // 200 with a body that is not the expected envelope
+    MALFORMED_BODY, // 200 with a body that is not the expected envelope
+    PUT_REFUSED // field edits refused with 400; transitions still fine
   }
+
+  /**
+   * What GET /issue/{id}?fields=status answers - the status the issue is in now. The adapter
+   * asks only when no transition lands on the target, to tell "refused" from "already there".
+   */
+  public String currentStatus = 'To Do';
 
   /** Snapshot of one outbound call, taken at send time. */
   public class CapturedRequest {
@@ -57,6 +64,37 @@ public class JiraCalloutMock implements HttpCalloutMock {
     captured.add(snapshot);
 
     Boolean isPost = request.getMethod() == 'POST';
+    Boolean isPut = request.getMethod() == 'PUT';
+    Boolean isIssueRead =
+      request.getMethod() == 'GET' &&
+      !request.getEndpoint().contains('/transitions');
+
+    // Field edits and the status read answer the same way in every scenario that is about
+    // transitions, so the transition scenarios below keep meaning what they always did.
+    if (
+      scenario != JiraCalloutMock.Scenario.UNAUTHORIZED &&
+      scenario != JiraCalloutMock.Scenario.RATE_LIMITED &&
+      scenario != JiraCalloutMock.Scenario.SERVER_ERROR
+    ) {
+      if (isPut) {
+        return scenario == JiraCalloutMock.Scenario.PUT_REFUSED
+          ? response(
+              400,
+              'Bad Request',
+              '{"errorMessages":[],"errors":{"summary":"Field \'summary\' cannot be set."}}'
+            )
+          : response(204, 'No Content', '');
+      }
+      if (isIssueRead) {
+        return response(
+          200,
+          'OK',
+          '{"id":"10023","key":"DOPP-1","fields":{"status":{"id":"1","name":' +
+            JSON.serialize(currentStatus) +
+            '}}}'
+        );
+      }
+    }
 
     switch on scenario {
       when UNAUTHORIZED {

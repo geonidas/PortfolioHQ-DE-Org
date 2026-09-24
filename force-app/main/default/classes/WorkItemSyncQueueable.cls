@@ -42,7 +42,7 @@ public without sharing class WorkItemSyncQueueable implements Queueable, Databas
         ' FROM Work_Item__c WHERE Id IN :slice'
     );
 
-    List<SyncResult> results = WorkItemSyncService.syncStatuses(items);
+    List<SyncResult> results = WorkItemSyncService.pushPending(items);
 
     Set<Id> attempted = new Set<Id>();
     for (SyncResult result : results) {

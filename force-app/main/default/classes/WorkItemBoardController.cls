@@ -47,10 +47,10 @@ public with sharing class WorkItemBoardController {
    * the same transaction, or push twice, because the trigger has already queued one.
    *
    * The push is asynchronous and the result says so. Salesforce is updated when this returns;
-   * Jira is not yet.
+   * the source system is not yet.
    *
    * @param workItemId the record to move
-   * @param newStatus  a Status__c value; never Unspecified, which means "no Jira mapping"
+   * @param newStatus  a Status__c value; never Unspecified, which means "no mapping"
    */
   @AuraEnabled
   public static StatusChangeResult changeStatus(
@@ -65,7 +65,8 @@ public with sharing class WorkItemBoardController {
     }
     if (newStatus == WorkItemStatus.UNSPECIFIED) {
       throw new AuraHandledException(
-        'Unspecified means Jira reported a status we cannot map, so it cannot be chosen here.'
+        'Unspecified means the source system reported a status we cannot map, so it cannot ' +
+        'be chosen here.'
       );
     }
 
@@ -103,9 +104,7 @@ public with sharing class WorkItemBoardController {
       Work_Item__c saved = WorkItemSelector.byIds(new Set<Id>{ workItemId })[0];
       result.status = saved.Status__c;
       result.syncStatus = saved.Sync_Status__c;
-      result.message = result.pushQueued
-        ? 'Saved in Salesforce. The Jira update is running in the background.'
-        : 'Saved in Salesforce. No Jira push was queued for this record.';
+      result.message = savedMessage(saved, result.pushQueued);
       return result;
     } catch (AuraHandledException e) {
       throw e;
@@ -114,6 +113,202 @@ public with sharing class WorkItemBoardController {
         'Could not change the status: ' + e.getMessage()
       );
     }
+  }
+
+  /**
+   * Save title, start date and due date from the expanded card.
+   *
+   * Writes the fields that actually changed and nothing else, in USER_MODE, and leaves the push
+   * to WorkItemTrigger exactly as changeStatus does: the trigger records the changed fields and
+   * enqueues one push, so calling WorkItemSyncService here would either throw - a callout after
+   * this DML - or push twice. The record reads Pending until the source confirms; nothing here
+   * claims the source has changed.
+   *
+   * Validation is here, not only in the component, and the component mirrors it: a title is
+   * required and at most TITLE_MAX characters, the start date is on or before the due date, and
+   * a start date is refused for a source that cannot hold one - the trigger refuses that too, for
+   * every other way a record can be edited. Validation problems come back per field, worded to
+   * say how to fix them, rather than as an exception; only something unexpected throws.
+   *
+   * Dates travel as YYYY-MM-DD strings, never as a Date the browser built: new Date('YYYY-MM-DD')
+   * is UTC midnight, which is the previous day west of Greenwich.
+   *
+   * @param workItemId the record to save
+   * @param title      the title as typed; trimmed
+   * @param startDate  YYYY-MM-DD, or blank for none
+   * @param dueDate    YYYY-MM-DD, or blank for none
+   */
+  @AuraEnabled
+  public static DetailSaveResult saveDetails(
+    Id workItemId,
+    String title,
+    String startDate,
+    String dueDate
+  ) {
+    if (workItemId == null) {
+      throw new AuraHandledException('No work item was supplied.');
+    }
+    try {
+      List<Work_Item__c> found = WorkItemSelector.byIds(
+        new Set<Id>{ workItemId }
+      );
+      if (found.isEmpty()) {
+        throw new AuraHandledException(
+          'That work item is not available to you.'
+        );
+      }
+      Work_Item__c current = found[0];
+      BoardSourceRules.Source source = BoardSourceRules.forSystem(
+        current.External_System__c
+      );
+
+      DetailSaveResult result = new DetailSaveResult();
+      result.workItemId = workItemId;
+      result.fieldErrors = new Map<String, String>();
+
+      String cleanTitle = title == null ? '' : title.trim();
+      if (cleanTitle.length() == 0) {
+        result.fieldErrors.put(
+          'title',
+          'A title is required. Type one before saving.'
+        );
+      } else if (cleanTitle.length() > TITLE_MAX) {
+        result.fieldErrors.put(
+          'title',
+          'The title is ' +
+            cleanTitle.length() +
+            ' characters; the limit is ' +
+            TITLE_MAX +
+            '. Shorten it by ' +
+            (cleanTitle.length() - TITLE_MAX) +
+            '.'
+        );
+      }
+
+      Date start = readDay(startDate, 'startDate', 'start', result);
+      Date due = readDay(dueDate, 'dueDate', 'due', result);
+      if (start != null && !source.supportsStartDate) {
+        result.fieldErrors.put(
+          'startDate',
+          (String.isBlank(source.label) ? 'This source' : source.label) +
+          ' does not support start dates. Clear the start date to save.'
+        );
+      }
+      if (
+        start != null &&
+        due != null &&
+        start > due &&
+        !result.fieldErrors.containsKey('startDate')
+      ) {
+        result.fieldErrors.put(
+          'startDate',
+          'The start date (' +
+            IsoDate.format(start) +
+            ') is after the due date (' +
+            IsoDate.format(due) +
+            '). Move one of them.'
+        );
+      }
+
+      if (!result.fieldErrors.isEmpty()) {
+        result.saved = false;
+        result.syncStatus = current.Sync_Status__c;
+        result.message = 'Nothing was saved. Fix the fields marked below.';
+        return result;
+      }
+
+      // Only what changed, so a save touching the title alone needs no permission on the dates
+      // and pushes nothing but the title. Title compared case-sensitively, because Apex's ==
+      // on strings is not and a change of case is a real edit.
+      Work_Item__c patch = new Work_Item__c(Id = workItemId);
+      Boolean anyChange = false;
+      if (!SyncFields.sameText(cleanTitle, current.Title__c)) {
+        patch.Title__c = cleanTitle;
+        anyChange = true;
+      }
+      if (start != current.Start_Date__c) {
+        patch.Start_Date__c = start;
+        anyChange = true;
+      }
+      if (due != current.Due_Date__c) {
+        patch.Due_Date__c = due;
+        anyChange = true;
+      }
+      if (!anyChange) {
+        result.saved = false;
+        result.pushQueued = false;
+        result.syncStatus = current.Sync_Status__c;
+        result.message = 'Nothing changed, so nothing was saved.';
+        return result;
+      }
+
+      // Counting queued jobs across the DML is direct evidence that the trigger fired.
+      Integer jobsBefore = Limits.getQueueableJobs();
+      Database.update(patch, AccessLevel.USER_MODE);
+      result.pushQueued = Limits.getQueueableJobs() > jobsBefore;
+
+      Work_Item__c saved = WorkItemSelector.byIds(new Set<Id>{ workItemId })[0];
+      result.saved = true;
+      result.syncStatus = saved.Sync_Status__c;
+      result.message = savedMessage(saved, result.pushQueued);
+      return result;
+    } catch (AuraHandledException e) {
+      throw e;
+    } catch (DmlException e) {
+      // The trigger's start date rule, a validation rule, or a missing field permission. Its
+      // own message is the useful part; the exception wrapper is not.
+      throw new AuraHandledException('Could not save: ' + e.getDmlMessage(0));
+    } catch (Exception e) {
+      throw new AuraHandledException('Could not save: ' + e.getMessage());
+    }
+  }
+
+  /** The stored title limit, capped at 255 - the most either source takes as a title. */
+  @TestVisible
+  private static final Integer TITLE_MAX = Math.min(
+    Work_Item__c.Title__c.getDescribe().getLength(),
+    255
+  );
+
+  private static Date readDay(
+    String value,
+    String fieldKey,
+    String word,
+    DetailSaveResult result
+  ) {
+    try {
+      return IsoDate.parseDay(value);
+    } catch (IsoDate.UnreadableDateException e) {
+      result.fieldErrors.put(
+        fieldKey,
+        'The ' +
+          word +
+          ' date is not a date. Pick one from the calendar, or clear it.'
+      );
+      return null;
+    }
+  }
+
+  /**
+   * What a save means, in words that name the source by its label and never claim the source
+   * has changed: the push is asynchronous, and the record says Pending until it confirms.
+   */
+  private static String savedMessage(Work_Item__c saved, Boolean pushQueued) {
+    String label = BoardSourceRules.forSystem(saved.External_System__c).label;
+    String sourceName = String.isBlank(label) ? 'source system' : label;
+    if (pushQueued) {
+      return 'Saved in Salesforce. The ' +
+        sourceName +
+        ' update is running in the background.';
+    }
+    if (String.isBlank(saved.External_Id__c)) {
+      return 'Saved in Salesforce. This item has no ' +
+        sourceName +
+        ' record, so nothing is pushed.';
+    }
+    return 'Saved in Salesforce. No ' +
+      sourceName +
+      ' push was queued for this record.';
   }
 
   /**
@@ -153,6 +348,26 @@ public with sharing class WorkItemBoardController {
     public String projectLabel { get; set; }
     @AuraEnabled
     public Datetime lastSyncedAt { get; set; }
+  }
+
+  /**
+   * What saveDetails returns. fieldErrors is keyed by the component's field names - title,
+   * startDate, dueDate - so each message can sit beside the input it is about. Empty when the
+   * save went through.
+   */
+  public class DetailSaveResult {
+    @AuraEnabled
+    public Id workItemId { get; set; }
+    @AuraEnabled
+    public Boolean saved { get; set; }
+    @AuraEnabled
+    public Boolean pushQueued { get; set; }
+    @AuraEnabled
+    public String syncStatus { get; set; }
+    @AuraEnabled
+    public String message { get; set; }
+    @AuraEnabled
+    public Map<String, String> fieldErrors { get; set; }
   }
 
   /**

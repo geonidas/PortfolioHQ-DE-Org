@@ -7,11 +7,11 @@
  *
  * A status change is two callouts, not one. Jira will not accept a target status directly - you
  * ask which transitions are legal from the issue's current state, then post the id of the one
- * whose TARGET status matches. Transition ids are per-workflow and are never hardcoded.
+ * whose TARGET status matches. Transition ids are per-workflow and are never hardcoded. Title
+ * and date edits are one more: a single PUT carrying only the fields that changed.
  *
- * Callout budget: 2 calls per item, against a limit of 100 callouts and 120 seconds of cumulative
- * callout time per transaction. The 120 seconds is the tighter constraint in practice - see
- * WorkItemSyncService for how work is chunked.
+ * Callout budget: at most 3 calls per item, against a limit of 100 callouts and 120 seconds of
+ * cumulative callout time per transaction - see WorkItemSyncService for how work is chunked.
  */
 public with sharing class JiraAdapter implements IWorkItemAdapter {
   @TestVisible
@@ -473,76 +473,186 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
 
   // ---------- outbound ----------
 
-  public SyncResult updateStatus(Work_Item__c item, String targetStatus) {
-    SyncResult rejection = validate(item, targetStatus);
+  /**
+   * Push the changed fields, as at most three callouts: one PUT for every field edit, then the
+   * two-step transition for a status.
+   *
+   * Field edits go first. Some Jira workflows make an issue read-only once it is in Done, so an
+   * edit sent after a transition into Done could be refused where the same edit sent before it
+   * lands. Each part is still attempted whatever the other did, and the result says which ones
+   * Jira accepted.
+   *
+   * Only the changed fields travel, and a cleared date is sent as an explicit null, which is how
+   * Jira removes one.
+   */
+  public SyncResult push(Work_Item__c item, Set<SyncField> changed) {
+    SyncResult rejection = validatePush(item, changed);
     if (rejection != null) {
       return rejection;
     }
-
     String externalId = item.External_Id__c;
     String rawId = ExternalIdUtil.rawIdOf(externalId);
 
-    // Skip both callouts only when Salesforce already believes the remote agrees: the status
-    // matches AND the last sync succeeded. Matching status alone is not enough - the service
-    // pushes item.Status__c as its own target, so that test would always pass and nothing
-    // would ever sync. Sync_Status__c is what makes the belief credible.
-    if (
-      normalize(item.Status__c) == normalize(targetStatus) &&
-      item.Sync_Status__c == SyncStatus.SYNCED
+    Set<SyncField> confirmed = new Set<SyncField>();
+    SyncResult failure = null;
+    Integer lastStatusCode = null;
+
+    Set<SyncField> edits = new Set<SyncField>(changed);
+    edits.remove(SyncField.STATUS);
+    if (!edits.isEmpty()) {
+      Map<String, Object> fields = new Map<String, Object>();
+      String unmapped = null;
+      if (edits.contains(SyncField.TITLE)) {
+        fields.put('summary', item.Title__c);
+      }
+      if (edits.contains(SyncField.DUE_DATE)) {
+        fields.put('duedate', IsoDate.format(item.Due_Date__c));
+      }
+      if (edits.contains(SyncField.START_DATE)) {
+        String startField = startDateFieldId();
+        if (startField == null) {
+          edits.remove(SyncField.START_DATE);
+          unmapped =
+            'No Field_Mapping__mdt row of type Field names the Jira field for Start_Date__c, ' +
+            'so the start date was not pushed. Add one - on this site it is customfield_10015.';
+        } else {
+          fields.put(startField, IsoDate.format(item.Start_Date__c));
+        }
+      }
+      if (unmapped != null) {
+        failure = SyncResult.failure(
+          SyncResult.Outcome.BAD_REQUEST,
+          unmapped,
+          null
+        );
+      }
+      if (!fields.isEmpty()) {
+        SyncResult edited = putFields(item, rawId, fields);
+        if (edited == null) {
+          confirmed.addAll(edits);
+          lastStatusCode = 204;
+        } else {
+          failure = combine(failure, edited);
+        }
+      }
+    }
+
+    SyncResult moved = null;
+    if (changed.contains(SyncField.STATUS)) {
+      moved = transition(item, rawId, item.Status__c);
+      if (moved.isSuccess()) {
+        confirmed.add(SyncField.STATUS);
+        lastStatusCode = moved.statusCode;
+      } else {
+        failure = combine(failure, moved);
+      }
+    }
+
+    SyncResult result;
+    if (failure != null) {
+      result = failure;
+    } else if (
+      edits.isEmpty() &&
+      moved != null &&
+      moved.outcome == SyncResult.Outcome.ALREADY_IN_TARGET_STATUS
     ) {
-      SyncResult result = SyncResult.alreadyInTargetStatus(targetStatus);
-      result.workItemId = item.Id;
-      result.externalId = externalId;
-      return result;
+      // Nothing was written: the status was all there was, and Jira already had it. Saying
+      // "pushed" in the log would claim a change nobody made.
+      result = moved;
+    } else {
+      result = SyncResult.pushed(confirmed, lastStatusCode);
+    }
+    result.confirmedFields = confirmed;
+    return stamp(result, item, externalId);
+  }
+
+  /** One PUT carrying every field edit. Null on success; the failure otherwise. */
+  private SyncResult putFields(
+    Work_Item__c item,
+    String rawId,
+    Map<String, Object> fields
+  ) {
+    // Serialized from a map, so a cleared date goes out as "duedate":null rather than being
+    // left out, and a title with quotes in it cannot break the body.
+    String body = JSON.serialize(new Map<String, Object>{ 'fields' => fields });
+    HttpResponse response;
+    try {
+      response = send('PUT', issuePath(rawId), body, item.Id);
+    } catch (Exception e) {
+      return SyncResult.failure(
+        SyncResult.Outcome.CALLOUT_FAILED,
+        Strings.describe(e),
+        0
+      );
+    }
+    if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+      return toFailure(
+        response,
+        'editing ' + String.join(new List<String>(fields.keySet()), ', ')
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Move the issue to a normalized status: list the transitions reachable from where it is,
+   * post the one landing in the target.
+   *
+   * When none lands there, the issue may simply be there already - which is what moving a card
+   * back to the column Jira still has it in looks like after a refused move. One more read tells
+   * the two apart, and "already there" counts as done. Without it, a refused move could never be
+   * undone from Salesforce: every attempt to put the card back would be refused as well.
+   */
+  private SyncResult transition(
+    Work_Item__c item,
+    String rawId,
+    String targetStatus
+  ) {
+    SyncResult rejection = validateStatus(targetStatus);
+    if (rejection != null) {
+      return rejection;
     }
 
     HttpResponse listing;
     try {
       listing = send('GET', transitionsPath(rawId), null, item.Id);
     } catch (Exception e) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.CALLOUT_FAILED,
-          Strings.describe(e),
-          0
-        ),
-        item,
-        externalId
+      return SyncResult.failure(
+        SyncResult.Outcome.CALLOUT_FAILED,
+        Strings.describe(e),
+        0
       );
     }
     if (listing.getStatusCode() < 200 || listing.getStatusCode() >= 300) {
-      return stamp(toFailure(listing, 'listing transitions'), item, externalId);
+      return toFailure(listing, 'listing transitions');
     }
 
     List<TransitionOption> options;
     try {
       options = parseTransitions(listing.getBody());
     } catch (Exception e) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.REMOTE_ERROR,
-          'Could not parse the transitions response: ' + Strings.describe(e),
-          listing.getStatusCode()
-        ),
-        item,
-        externalId
+      return SyncResult.failure(
+        SyncResult.Outcome.REMOTE_ERROR,
+        'Could not parse the transitions response: ' + Strings.describe(e),
+        listing.getStatusCode()
       );
     }
 
     TransitionOption chosen = match(options, targetStatus);
     if (chosen == null) {
-      // Expected answer, not a fault: Jira workflows genuinely forbid some moves.
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.NO_TRANSITION_AVAILABLE,
-          'No transition to "' +
-            targetStatus +
-            '" is available from the current state. Available: ' +
-            describeOptions(options),
-          listing.getStatusCode()
-        ),
-        item,
-        externalId
+      if (isAlreadyIn(item, rawId, targetStatus)) {
+        return SyncResult.alreadyInTargetStatus(targetStatus);
+      }
+      // Expected answer, not a fault: Jira workflows genuinely forbid some moves. The message
+      // names what WAS on offer, because that is how a person fixes it.
+      return SyncResult.failure(
+        SyncResult.Outcome.NO_TRANSITION_AVAILABLE,
+        'Jira will not move this issue to "' +
+          targetStatus +
+          '" from where it is. Available: ' +
+          describeOptions(options) +
+          '. Move the card to one of those, or back to where it was.',
+        listing.getStatusCode()
       );
     }
 
@@ -555,28 +665,65 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         item.Id
       );
     } catch (Exception e) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.CALLOUT_FAILED,
-          Strings.describe(e),
-          0
-        ),
-        item,
-        externalId
+      return SyncResult.failure(
+        SyncResult.Outcome.CALLOUT_FAILED,
+        Strings.describe(e),
+        0
       );
     }
     if (applied.getStatusCode() < 200 || applied.getStatusCode() >= 300) {
-      return stamp(
-        toFailure(applied, 'applying transition ' + chosen.id),
-        item,
-        externalId
-      );
+      return toFailure(applied, 'applying transition ' + chosen.id);
     }
+    SyncResult done = SyncResult.pushed(
+      new Set<SyncField>{ SyncField.STATUS },
+      applied.getStatusCode()
+    );
+    done.appliedStatus = targetStatus;
+    return done;
+  }
 
-    return stamp(
-      SyncResult.success(targetStatus, applied.getStatusCode()),
-      item,
-      externalId
+  /**
+   * Whether the issue already sits in the target status. False on any doubt - an unreachable
+   * Jira, an unreadable body - so doubt reports the refused move rather than inventing success.
+   */
+  private Boolean isAlreadyIn(
+    Work_Item__c item,
+    String rawId,
+    String targetStatus
+  ) {
+    try {
+      HttpResponse response = send(
+        'GET',
+        issuePath(rawId) + '?fields=status',
+        null,
+        item.Id
+      );
+      if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+        return false;
+      }
+      Map<String, Object> issue = (Map<String, Object>) JSON.deserializeUntyped(
+        response.getBody()
+      );
+      Map<String, Object> fields = asMap(issue.get('fields'));
+      Map<String, Object> status = fields == null
+        ? null
+        : asMap(fields.get('status'));
+      String name = status == null ? null : asString(status.get('name'));
+      return String.isNotBlank(name) && normalizeStatus(name) == targetStatus;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /** Two failed parts reported as one, keeping the first part's classification. */
+  private static SyncResult combine(SyncResult first, SyncResult second) {
+    if (first == null) {
+      return second;
+    }
+    return SyncResult.failure(
+      first.outcome,
+      first.message + ' Also: ' + second.message,
+      first.statusCode
     );
   }
 
@@ -612,11 +759,12 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
 
   // ---------- Jira specifics ----------
 
+  private String issuePath(String rawId) {
+    return API_BASE + '/issue/' + EncodingUtil.urlEncode(rawId, 'UTF-8');
+  }
+
   private String transitionsPath(String rawId) {
-    return API_BASE +
-      '/issue/' +
-      EncodingUtil.urlEncode(rawId, 'UTF-8') +
-      '/transitions';
+    return issuePath(rawId) + '/transitions';
   }
 
   private String transitionPayload(String transitionId) {
@@ -755,7 +903,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
 
   // ---------- helpers ----------
 
-  private SyncResult validate(Work_Item__c item, String targetStatus) {
+  private SyncResult validatePush(Work_Item__c item, Set<SyncField> changed) {
     if (item == null) {
       return SyncResult.failure(
         SyncResult.Outcome.BAD_REQUEST,
@@ -763,38 +911,8 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         null
       );
     }
-    if (String.isBlank(targetStatus)) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.BAD_REQUEST,
-          'No target status supplied.',
-          null
-        ),
-        item,
-        item.External_Id__c
-      );
-    }
-    if (targetStatus == WorkItemStatus.UNSPECIFIED) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.BAD_REQUEST,
-          'Unspecified is a placeholder for an unmapped status and cannot be a transition target.',
-          null
-        ),
-        item,
-        item.External_Id__c
-      );
-    }
-    if (!STATUS_ALIASES.containsKey(targetStatus)) {
-      return stamp(
-        SyncResult.failure(
-          SyncResult.Outcome.BAD_REQUEST,
-          'Not a recognised Status__c value: ' + targetStatus,
-          null
-        ),
-        item,
-        item.External_Id__c
-      );
+    if (changed == null || changed.isEmpty()) {
+      return stamp(SyncResult.nothingToPush(), item, item.External_Id__c);
     }
     if (!ExternalIdUtil.belongsTo(item.External_Id__c, SYSTEM_NAMESPACE)) {
       return stamp(
@@ -805,6 +923,31 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         ),
         item,
         item.External_Id__c
+      );
+    }
+    return null;
+  }
+
+  private SyncResult validateStatus(String targetStatus) {
+    if (String.isBlank(targetStatus)) {
+      return SyncResult.failure(
+        SyncResult.Outcome.BAD_REQUEST,
+        'No target status supplied.',
+        null
+      );
+    }
+    if (targetStatus == WorkItemStatus.UNSPECIFIED) {
+      return SyncResult.failure(
+        SyncResult.Outcome.BAD_REQUEST,
+        'Unspecified is a placeholder for an unmapped status and cannot be a transition target.',
+        null
+      );
+    }
+    if (!STATUS_ALIASES.containsKey(targetStatus)) {
+      return SyncResult.failure(
+        SyncResult.Outcome.BAD_REQUEST,
+        'Not a recognised Status__c value: ' + targetStatus,
+        null
       );
     }
     return null;

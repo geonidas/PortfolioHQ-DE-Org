@@ -1,15 +1,25 @@
 /**
- * Outbound push on a genuine status change.
+ * Outbound push on a genuine change to a pushable field, and the start date rule.
  *
- * before update stages the record as Pending; after update enqueues the push. Both halves are
- * needed: the adapter skips its callout for anything still marked Synced, so without the staging
- * step a record that had synced once would never sync again - and would report success while
- * doing nothing.
+ * before insert and before update refuse a start date the source cannot hold. before update also
+ * records which pushable fields changed and marks the record Pending; after update enqueues the
+ * push. Both halves are needed: the push sends exactly the fields staged, so without the staging
+ * step it would have nothing to send - and would report success while doing nothing.
  */
-trigger WorkItemTrigger on Work_Item__c(before update, after update) {
+trigger WorkItemTrigger on Work_Item__c(
+  before insert,
+  before update,
+  after update
+) {
   if (Trigger.isBefore) {
-    WorkItemTriggerHandler.stageForPush(Trigger.new, Trigger.oldMap);
+    WorkItemTriggerHandler.enforceSourceCapabilities(
+      Trigger.new,
+      Trigger.oldMap
+    );
+    if (Trigger.isUpdate) {
+      WorkItemTriggerHandler.stageForPush(Trigger.new, Trigger.oldMap);
+    }
   } else {
-    WorkItemTriggerHandler.pushStatusChanges(Trigger.new, Trigger.oldMap);
+    WorkItemTriggerHandler.pushChanges(Trigger.new, Trigger.oldMap);
   }
 }

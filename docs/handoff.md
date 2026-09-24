@@ -146,12 +146,29 @@ Check `Integration_Log__c` does not grow across a run.
 Validation rule `Sync_Status_Requires_Known_Status`. Inbound hits this whenever Jira
 reports an unmapped status, and handles it by staying `Pending`.
 
-**The outbound push needs `Sync_Status__c` staged to `Pending`.**
-`JiraAdapter` skips its callout when the status matches the target _and_
-`Sync_Status__c = 'Synced'`. The service passes the record's own status as the target,
-so the first half is always true. `WorkItemTrigger`'s **before update** context resets
-`Sync_Status__c` on a real status change. Remove that and a record syncs exactly once,
-then goes silent forever **while reporting success**.
+**The outbound push sends exactly what `Pending_Push_Fields__c` lists, and nothing else.**
+Since build 08 an adapter is asked to `push(item, Set<SyncField>)` - status, title, start date,
+due date - rather than to move a status. `WorkItemTrigger`'s **before update** adds each changed
+pushable field to `Pending_Push_Fields__c` and marks the record Pending; the queueable carries
+only ids, so that field is the only place the set survives. Remove the staging and every push
+finds nothing to send and reports success while doing nothing. The write-back re-reads the row
+`FOR UPDATE` and removes only the fields the source confirmed: an edit made while a push was in
+flight stays listed, and a field the source refused stays listed with the reason in
+`Sync_Error__c`. The old rule - Jira skipping its callout for a record marked Synced - is gone;
+nothing reads `Sync_Status__c` to decide whether to push any more.
+
+**Inbound never overwrites a field that is waiting to push.** A delivery that lands between a
+user's save and the push is genuinely newer than anything held, so the timestamp check lets it
+through; before build 08 it would revert the edit, mark the record Synced, and the push would
+then find nothing to do - a status change lost with no error. `WorkItemInboundProcessor` now
+skips every field listed in `Pending_Push_Fields__c`, applies the rest, and leaves the sync
+fields alone until nothing is pending. A refused change is held the same way, so it keeps
+showing Failed with its reason until somebody acts - moving a card back to where Jira still has
+it counts as done, because the adapter reads the issue's status before calling a move refused.
+
+**A start date is refused in the trigger for any source whose `Board_Source__mdt` says it has
+none** - on insert and update, suppressed or not, whatever the edit path. The board hides the
+editor for such a source; the trigger is the rule. Clearing one is always allowed.
 
 **`Ignored` means two different things, and `Ignore_Reason__c` is which.** `Superseded` is a
 newer delivery for the same external id winning inside the batch - the winner carries the whole
@@ -181,18 +198,24 @@ private, which is the safe direction.
 **DML before a callout throws.** `You have uncommitted work pending`. All callouts in a
 chunk run first; `Integration_Log__c` rows buffer in memory and are written after.
 
-**Callout budget.** 2 callouts per item, 100 per transaction → chunks of 50. The other
-ceiling is 120s cumulative callout time; measured ~563ms per call, so count binds first
-at current latency.
+**Callout budget.** Up to 3 callouts per item since build 08 - a Jira field edit plus the
+two-step transition - against 100 per transaction, so chunks of 33 (50 before). Asana stays at
+2: its edits ride on the completion flag's update. The other ceiling is 120s cumulative callout
+time; measured ~563ms per call, so count binds first at current latency.
 
 **`External_Id__c` is namespaced** (`jira:10023`). Jira's REST paths need the raw id —
 `ExternalIdUtil.rawIdOf()`. Uniqueness is per field, not per system, which is why the
 prefix exists.
 
-**Loop prevention is three mechanisms, and the third is the load-bearing one.**
-Suppression flag (one transaction only), timestamp comparison (durable), and the
-**status-delta check on the trigger**. The first two cannot stop the echo of our own
-push — each cycle is genuinely newer. Only the delta check does.
+**Loop prevention is three mechanisms, and each stops a different path.** Suppression (one
+transaction only) stops a change inbound applies from being pushed back. The **field-delta check
+on the trigger** - `SyncFields.changedBetween`, status only until build 08, now status, title,
+start and due - stops the sync's own write-back of `Sync_Status__c`, `Last_Synced__c`,
+`Pending_Push_Fields__c` and `Sync_Error__c` from pushing again; that write-back is also
+suppressed since build 08, belt and braces. The timestamp comparison (durable) retires stale and
+duplicate deliveries. It cannot stop the echo of our own push - that is genuinely newer - which is
+why the echo is harmless for a different reason: it carries our own values, so it produces no
+delta. The title is compared case-sensitively; Apex's `==` on strings is not.
 
 **Inbound-created records need `OwnerId` set.** Guest sharing rules do not share records
 owned by Automated Process, and the webhook subscriber owns everything it creates.
@@ -525,7 +548,13 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
   `Assert.areEqual(before, Limits.getCallouts())` a vacuous assertion that passes even when a
   callout was made. Take both readings inside the window. Found in build 07 step 3 by breaking
   the test on purpose, which is the only reason it was found at all.
-- Trailing underscores are illegal in identifiers (`update_` will not compile).
+- Trailing underscores are illegal in identifiers (`update_` will not compile). `update` itself
+  is a reserved word, so a variable cannot be called that either.
+- **Prettier can format a static call into something Apex will not compile.** A long chain such
+  as `SyncFields.changedBetween(a, b).isEmpty()` is split so the class name sits alone on a
+  line, then `.changedBetween(...)` below it, and the compiler reports `Variable does not exist:
+SyncFields`. The one-line form of the same call compiles. Hold the result in a local rather
+  than chaining off a static call. Found in build 08 step 3, by the deploy.
 - `@TestVisible` does not expose members to anonymous Apex.
 - Apex only type-checks server-side. Nothing is verified until it deploys.
 
@@ -537,26 +566,27 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
 
 ## 4. Open items
 
-| Item                                                                                                                                                                                                                                                           | Trigger point                         |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                                                                      | Before a second admin exists          |
-| ~~`Integration_Log__c` and `Webhook_Event__c` grow unbounded~~ **Closed.** `IntegrationDataPurge` caps both at 50 rows nightly. The cost is that rejected-signature rows and Processed history age out; version 2 archives them to a Big Object first          | Closed                                |
-| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run.                                              | If the endpoint sees hostile traffic  |
-| `JiraAdapter` deliveries go through the same sweeper as Asana's, but Jira never strands one - it calls out for nothing, so the retry budget is exercised by Asana alone.                                                                                       | Informational                         |
-| Bare page layouts on four objects.                                                                                                                                                                                                                             | Cosmetic                              |
-| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.                                                           | When hierarchy gaps are noticed       |
-| Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                                                             | Next time a full retrieve is needed   |
-| Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.                                                    | Cosmetic                              |
-| An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                                                             | Cosmetic                              |
-| A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.                                                 | If `npm run test:unit` dies wholesale |
-| Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so.                           | After the next few live deliveries    |
-| The Asana `Format` option "Article / paper" (`1218523733859544`) has no `Field_Mapping__mdt` row, because `Work_Item__c.Type__c` has no value to map it to. A task carrying it lands on `Unspecified` with the raw word in `Source_Type__c`.                   | When an article is added in Asana     |
-| A project's `Is_Public__c` is read at creation time only, so flipping a project public does not retroactively publish the work already synced into it. Fix by hand, or with a one-off update that touches `Is_Public__c` and nothing else - never `Status__c`. | When a project is made public         |
-| Nothing enforces deletion of a `Webhook_Secret__c` staging row after promotion; the script only says to. The Asana row was deleted by hand on 2026-09-21.                                                                                                      | After the next real registration      |
-| Rotating a secret means deleting the staged row first: `Resource_Id__c` is unique and the guest cannot update a row.                                                                                                                                           | At first rotation                     |
-| Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                                                         | If re-registration becomes frequent   |
-| Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                                            | At volume                             |
-| `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana reads `Field_Mapping__mdt`. Two mechanisms for one job.                                                                                                                       | Next time a Jira mapping changes      |
+| Item                                                                                                                                                                                                                                                                                                                                                                                                                                           | Trigger point                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                                                                                                                                                                                                                                                      | Before a second admin exists          |
+| ~~`Integration_Log__c` and `Webhook_Event__c` grow unbounded~~ **Closed.** `IntegrationDataPurge` caps both at 50 rows nightly. The cost is that rejected-signature rows and Processed history age out; version 2 archives them to a Big Object first                                                                                                                                                                                          | Closed                                |
+| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run.                                                                                                                                                                                                                              | If the endpoint sees hostile traffic  |
+| `JiraAdapter` deliveries go through the same sweeper as Asana's, but Jira never strands one - it calls out for nothing, so the retry budget is exercised by Asana alone.                                                                                                                                                                                                                                                                       | Informational                         |
+| Bare page layouts on four objects.                                                                                                                                                                                                                                                                                                                                                                                                             | Cosmetic                              |
+| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.                                                                                                                                                                                                                                           | When hierarchy gaps are noticed       |
+| Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                                                                                                                                                                                                                                             | Next time a full retrieve is needed   |
+| Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.                                                                                                                                                                                                                                    | Cosmetic                              |
+| A push that failed for a transient reason (timeout, 5xx, 429) is not retried on its own. The field stays in `Pending_Push_Fields__c`, so the next edit to the record retries it, but there is no way to retry without editing. Proposed for build 08 step 7: a Retry control whose save moves `Sync_Status__c` Failed to Pending, which the trigger treats as a request to push what is pending - never a controller calling the sync service. | Build 08 step 7                       |
+| An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                                                                                                                                                                                                                                             | Cosmetic                              |
+| A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.                                                                                                                                                                                                                                 | If `npm run test:unit` dies wholesale |
+| Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so.                                                                                                                                                                                                           | After the next few live deliveries    |
+| The Asana `Format` option "Article / paper" (`1218523733859544`) has no `Field_Mapping__mdt` row, because `Work_Item__c.Type__c` has no value to map it to. A task carrying it lands on `Unspecified` with the raw word in `Source_Type__c`.                                                                                                                                                                                                   | When an article is added in Asana     |
+| A project's `Is_Public__c` is read at creation time only, so flipping a project public does not retroactively publish the work already synced into it. Fix by hand, or with a one-off update that touches `Is_Public__c` and nothing else - never `Status__c`.                                                                                                                                                                                 | When a project is made public         |
+| Nothing enforces deletion of a `Webhook_Secret__c` staging row after promotion; the script only says to. The Asana row was deleted by hand on 2026-09-21.                                                                                                                                                                                                                                                                                      | After the next real registration      |
+| Rotating a secret means deleting the staged row first: `Resource_Id__c` is unique and the guest cannot update a row.                                                                                                                                                                                                                                                                                                                           | At first rotation                     |
+| Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                                                                                                                                                                                                                                         | If re-registration becomes frequent   |
+| Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                                                                                                                                                                                                                            | At volume                             |
+| `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana reads `Field_Mapping__mdt`. Two mechanisms for one job.                                                                                                                                                                                                                                                                                                       | Next time a Jira mapping changes      |
 
 ---
 

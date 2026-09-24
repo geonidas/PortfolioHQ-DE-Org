@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Title__c</fullName>
-    <description>One-line title of the remote issue - Jira&apos;s issue.fields.summary. This is what a person calls the task; Name is the record&apos;s auto number and External_Key__c is the remote identifier, and neither reads as a title.</description>
+    <description>One-line title of the remote issue - Jira&apos;s issue.fields.summary, Asana&apos;s name. This is what a person calls the task; Name is the record&apos;s auto number and External_Key__c is the remote identifier, and neither reads as a title. Pushed to the source since build 08, so an edit here is no longer overwritten by the next inbound delivery.</description>
     <externalId>false</externalId>
-    <inlineHelpText>Title of the work, as the external system states it. Synced; edits here are overwritten on the next inbound update.</inlineHelpText>
+    <inlineHelpText>Title of the work. Synced both ways: an edit here is pushed to the source system, and an edit there arrives here.</inlineHelpText>
     <label>Title</label>
     <length>255</length>
     <required>false</required>

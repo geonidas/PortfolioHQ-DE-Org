@@ -7,13 +7,27 @@
  */
 public interface IWorkItemAdapter {
   /**
-   * Move a work item to a normalized Status__c value in the external system.
-   * Never throws for a business outcome - an unavailable transition comes back in the result.
+   * Push the fields that changed in Salesforce to the external system - exactly those, with the
+   * item's current values, and nothing else.
    *
-   * @param item         the work item, which must carry a qualified External_Id__c
-   * @param targetStatus a normalized Work_Item__c.Status__c value, never Unspecified
+   * Only what changed, because the alternative overwrites the source: sending an unchanged due
+   * date alongside a new title would silently undo a due date somebody just changed over there.
+   * Replaced updateStatus in build 08, when title and dates became pushable; a status is now one
+   * field among four, and keeps whatever path the source needs for it (Jira's transitions,
+   * Asana's section move plus completion flag).
+   *
+   * Each part is attempted on its own merits, so a refused status transition does not stop a
+   * title from landing, and the result's confirmedFields says which parts the source accepted.
+   * The caller clears exactly those from Pending_Push_Fields__c. A field this source cannot hold
+   * - a start date on a source without start dates - is refused as BAD_REQUEST without a
+   * callout. Never throws for a business outcome.
+   *
+   * At most three callouts per item; WorkItemSyncService chunks on that.
+   *
+   * @param item    the work item with its current values, carrying a qualified External_Id__c
+   * @param changed the fields to push; empty means nothing to do
    */
-  SyncResult updateStatus(Work_Item__c item, String targetStatus);
+  SyncResult push(Work_Item__c item, Set<SyncField> changed);
 
   /**
    * Status changes currently reachable from the item's present state.

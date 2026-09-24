@@ -29,13 +29,13 @@ private class WorkItemSyncServiceTest {
       this.emitPoisonLog = emitPoisonLog;
     }
 
-    public SyncResult updateStatus(Work_Item__c item, String targetStatus) {
+    public SyncResult push(Work_Item__c item, Set<SyncField> changed) {
       calls++;
       if (throwInstead) {
         throw new AdapterException('adapter exploded');
       }
       SyncResult result = outcome == SyncResult.Outcome.SUCCESS
-        ? SyncResult.success(targetStatus, 204)
+        ? SyncResult.pushed(changed, 204)
         : SyncResult.failure(outcome, 'scripted ' + outcome.name(), 500);
       result.workItemId = item.Id;
       result.externalId = item.External_Id__c;
@@ -97,17 +97,31 @@ private class WorkItemSyncServiceTest {
     for (Work_Item__c item : items) {
       item.Status__c = status;
       item.Sync_Status__c = 'Pending';
+      // What the trigger records on a real status change. Inserted directly, so it is set here.
+      item.Pending_Push_Fields__c = 'STATUS';
     }
     insert items;
+    return reread();
+  }
+
+  /** Every item, with exactly the fields the queueable hands the service. */
+  private static List<Work_Item__c> reread() {
+    return Database.query(
+      'SELECT ' +
+        WorkItemSyncService.ITEM_FIELDS +
+        ' FROM Work_Item__c ORDER BY External_Id__c'
+    );
+  }
+
+  private static Work_Item__c stored() {
     return [
       SELECT
-        Id,
-        External_Id__c,
-        External_System__c,
-        Status__c,
         Sync_Status__c,
+        Sync_Error__c,
+        Pending_Push_Fields__c,
         Last_Synced__c
       FROM Work_Item__c
+      LIMIT 1
     ];
   }
 
@@ -122,7 +136,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    List<SyncResult> results = WorkItemSyncService.syncStatuses(items);
+    List<SyncResult> results = WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     Assert.areEqual(
@@ -155,7 +169,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    WorkItemSyncService.syncStatuses(items);
+    WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     List<Integration_Log__c> logs = [
@@ -183,7 +197,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    WorkItemSyncService.syncStatuses(items);
+    WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     for (Work_Item__c item : [
@@ -211,7 +225,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    WorkItemSyncService.syncStatuses(items);
+    WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     List<Integration_Log__c> calloutRows = [
@@ -255,7 +269,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    WorkItemSyncService.syncStatuses(items);
+    WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     // The GET succeeded, so without an outcome row this failure would be invisible in the log.
@@ -296,6 +310,7 @@ private class WorkItemSyncServiceTest {
     for (Work_Item__c item : items) {
       item.Status__c = 'In Progress';
       item.Sync_Status__c = 'Pending';
+      item.Pending_Push_Fields__c = 'STATUS';
     }
     insert items;
     Test.setMock(
@@ -304,13 +319,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    List<SyncResult> results = WorkItemSyncService.syncStatuses(
-      [
-        SELECT Id, External_Id__c, Status__c, Sync_Status__c
-        FROM Work_Item__c
-        ORDER BY External_Id__c
-      ]
-    );
+    List<SyncResult> results = WorkItemSyncService.pushPending(reread());
     Test.stopTest();
 
     Assert.areEqual(2, results.size(), 'Both items should produce a result.');
@@ -336,7 +345,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    List<SyncResult> results = WorkItemSyncService.syncStatuses(items);
+    List<SyncResult> results = WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     Assert.areEqual(
@@ -369,7 +378,7 @@ private class WorkItemSyncServiceTest {
     );
 
     Test.startTest();
-    List<SyncResult> results = WorkItemSyncService.syncStatuses(items);
+    List<SyncResult> results = WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     Assert.areEqual(2, results.size(), 'The sync itself should be unaffected.');
@@ -392,7 +401,7 @@ private class WorkItemSyncServiceTest {
     WorkItemSyncService.calloutTimeBudgetMs = 0; // pretend the budget is already spent
 
     Test.startTest();
-    List<SyncResult> results = WorkItemSyncService.syncStatuses(items);
+    List<SyncResult> results = WorkItemSyncService.pushPending(items);
     Test.stopTest();
 
     // Being killed mid-chunk loses the buffered logs, so stopping short is the safe failure.
@@ -442,7 +451,7 @@ private class WorkItemSyncServiceTest {
 
     Test.startTest();
     Integer dmlBefore = Limits.getDmlStatements();
-    WorkItemSyncService.syncStatuses(items);
+    WorkItemSyncService.pushPending(items);
     Integer dmlUsed = Limits.getDmlStatements() - dmlBefore;
     Test.stopTest();
 
@@ -464,12 +473,12 @@ private class WorkItemSyncServiceTest {
     Test.startTest();
     Assert.areEqual(
       0,
-      WorkItemSyncService.syncStatuses(null).size(),
+      WorkItemSyncService.pushPending(null).size(),
       'Null input should be a no-op.'
     );
     Assert.areEqual(
       0,
-      WorkItemSyncService.syncStatuses(new List<Work_Item__c>()).size(),
+      WorkItemSyncService.pushPending(new List<Work_Item__c>()).size(),
       'Empty likewise.'
     );
     Assert.isNull(
@@ -536,5 +545,204 @@ private class WorkItemSyncServiceTest {
       Assert.isNotNull(e.getMessage(), 'Exception should explain itself.');
     }
     Test.stopTest();
+  }
+
+  // ---------- what the write-back records (build 08) ----------
+
+  @IsTest
+  static void successClearsThePendingFieldsAndAnyOldError() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    Work_Item__c failedBefore = new Work_Item__c(
+      Id = items[0].Id,
+      Sync_Error__c = 'An old failure.'
+    );
+    update failedBefore;
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    Test.stopTest();
+
+    Work_Item__c after = stored();
+    Assert.areEqual('Synced', after.Sync_Status__c);
+    Assert.isNull(after.Pending_Push_Fields__c, 'Nothing left to push.');
+    Assert.isNull(
+      after.Sync_Error__c,
+      'A reason for a failure that has since been fixed would be a false one.'
+    );
+    Assert.isNotNull(after.Last_Synced__c);
+  }
+
+  @IsTest
+  static void aFailureRecordsItsReasonAndKeepsTheFieldPending() {
+    seed(1, 'In Progress');
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.UNAUTHORIZED)
+    );
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    Test.stopTest();
+
+    Work_Item__c after = stored();
+    Assert.areEqual('Failed', after.Sync_Status__c);
+    Assert.isTrue(
+      after.Sync_Error__c.contains('401'),
+      'The card can say why: ' + after.Sync_Error__c
+    );
+    Assert.areEqual(
+      'STATUS',
+      after.Pending_Push_Fields__c,
+      'Still waiting, so the record cannot read Synced while the change never landed.'
+    );
+    Assert.isNull(after.Last_Synced__c);
+  }
+
+  @IsTest
+  static void onlyWhatTheSourceConfirmedIsCleared() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'STATUS;TITLE'
+    );
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.NO_MATCHING_TRANSITION)
+    );
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    Test.stopTest();
+
+    Work_Item__c after = stored();
+    Assert.areEqual(
+      'STATUS',
+      after.Pending_Push_Fields__c,
+      'The title landed and is cleared; the refused status is not.'
+    );
+    Assert.areEqual('Failed', after.Sync_Status__c);
+    Assert.isTrue(
+      after.Sync_Error__c.contains('Available'),
+      after.Sync_Error__c
+    );
+  }
+
+  @IsTest
+  static void anEditMadeDuringThePushIsKeptAndLeftPending() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(Id = items[0].Id, Pending_Push_Fields__c = 'TITLE');
+    // What the job reads when it starts...
+    List<Work_Item__c> atStart = reread();
+    // ...and what the row says by the time it writes back: the user changed the due date in
+    // between, which staged it and queued a job of its own.
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'TITLE;DUE_DATE'
+    );
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(atStart);
+    Test.stopTest();
+
+    Work_Item__c after = stored();
+    Assert.areEqual(
+      'DUE_DATE',
+      after.Pending_Push_Fields__c,
+      'Only the title was pushed, so only the title is cleared. Writing back the set the job ' +
+      'started with would erase the due date, and its own job would then push nothing.'
+    );
+    Assert.areEqual(
+      'Pending',
+      after.Sync_Status__c,
+      'Not Synced: the due date has not reached Jira yet.'
+    );
+    Assert.isNull(after.Last_Synced__c, 'They do not agree yet.');
+  }
+
+  @IsTest
+  static void aRecordWithNothingPendingIsNeitherPushedNorWritten() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = null,
+      Sync_Status__c = 'Failed'
+    );
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+
+    Test.startTest();
+    Integer before = Limits.getCallouts();
+    List<SyncResult> results = WorkItemSyncService.pushPending(reread());
+    Integer used = Limits.getCallouts() - before;
+    Test.stopTest();
+
+    Assert.areEqual(0, used, 'Nothing waiting, nothing sent.');
+    Assert.areEqual(
+      SyncResult.Outcome.NOTHING_TO_PUSH,
+      results[0].outcome,
+      'Still reported, so the queueable counts it as handled rather than chaining for ever.'
+    );
+    Assert.areEqual(
+      'Failed',
+      stored().Sync_Status__c,
+      'And nothing written: an earlier job\'s Failed is not overwritten with a Synced.'
+    );
+  }
+
+  @IsTest
+  static void aTitleOnlyPushCostsOneCallout() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(Id = items[0].Id, Pending_Push_Fields__c = 'TITLE');
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+
+    Test.startTest();
+    // Both readings inside the window: stopTest restores the outer context's limits, so a
+    // reading taken after it would count the wrong transaction.
+    Integer before = Limits.getCallouts();
+    WorkItemSyncService.pushPending(reread());
+    Integer used = Limits.getCallouts() - before;
+    Test.stopTest();
+
+    Assert.areEqual(1, used, 'One PUT; a title needs no transition.');
+    Assert.areEqual('Synced', stored().Sync_Status__c);
+  }
+
+  @IsTest
+  static void anUnspecifiedStatusStaysPendingEvenWhenItsTitleLands() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Status__c = 'Unspecified',
+      Pending_Push_Fields__c = 'TITLE'
+    );
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    Test.stopTest();
+
+    Work_Item__c after = stored();
+    Assert.isNull(after.Pending_Push_Fields__c, 'The title landed.');
+    Assert.areEqual(
+      'Pending',
+      after.Sync_Status__c,
+      'Synced is illegal beside Unspecified, and the status is unreconciled anyway.'
+    );
   }
 }

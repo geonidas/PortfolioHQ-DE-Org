@@ -13,6 +13,12 @@ private class WorkItemTriggerHandlerTest {
     String syncStatus,
     Boolean withExternalId
   ) {
+    // Any push these tests queue runs at stopTest; without a mock its callout would fail the
+    // job. Tests that care what was sent set their own.
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
     Project__c project = TestDataFactory.createProjects(1, true)[0];
     Work_Item__c item = TestDataFactory.createWorkItems(
       1,
@@ -37,6 +43,14 @@ private class WorkItemTriggerHandlerTest {
   private static String syncStatusOf(Id workItemId) {
     return [SELECT Sync_Status__c FROM Work_Item__c WHERE Id = :workItemId]
     .Sync_Status__c;
+  }
+
+  private static Work_Item__c stagedOf(Id workItemId) {
+    return [
+      SELECT Sync_Status__c, Pending_Push_Fields__c, Sync_Error__c
+      FROM Work_Item__c
+      WHERE Id = :workItemId
+    ];
   }
 
   @IsTest
@@ -126,21 +140,18 @@ private class WorkItemTriggerHandlerTest {
   }
 
   @IsTest
-  static void aChangeToAnythingButStatusPushesNothing() {
+  static void aChangeToNoPushableFieldPushesNothing() {
+    // Title was in this list until build 08, when it became pushable. What is left here is
+    // what the sources never receive.
     Work_Item__c item = seed('To Do', 'Failed', true);
 
     Test.startTest();
     Integer queued = jobsQueuedBy(
-      new Work_Item__c(
-        Id = item.Id,
-        Title__c = 'Retitled',
-        Story_Points__c = 5,
-        Is_Public__c = true
-      )
+      new Work_Item__c(Id = item.Id, Story_Points__c = 5, Is_Public__c = true)
     );
     Test.stopTest();
 
-    Assert.areEqual(0, queued, 'Only a Status__c change is a reason to sync.');
+    Assert.areEqual(0, queued, 'Only status, title, start and due are pushed.');
     Assert.areEqual('Failed', syncStatusOf(item.Id), 'Nothing staged.');
   }
 
@@ -246,5 +257,208 @@ private class WorkItemTriggerHandlerTest {
       queued,
       'Visibility is not a sync rule in either direction.'
     );
+  }
+
+  // ---------- title and dates (build 08) ----------
+
+  @IsTest
+  static void aTitleChangeStagesTheTitleAndQueuesOnePush() {
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+    Work_Item__c item = seed('To Do', 'Synced', true);
+
+    Test.startTest();
+    Integer queued = jobsQueuedBy(
+      new Work_Item__c(Id = item.Id, Title__c = 'Retitled')
+    );
+    Work_Item__c staged = stagedOf(item.Id);
+    Test.stopTest();
+
+    Assert.areEqual(1, queued, 'A title edit reaches the source now.');
+    Assert.areEqual('Pending', staged.Sync_Status__c);
+    Assert.areEqual(
+      'TITLE',
+      staged.Pending_Push_Fields__c,
+      'Exactly the field that changed, so the push sends nothing else.'
+    );
+  }
+
+  @IsTest
+  static void aChangeOfCaseAloneIsStillAnEdit() {
+    Work_Item__c item = seed('To Do', 'Failed', true);
+
+    Test.startTest();
+    // Apex compares strings case-insensitively, so this is "no change" to ==.
+    Integer queued = jobsQueuedBy(
+      new Work_Item__c(Id = item.Id, Title__c = 'SEEDED WORK ITEM 1')
+    );
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      queued,
+      'Somebody fixed the capitals. That is an edit, and it should reach the source.'
+    );
+  }
+
+  @IsTest
+  static void dateChangesAreStagedAndSecondEditsAccumulate() {
+    Work_Item__c item = seed('To Do', 'Synced', true);
+
+    Test.startTest();
+    Integer first = jobsQueuedBy(
+      new Work_Item__c(
+        Id = item.Id,
+        Due_Date__c = Date.newInstance(2026, 10, 1)
+      )
+    );
+    Integer second = jobsQueuedBy(
+      new Work_Item__c(
+        Id = item.Id,
+        Start_Date__c = Date.newInstance(2026, 9, 25)
+      )
+    );
+    Work_Item__c staged = stagedOf(item.Id);
+    Test.stopTest();
+
+    Assert.areEqual(1, first);
+    Assert.areEqual(1, second, 'Each edit queues its own push.');
+    Assert.areEqual(
+      'START_DATE;DUE_DATE',
+      staged.Pending_Push_Fields__c,
+      'The second edit adds to the first rather than replacing it - otherwise a quick second ' +
+      'save would erase the first before it was pushed.'
+    );
+  }
+
+  @IsTest
+  static void aNewEditClearsTheLastFailuresReason() {
+    Work_Item__c item = seed('To Do', 'Failed', true);
+    update new Work_Item__c(
+      Id = item.Id,
+      Sync_Error__c = 'Jira returned 401.',
+      Pending_Push_Fields__c = 'STATUS'
+    );
+
+    Test.startTest();
+    jobsQueuedBy(new Work_Item__c(Id = item.Id, Title__c = 'Retitled'));
+    Work_Item__c staged = stagedOf(item.Id);
+    Test.stopTest();
+
+    Assert.isNull(
+      staged.Sync_Error__c,
+      'A new attempt is under way; the old reason no longer describes the record.'
+    );
+    Assert.areEqual(
+      'STATUS;TITLE',
+      staged.Pending_Push_Fields__c,
+      'And the refused status is still waiting, so this push retries it.'
+    );
+  }
+
+  @IsTest
+  static void anInboundTitleChangeIsNeverPushedBack() {
+    Work_Item__c item = seed('To Do', 'Synced', true);
+
+    Test.startTest();
+    Integer queued;
+    SyncContext.suppressOutbound();
+    try {
+      queued = jobsQueuedBy(
+        new Work_Item__c(
+          Id = item.Id,
+          Title__c = 'Renamed in Jira',
+          Due_Date__c = Date.newInstance(2026, 10, 1)
+        )
+      );
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    Test.stopTest();
+
+    Assert.areEqual(
+      0,
+      queued,
+      'What came from the source is not sent back to it.'
+    );
+    Assert.isNull(stagedOf(item.Id).Pending_Push_Fields__c);
+  }
+
+  // ---------- the start date rule (build 08) ----------
+
+  private static void rules() {
+    BoardSourceRules.reset();
+    BoardSourceRules.injected = new List<Board_Source__mdt>{
+      new Board_Source__mdt(
+        External_System__c = 'Jira',
+        Display_Label__c = 'Jira',
+        Supports_Start_Date__c = true
+      ),
+      new Board_Source__mdt(
+        External_System__c = 'Asana',
+        Display_Label__c = 'Asana',
+        Supports_Start_Date__c = false
+      )
+    };
+  }
+
+  @IsTest
+  static void aStartDateIsRefusedOnASourceWithoutThemHoweverItArrives() {
+    rules();
+    Project__c project = TestDataFactory.createProjects(1, true)[0];
+    Work_Item__c item = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    item.External_System__c = 'Asana';
+    item.External_Id__c = 'asana:1210000000000001';
+    item.Start_Date__c = Date.newInstance(2026, 9, 1);
+
+    Test.startTest();
+    Database.SaveResult inserted = Database.insert(item, false);
+    item.Start_Date__c = null;
+    insert item;
+    Database.SaveResult updated = Database.update(
+      new Work_Item__c(
+        Id = item.Id,
+        Start_Date__c = Date.newInstance(2026, 9, 1)
+      ),
+      false
+    );
+    Test.stopTest();
+
+    Assert.isFalse(inserted.isSuccess(), 'Refused on insert.');
+    Assert.isTrue(
+      inserted.getErrors()[0]
+        .getMessage()
+        .contains('Asana does not support start dates'),
+      inserted.getErrors()[0].getMessage()
+    );
+    Assert.isFalse(
+      updated.isSuccess(),
+      'And on update - the record page and the API are not the board, and the rule has to ' +
+      'hold for them too.'
+    );
+  }
+
+  @IsTest
+  static void aStartDateIsAcceptedWhereTheSourceHasThem() {
+    rules();
+    Work_Item__c item = seed('To Do', 'Synced', true);
+
+    Test.startTest();
+    Database.SaveResult updated = Database.update(
+      new Work_Item__c(
+        Id = item.Id,
+        Start_Date__c = Date.newInstance(2026, 9, 1)
+      ),
+      false
+    );
+    Test.stopTest();
+
+    Assert.isTrue(updated.isSuccess(), String.valueOf(updated.getErrors()));
   }
 }

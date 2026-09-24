@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Pending_Push_Fields__c</fullName>
+    <description>Which fields changed in Salesforce and have not yet reached the source system - SyncField names joined by semicolons, e.g. STATUS;TITLE. WorkItemTriggerHandler adds to it on a user edit; WorkItemSyncService pushes exactly these and, after re-reading the row under a lock, removes only the ones the source confirmed, so an edit made mid-push is neither lost nor marked Synced early. A field the source refused stays listed until a later push succeeds. Inbound sync does not overwrite a field while it is listed here. Internal bookkeeping: on no DTO and edited by no user.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Fields waiting to reach the source system. Maintained by the sync; not editable.</inlineHelpText>
+    <label>Pending Push Fields</label>
+    <length>255</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

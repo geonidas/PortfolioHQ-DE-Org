@@ -1829,7 +1829,14 @@ private class WorkItemInboundProcessorTest {
     item.Start_Date__c = Date.newInstance(2026, 9, 1);
     item.Due_Date__c = Date.newInstance(2026, 9, 30);
     item.Description__c = 'Removed in Jira since.';
-    update item;
+    // Values an earlier delivery brought in, so written the way inbound writes them: suppressed.
+    // Written as a user edit they would be waiting to push, and inbound would rightly keep them.
+    SyncContext.suppressOutbound();
+    try {
+      update item;
+    } finally {
+      SyncContext.resumeOutbound();
+    }
 
     List<Webhook_Event__c> events = deliver(
       new List<String>{
@@ -1870,7 +1877,12 @@ private class WorkItemInboundProcessorTest {
     item.Due_Date__c = Date.newInstance(2026, 9, 30);
     item.Description__c = 'Held already.';
     item.Source_Created__c = Datetime.newInstanceGmt(2026, 9, 1, 12, 0, 0);
-    update item;
+    SyncContext.suppressOutbound();
+    try {
+      update item;
+    } finally {
+      SyncContext.resumeOutbound();
+    }
 
     // The old payload shape: none of the four keys at all.
     List<Webhook_Event__c> events = deliver(
@@ -1902,5 +1914,168 @@ private class WorkItemInboundProcessorTest {
       stored.Status__c,
       'And the rest of the delivery still applies.'
     );
+  }
+
+  // ---------- fields waiting to be pushed (build 08) ----------
+
+  private static Work_Item__c withPending(
+    String externalId,
+    String status,
+    String title,
+    String pending
+  ) {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem(externalId, status, was);
+    // The state a user edit leaves behind, written directly: suppressed so the setup itself
+    // queues no push.
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(
+        Id = item.Id,
+        Title__c = title,
+        Pending_Push_Fields__c = pending,
+        Sync_Status__c = 'Pending'
+      );
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    return item;
+  }
+
+  private static Work_Item__c reread(Id itemId) {
+    return [
+      SELECT
+        Title__c,
+        Status__c,
+        Sync_Status__c,
+        Last_Synced__c,
+        Pending_Push_Fields__c
+      FROM Work_Item__c
+      WHERE Id = :itemId
+    ];
+  }
+
+  @IsTest
+  static void aTitleWaitingToBePushedIsNotOverwrittenByADelivery() {
+    Work_Item__c item = withPending(
+      'jira:10080',
+      'To Do',
+      'Edited in Salesforce',
+      'TITLE'
+    );
+    // Genuinely newer than anything held - a delivery arriving between the user's save and the
+    // push - so the timestamp check lets it through. Only the pending set can stop it undoing
+    // the edit.
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10080',
+          'DOPP-80',
+          'In Progress',
+          System.now(),
+          'The title Jira still has'
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = reread(item.Id);
+    Assert.areEqual(
+      'Edited in Salesforce',
+      after.Title__c,
+      'The edit on its way out wins until the push settles it.'
+    );
+    Assert.areEqual(
+      'In Progress',
+      after.Status__c,
+      'Everything not waiting is still applied.'
+    );
+    Assert.areEqual(
+      'Pending',
+      after.Sync_Status__c,
+      'And the record does not claim to agree with Jira while an edit is still on its way.'
+    );
+    Assert.isNull(after.Last_Synced__c);
+    Assert.areEqual('TITLE', after.Pending_Push_Fields__c);
+    Webhook_Event__c row = [
+      SELECT Processing_Status__c, Error_Message__c
+      FROM Webhook_Event__c
+      LIMIT 1
+    ];
+    Assert.areEqual('Processed', row.Processing_Status__c);
+    Assert.isTrue(
+      row.Error_Message__c.contains('Kept Salesforce\'s title'),
+      'The delivery says what it held back: ' + row.Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void aStatusWaitingToBePushedIsNotOverwrittenEither() {
+    Work_Item__c item = withPending(
+      'jira:10081',
+      'Done',
+      'Seeded work item 1',
+      'STATUS'
+    );
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10081',
+          'DOPP-81',
+          'In Progress',
+          System.now()
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.areEqual(
+      'Done',
+      reread(item.Id).Status__c,
+      'Before this, a delivery landing mid-push reverted the move and marked it Synced, and ' +
+      'the push then found nothing to do: a status change lost without a word.'
+    );
+  }
+
+  @IsTest
+  static void aTitleChangedInTheSourceArrivesAndIsNotPushedBack() {
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10082', 'To Do', was);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdatedWithFields(
+          '10082',
+          'DOPP-82',
+          'To Do',
+          was.addMinutes(30),
+          new Map<String, Object>{
+            'summary' => 'Renamed in Jira',
+            'duedate' => '2026-10-01'
+          }
+        )
+      }
+    );
+
+    Test.startTest();
+    Integer before = Limits.getQueueableJobs();
+    WorkItemInboundProcessor.process(events);
+    Integer queued = Limits.getQueueableJobs() - before;
+    Test.stopTest();
+
+    Work_Item__c after = reread(item.Id);
+    Assert.areEqual('Renamed in Jira', after.Title__c);
+    Assert.areEqual(
+      0,
+      queued,
+      'A title and a date that came from Jira are not sent back to Jira.'
+    );
+    Assert.isNull(after.Pending_Push_Fields__c);
+    Assert.areEqual('Synced', after.Sync_Status__c);
   }
 }

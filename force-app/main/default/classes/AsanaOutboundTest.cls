@@ -41,9 +41,19 @@ private class AsanaOutboundTest {
     AsanaWriteMock mock = new AsanaWriteMock(200);
     Test.setMock(HttpCalloutMock.class, mock);
     AsanaAdapter adapter = new AsanaAdapter();
-    lastResult = adapter.updateStatus(item, targetStatus);
+    lastResult = pushStatus(adapter, item, targetStatus);
     lastLogs = adapter.drainLogs();
     return mock;
+  }
+
+  /** A status change as the service now asks for one: the record's own status, as a field. */
+  private static SyncResult pushStatus(
+    AsanaAdapter adapter,
+    Work_Item__c item,
+    String targetStatus
+  ) {
+    item.Status__c = targetStatus;
+    return adapter.push(item, new Set<SyncField>{ SyncField.STATUS });
   }
 
   private static SyncResult lastResult;
@@ -157,8 +167,11 @@ private class AsanaOutboundTest {
     Test.startTest();
     AsanaWriteMock mock = new AsanaWriteMock(500);
     Test.setMock(HttpCalloutMock.class, mock);
-    SyncResult result = new AsanaAdapter()
-      .updateStatus(item, WorkItemStatus.DONE);
+    SyncResult result = pushStatus(
+      new AsanaAdapter(),
+      item,
+      WorkItemStatus.DONE
+    );
     Test.stopTest();
 
     Assert.isFalse(result.isSuccess());
@@ -217,8 +230,11 @@ private class AsanaOutboundTest {
     Test.startTest();
     AsanaWriteMock mock = new AsanaWriteMock(new List<Integer>{ 200, 500 });
     Test.setMock(HttpCalloutMock.class, mock);
-    SyncResult outcome = new AsanaAdapter()
-      .updateStatus(item, WorkItemStatus.DONE);
+    SyncResult outcome = pushStatus(
+      new AsanaAdapter(),
+      item,
+      WorkItemStatus.DONE
+    );
     Test.stopTest();
 
     Assert.isFalse(outcome.isSuccess(), 'Half applied is not applied.');
@@ -236,11 +252,17 @@ private class AsanaOutboundTest {
 
     Test.startTest();
     Test.setMock(HttpCalloutMock.class, new AsanaWriteMock(401));
-    SyncResult unauthorized = new AsanaAdapter()
-      .updateStatus(item, WorkItemStatus.DONE);
+    SyncResult unauthorized = pushStatus(
+      new AsanaAdapter(),
+      item,
+      WorkItemStatus.DONE
+    );
     Test.setMock(HttpCalloutMock.class, new AsanaWriteMock(429));
-    SyncResult throttled = new AsanaAdapter()
-      .updateStatus(item, WorkItemStatus.DONE);
+    SyncResult throttled = pushStatus(
+      new AsanaAdapter(),
+      item,
+      WorkItemStatus.DONE
+    );
     Test.stopTest();
 
     Assert.areEqual(
@@ -263,10 +285,13 @@ private class AsanaOutboundTest {
     AsanaWriteMock mock = new AsanaWriteMock(200);
     Test.setMock(HttpCalloutMock.class, mock);
     AsanaAdapter adapter = new AsanaAdapter();
-    SyncResult noItem = adapter.updateStatus(null, WorkItemStatus.DONE);
-    SyncResult noStatus = adapter.updateStatus(
-      new Work_Item__c(External_Id__c = 'asana:' + TASK_GID),
-      ''
+    SyncResult noItem = adapter.push(
+      null,
+      new Set<SyncField>{ SyncField.STATUS }
+    );
+    SyncResult noStatus = adapter.push(
+      new Work_Item__c(External_Id__c = 'asana:' + TASK_GID, Status__c = ''),
+      new Set<SyncField>{ SyncField.STATUS }
     );
     Test.stopTest();
 
@@ -326,7 +351,7 @@ private class AsanaOutboundTest {
 
     Assert.isTrue(
       threw,
-      'Unlike updateStatus, this one throws: an empty list would mean "nowhere to go", which ' +
+      'Unlike push, this one throws: an empty list would mean "nowhere to go", which ' +
       'is a different and misleading answer.'
     );
   }
@@ -460,5 +485,157 @@ private class AsanaOutboundTest {
 
   private static Boolean result() {
     return lastResult != null && lastResult.isSuccess();
+  }
+
+  // ---------- pushing fields (build 08) ----------
+
+  private static Map<String, Object> dataOf(
+    AsanaWriteMock.CapturedRequest call
+  ) {
+    return (Map<String, Object>) ((Map<String, Object>) JSON.deserializeUntyped(
+        call.body
+      ))
+      .get('data');
+  }
+
+  @IsTest
+  static void aTitleAndDueDateAreOneTaskUpdateCarryingOnlyThose() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Title__c = 'Deep Work by Cal Newport';
+    item.Due_Date__c = Date.newInstance(2026, 10, 3);
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.TITLE, SyncField.DUE_DATE });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(1, mock.callCount(), 'No section move without a status.');
+    Assert.areEqual('PUT', mock.captured[0].method);
+    Assert.isTrue(mock.captured[0].endpoint.endsWith('/tasks/' + TASK_GID));
+    Map<String, Object> data = dataOf(mock.captured[0]);
+    Assert.areEqual(
+      new Set<String>{ 'name', 'due_on' },
+      data.keySet(),
+      'Only what changed - and never start_on, never completed.'
+    );
+    Assert.areEqual('Deep Work by Cal Newport', data.get('name'));
+    Assert.areEqual('2026-10-03', data.get('due_on'));
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE, SyncField.DUE_DATE },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void aStatusChangeAndAnEditShareTheSecondWrite() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Status__c = WorkItemStatus.DONE;
+    item.Title__c = 'Finished it';
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.STATUS, SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(
+      2,
+      mock.callCount(),
+      'Still two writes: the edit rides on the completion flag\'s update.'
+    );
+    Map<String, Object> data = dataOf(mock.captured[1]);
+    Assert.areEqual(true, data.get('completed'));
+    Assert.areEqual('Finished it', data.get('name'));
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.STATUS, SyncField.TITLE },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void aStartDateIsRefusedWithoutACalloutWhileTheRestStillGoes() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Start_Date__c = Date.newInstance(2026, 9, 1);
+    item.Title__c = 'Renamed';
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.START_DATE, SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.BAD_REQUEST, result.outcome);
+    Assert.areEqual(1, mock.callCount());
+    Assert.isFalse(
+      mock.captured[0].body.contains('start_on'),
+      'start_on never leaves Salesforce: ' + mock.captured[0].body
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE },
+      result.confirmedFields,
+      'The title still landed.'
+    );
+  }
+
+  @IsTest
+  static void clearingAStartDateCountsAsDoneWithNothingSent() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Start_Date__c = null;
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.START_DATE });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(
+      0,
+      mock.callCount(),
+      'Salesforce never sent Asana a start date, so there is none to clear.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.START_DATE },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void aFailedSectionMoveStillSendsTheEditButNotTheFlag() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Status__c = WorkItemStatus.DONE;
+    item.Title__c = 'Renamed';
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(new List<Integer>{ 500, 200 });
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.STATUS, SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.isFalse(result.isSuccess());
+    Assert.areEqual(2, mock.callCount());
+    Map<String, Object> data = dataOf(mock.captured[1]);
+    Assert.isFalse(
+      data.containsKey('completed'),
+      'No flag after a failed move - that would author the contradiction.'
+    );
+    Assert.areEqual('Renamed', data.get('name'));
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE },
+      result.confirmedFields
+    );
   }
 }

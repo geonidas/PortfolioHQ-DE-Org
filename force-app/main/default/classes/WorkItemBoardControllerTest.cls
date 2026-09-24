@@ -392,4 +392,250 @@ private class WorkItemBoardControllerTest {
     Assert.isNull(ProjectSelector.labelFor(null), 'And to no label.');
     Test.stopTest();
   }
+
+  // ---------- saving title and dates (build 08) ----------
+
+  private static Work_Item__c jiraItem() {
+    Project__c project = seedProject('EDIT');
+    Work_Item__c item = seedItems(1, project.Id, 'In Progress')[0];
+    // Synced, so a Pending after the save can only have come from the save.
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(Id = item.Id, Sync_Status__c = 'Synced');
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    return item;
+  }
+
+  private static Work_Item__c asanaItem() {
+    Project__c project = seedProject('LEARN');
+    Work_Item__c item = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    item.External_System__c = 'Asana';
+    item.External_Id__c = 'asana:1210000000000077';
+    item.Status__c = 'In Progress';
+    insert item;
+    return item;
+  }
+
+  private static Work_Item__c reread(Id itemId) {
+    return [
+      SELECT
+        Title__c,
+        Start_Date__c,
+        Due_Date__c,
+        Sync_Status__c,
+        Pending_Push_Fields__c
+      FROM Work_Item__c
+      WHERE Id = :itemId
+    ];
+  }
+
+  @IsTest
+  static void savingWritesOnlyWhatChangedAndLeavesItPending() {
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      '  Render work items on the board  ',
+      '',
+      '2026-10-01'
+    );
+    Work_Item__c staged = reread(item.Id);
+    Test.stopTest();
+
+    Assert.isTrue(result.saved, result.message);
+    Assert.isTrue(
+      result.fieldErrors.isEmpty(),
+      String.valueOf(result.fieldErrors)
+    );
+    Assert.isTrue(result.pushQueued, 'The trigger queued the push.');
+    Assert.areEqual(
+      'Pending',
+      result.syncStatus,
+      'Saved in Salesforce, not yet in Jira - and the result says which.'
+    );
+    Assert.isTrue(
+      result.message.contains('The Jira update is running in the background'),
+      'Named from the source label: ' + result.message
+    );
+    Assert.areEqual(
+      'Render work items on the board',
+      staged.Title__c,
+      'Trimmed.'
+    );
+    Assert.areEqual(Date.newInstance(2026, 10, 1), staged.Due_Date__c);
+    Assert.areEqual(
+      'TITLE;DUE_DATE',
+      staged.Pending_Push_Fields__c,
+      'The start date did not change, so it is not pushed.'
+    );
+  }
+
+  @IsTest
+  static void aUserEditPushesExactlyOnce() {
+    JiraCalloutMock mock = new JiraCalloutMock(
+      JiraCalloutMock.Scenario.TRANSITION_OK
+    );
+    Test.setMock(HttpCalloutMock.class, mock);
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.saveDetails(item.Id, 'Retitled', '', '');
+    Test.stopTest(); // runs the queued push
+
+    Assert.areEqual(
+      1,
+      [
+        SELECT COUNT()
+        FROM AsyncApexJob
+        WHERE ApexClass.Name = 'WorkItemSyncQueueable'
+      ],
+      'One push. The sync\'s own write-back changes no pushable field, so it queues nothing.'
+    );
+    Assert.areEqual(1, mock.callCount(), 'One PUT, nothing else.');
+    Assert.areEqual('PUT', mock.captured[0].method);
+    Work_Item__c after = reread(item.Id);
+    Assert.areEqual('Synced', after.Sync_Status__c, 'Jira confirmed it.');
+    Assert.isNull(after.Pending_Push_Fields__c);
+  }
+
+  @IsTest
+  static void aStartDateIsRefusedForASourceWithoutThem() {
+    Work_Item__c item = asanaItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '2026-09-01',
+      ''
+    );
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    Assert.isTrue(
+      result.fieldErrors.get('startDate')
+        .contains('Asana does not support start dates'),
+      'Refused here, not only hidden in the component: ' + result.fieldErrors
+    );
+    Assert.isNull(reread(item.Id).Start_Date__c, 'Nothing was written.');
+  }
+
+  @IsTest
+  static void aStartAfterTheDueIsRefused() {
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '2026-10-05',
+      '2026-10-01'
+    );
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    String message = result.fieldErrors.get('startDate');
+    Assert.isTrue(
+      message.contains('2026-10-05') && message.contains('2026-10-01'),
+      'Says which dates and what to do: ' + message
+    );
+  }
+
+  @IsTest
+  static void anEmptyOrOverLongTitleIsRefused() {
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult empty = WorkItemBoardController.saveDetails(
+      item.Id,
+      '    ',
+      '',
+      ''
+    );
+    WorkItemBoardController.DetailSaveResult tooLong = WorkItemBoardController.saveDetails(
+      item.Id,
+      'x'.repeat(WorkItemBoardController.TITLE_MAX + 1),
+      '',
+      ''
+    );
+    Test.stopTest();
+
+    Assert.isFalse(empty.saved);
+    Assert.isTrue(empty.fieldErrors.get('title').contains('required'));
+    Assert.isFalse(tooLong.saved);
+    Assert.isTrue(
+      tooLong.fieldErrors.get('title').contains('256') &&
+      tooLong.fieldErrors.get('title').contains('255'),
+      'Says how long it is and what the limit is: ' +
+      tooLong.fieldErrors.get('title')
+    );
+    Assert.areEqual(
+      'Seeded work item 1',
+      reread(item.Id).Title__c,
+      'Neither was written.'
+    );
+  }
+
+  @IsTest
+  static void anImpossibleDateIsRefusedRatherThanRolledOver() {
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '',
+      '2026-02-30'
+    );
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    Assert.isTrue(result.fieldErrors.containsKey('dueDate'));
+    Assert.isNull(
+      reread(item.Id).Due_Date__c,
+      'Not quietly saved as the second of March.'
+    );
+  }
+
+  @IsTest
+  static void savingWithNothingChangedWritesNothing() {
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    Integer before = Limits.getQueueableJobs();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '',
+      ''
+    );
+    Integer queued = Limits.getQueueableJobs() - before;
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    Assert.isFalse(result.pushQueued);
+    Assert.areEqual(0, queued);
+    Assert.areEqual('Synced', reread(item.Id).Sync_Status__c);
+  }
+
+  @IsTest
+  static void saveDetailsRefusesAMissingId() {
+    try {
+      WorkItemBoardController.saveDetails(null, 'Title', '', '');
+      Assert.fail('A missing id should be refused.');
+    } catch (AuraHandledException e) {
+      Assert.isNotNull(e.getMessage());
+    }
+  }
 }

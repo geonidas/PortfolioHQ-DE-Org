@@ -174,6 +174,14 @@ System.debug('BACKFILL candidates=' + items.size() + ' jira=' + jiraRows.size() 
 for (String note : skipped) {
     System.debug('BACKFILL skip ' + note);
 }
+// The adapters log every callout, successful ones included, and a success row carries no error
+// message - printing it produced a bare "adapter null" on the first run. Only failures are news.
+Integer calloutsLogged = 0;
 for (Integration_Log__c note : adapterNotes) {
+    if (note.Is_Success__c == true) {
+        calloutsLogged++;
+        continue;
+    }
     System.debug('BACKFILL adapter ' + note.Error_Message__c);
 }
+System.debug('BACKFILL adapter callouts that succeeded: ' + calloutsLogged);

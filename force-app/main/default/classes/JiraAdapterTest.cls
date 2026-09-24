@@ -3,6 +3,11 @@
  */
 @IsTest
 private class JiraAdapterTest {
+  /** A fresh set each call: the adapter must never be handed a set a test also reads. */
+  private static Set<SyncField> statusOnly() {
+    return new Set<SyncField>{ SyncField.STATUS };
+  }
+
   private static Work_Item__c workItem(String status, String syncStatus) {
     return new Work_Item__c(
       External_Id__c = 'jira:10023',
@@ -22,8 +27,7 @@ private class JiraAdapterTest {
     Test.setMock(HttpCalloutMock.class, mock);
 
     Test.startTest();
-    new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+    new JiraAdapter().push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     // The stored id is jira:10023; Jira must receive 10023 or it answers 404.
@@ -48,7 +52,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -88,8 +92,7 @@ private class JiraAdapterTest {
     Test.setMock(HttpCalloutMock.class, mock);
 
     Test.startTest();
-    new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+    new JiraAdapter().push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -122,7 +125,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('Done', 'Pending'), 'Done');
+      .push(workItem('Done', 'Pending'), statusOnly());
     Test.stopTest();
 
     // Jira calls it "Resolved"; we call it "Done".
@@ -149,7 +152,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -162,11 +165,16 @@ private class JiraAdapterTest {
       'A workflow saying no is not a fault.'
     );
     Assert.isFalse(result.isSuccess(), 'Nothing was transitioned.');
-    Assert.areEqual(
-      1,
-      mock.callCount(),
-      'Must not POST when no transition matched.'
-    );
+    // Two reads: the transitions, then the issue's own status - it might already be there. No
+    // POST, because nothing lands on the target.
+    Assert.areEqual(2, mock.callCount());
+    for (JiraCalloutMock.CapturedRequest call : mock.captured) {
+      Assert.areEqual(
+        'GET',
+        call.method,
+        'Must not POST when no transition matched.'
+      );
+    }
     // "Surface it clearly" means naming what was actually on offer.
     Assert.isTrue(
       result.message.contains('Done'),
@@ -183,7 +191,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('Done', 'Pending'), 'Done');
+      .push(workItem('Done', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -206,7 +214,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -234,7 +242,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -258,7 +266,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -282,7 +290,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -306,7 +314,7 @@ private class JiraAdapterTest {
 
     Test.startTest();
     SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+      .push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     Assert.areEqual(
@@ -332,34 +340,31 @@ private class JiraAdapterTest {
 
     Test.startTest();
     Map<String, SyncResult> results = new Map<String, SyncResult>{
-      'null item' => adapter.updateStatus(null, 'Done'),
-      'blank target' => adapter.updateStatus(
-        workItem('To Do', 'Pending'),
-        '   '
+      'null item' => adapter.push(null, statusOnly()),
+      'blank status' => adapter.push(workItem('   ', 'Pending'), statusOnly()),
+      'unspecified status' => adapter.push(
+        workItem('Unspecified', 'Pending'),
+        statusOnly()
       ),
-      'unspecified target' => adapter.updateStatus(
-        workItem('To Do', 'Pending'),
-        'Unspecified'
+      'unknown status' => adapter.push(
+        workItem('Marinating', 'Pending'),
+        statusOnly()
       ),
-      'unknown status' => adapter.updateStatus(
-        workItem('To Do', 'Pending'),
-        'Marinating'
-      ),
-      'wrong system' => adapter.updateStatus(
+      'wrong system' => adapter.push(
         new Work_Item__c(
           External_Id__c = 'asana:998877',
           Status__c = 'To Do',
           Sync_Status__c = 'Pending'
         ),
-        'Done'
+        statusOnly()
       ),
-      'unqualified id' => adapter.updateStatus(
+      'unqualified id' => adapter.push(
         new Work_Item__c(
           External_Id__c = '10023',
           Status__c = 'To Do',
           Sync_Status__c = 'Pending'
         ),
-        'Done'
+        statusOnly()
       )
     };
     Test.stopTest();
@@ -383,57 +388,6 @@ private class JiraAdapterTest {
     );
   }
 
-  @IsTest
-  static void skipsTheCalloutOnlyWhenTheRemoteIsBelievedToAgree() {
-    JiraCalloutMock mock = new JiraCalloutMock(
-      JiraCalloutMock.Scenario.TRANSITION_OK
-    );
-    Test.setMock(HttpCalloutMock.class, mock);
-
-    Test.startTest();
-    SyncResult settled = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Synced'), 'In Progress');
-    Test.stopTest();
-
-    Assert.areEqual(
-      SyncResult.Outcome.ALREADY_IN_TARGET_STATUS,
-      settled.outcome,
-      'Nothing to do.'
-    );
-    Assert.isTrue(
-      settled.isSuccess(),
-      'Already being there counts as success.'
-    );
-    Assert.areEqual(0, mock.callCount(), 'No callout should be made.');
-  }
-
-  @IsTest
-  static void doesNotSkipWhenTheLastSyncDidNotSucceed() {
-    // Regression guard. The service passes item.Status__c as its own target, so a skip test
-    // based on status alone is always true and nothing would ever sync. Sync_Status__c is
-    // what makes the "already there" belief credible.
-    JiraCalloutMock mock = new JiraCalloutMock(
-      JiraCalloutMock.Scenario.TRANSITION_OK
-    );
-    Test.setMock(HttpCalloutMock.class, mock);
-
-    Test.startTest();
-    SyncResult result = new JiraAdapter()
-      .updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
-    Test.stopTest();
-
-    Assert.areEqual(
-      SyncResult.Outcome.SUCCESS,
-      result.outcome,
-      'A pending item must actually sync.'
-    );
-    Assert.areEqual(
-      2,
-      mock.callCount(),
-      'Both callouts should have been made.'
-    );
-  }
-
   // ---------- logging ----------
 
   @IsTest
@@ -445,7 +399,7 @@ private class JiraAdapterTest {
     JiraAdapter adapter = new JiraAdapter();
 
     Test.startTest();
-    adapter.updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+    adapter.push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     List<Integration_Log__c> logs = adapter.drainLogs();
@@ -490,7 +444,7 @@ private class JiraAdapterTest {
     JiraAdapter adapter = new JiraAdapter();
 
     Test.startTest();
-    adapter.updateStatus(workItem('In Progress', 'Pending'), 'In Progress');
+    adapter.push(workItem('In Progress', 'Pending'), statusOnly());
     Test.stopTest();
 
     List<Integration_Log__c> logs = adapter.drainLogs();
@@ -1136,5 +1090,240 @@ private class JiraAdapterTest {
     Assert.areEqual('First line\none\ntwo', JiraAdapter.plainText(adf));
     Assert.areEqual('As sent', JiraAdapter.plainText('As sent'));
     Assert.isNull(JiraAdapter.plainText(null));
+  }
+
+  // ---------- pushing fields (build 08) ----------
+
+  private static Work_Item__c editedItem() {
+    Work_Item__c item = workItem('In Progress', 'Pending');
+    item.Title__c = 'Render work items on the board';
+    item.Due_Date__c = Date.newInstance(2026, 9, 3);
+    item.Start_Date__c = Date.newInstance(2026, 9, 1);
+    return item;
+  }
+
+  private static JiraCalloutMock mockFor(JiraCalloutMock.Scenario scenario) {
+    JiraCalloutMock mock = new JiraCalloutMock(scenario);
+    Test.setMock(HttpCalloutMock.class, mock);
+    return mock;
+  }
+
+  @IsTest
+  static void aTitleEditIsOnePutCarryingOnlyTheSummary() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(editedItem(), new Set<SyncField>{ SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(1, mock.callCount(), 'One PUT, no transition calls.');
+    Assert.areEqual('PUT', mock.captured[0].method);
+    Assert.areEqual(
+      'callout:Jira_Classic/rest/api/3/issue/10023',
+      mock.captured[0].endpoint,
+      'The issue itself, by its raw id.'
+    );
+    Assert.areEqual(
+      '{"fields":{"summary":"Render work items on the board"}}',
+      mock.captured[0].body,
+      'Only the field that changed. Sending the unchanged due date too would overwrite one ' +
+      'somebody may have just changed in Jira.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void datesTravelAsCalendarDaysAndAClearedOneAsNull() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+    Work_Item__c item = editedItem();
+    item.Start_Date__c = null;
+    // The start date field comes from configuration, never a constant.
+    FieldMappingService.reset();
+    FieldMappingService.injected = new List<Field_Mapping__mdt>{
+      new Field_Mapping__mdt(
+        External_System__c = ExternalSystem.JIRA,
+        Mapping_Type__c = FieldMappingService.FIELD,
+        External_Value__c = 'customfield_99999',
+        Normalized_Value__c = 'Start_Date__c',
+        Is_Active__c = true
+      )
+    };
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(
+        item,
+        new Set<SyncField>{ SyncField.DUE_DATE, SyncField.START_DATE }
+      );
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Map<String, Object> fields = (Map<String, Object>) ((Map<String, Object>) JSON.deserializeUntyped(
+        mock.captured[0].body
+      ))
+      .get('fields');
+    Assert.areEqual(
+      new Set<String>{ 'duedate', 'customfield_99999' },
+      fields.keySet(),
+      'Exactly the two fields, the start date under the configured id.'
+    );
+    Assert.areEqual(
+      '2026-09-03',
+      fields.get('duedate'),
+      'A calendar day, never a timestamp.'
+    );
+    Assert.isNull(
+      fields.get('customfield_99999'),
+      'A cleared start date is an explicit null, which is how Jira removes one.'
+    );
+  }
+
+  @IsTest
+  static void withNoStartDateFieldMappedTheStartDateIsRefusedWithoutACallout() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+    FieldMappingService.reset();
+    FieldMappingService.injected = new List<Field_Mapping__mdt>();
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(editedItem(), new Set<SyncField>{ SyncField.START_DATE });
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.BAD_REQUEST, result.outcome);
+    Assert.isTrue(
+      result.message.contains('Field_Mapping__mdt'),
+      'Says what to add: ' + result.message
+    );
+    Assert.areEqual(0, mock.callCount(), 'No constant stands in for it.');
+    Assert.isTrue(result.confirmedFields.isEmpty());
+  }
+
+  @IsTest
+  static void anEditAndAStatusChangeAreThreeCallsAndBothConfirmed() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(
+        editedItem(),
+        new Set<SyncField>{ SyncField.TITLE, SyncField.STATUS }
+      );
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(3, mock.callCount(), 'The most one item ever costs.');
+    Assert.areEqual(
+      'PUT',
+      mock.captured[0].method,
+      'The edit goes first: some workflows make a Done issue read-only.'
+    );
+    Assert.areEqual('GET', mock.captured[1].method);
+    Assert.areEqual('POST', mock.captured[2].method);
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE, SyncField.STATUS },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void aRefusedTransitionStillLandsTheTitle() {
+    mockFor(JiraCalloutMock.Scenario.NO_MATCHING_TRANSITION);
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(
+        editedItem(),
+        new Set<SyncField>{ SyncField.TITLE, SyncField.STATUS }
+      );
+    Test.stopTest();
+
+    Assert.areEqual(
+      SyncResult.Outcome.NO_TRANSITION_AVAILABLE,
+      result.outcome,
+      'The refused half decides the outcome.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE },
+      result.confirmedFields,
+      'And the half that landed is reported, so it is not pushed again and the refused half ' +
+      'is not marked as synced.'
+    );
+    Assert.isTrue(
+      result.message.contains('Available: Done'),
+      'The reason says what Jira would accept: ' + result.message
+    );
+  }
+
+  @IsTest
+  static void aRefusedEditStillLandsTheStatus() {
+    mockFor(JiraCalloutMock.Scenario.PUT_REFUSED);
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(
+        editedItem(),
+        new Set<SyncField>{ SyncField.TITLE, SyncField.STATUS }
+      );
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.REMOTE_ERROR, result.outcome);
+    Assert.areEqual(400, result.statusCode);
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.STATUS },
+      result.confirmedFields
+    );
+    Assert.isTrue(
+      result.message.contains('summary'),
+      'Names the field Jira refused: ' + result.message
+    );
+  }
+
+  @IsTest
+  static void movingBackToWhereJiraAlreadyIsCountsAsDone() {
+    // The way out of a refused move: put the card back in the column Jira never left. No
+    // transition lands on a status the issue is already in, so without the extra read this
+    // would be refused too, and the card could never be set right from Salesforce.
+    JiraCalloutMock mock = mockFor(
+      JiraCalloutMock.Scenario.NO_MATCHING_TRANSITION
+    );
+    mock.currentStatus = 'In Progress';
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(workItem('In Progress', 'Failed'), statusOnly());
+    Test.stopTest();
+
+    Assert.areEqual(
+      SyncResult.Outcome.ALREADY_IN_TARGET_STATUS,
+      result.outcome
+    );
+    Assert.isTrue(result.isSuccess());
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.STATUS },
+      result.confirmedFields
+    );
+    Assert.areEqual(2, mock.callCount(), 'Two reads, and no POST.');
+    Assert.isTrue(
+      mock.captured[1].endpoint.endsWith('/issue/10023?fields=status'),
+      mock.captured[1].endpoint
+    );
+  }
+
+  @IsTest
+  static void pushingNothingCallsNothing() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(editedItem(), new Set<SyncField>());
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.NOTHING_TO_PUSH, result.outcome);
+    Assert.areEqual(0, mock.callCount());
   }
 }
