@@ -47,9 +47,11 @@ $RECYCLE.BIN/
 **/.venv/
 **/venv/
 
-# Custom metadata RECORDS carry secrets (Integration_Secret__mdt.Jira_Webhook).
-# Added before any record exists - once a secret is committed, gitignore cannot help.
-force-app/main/default/customMetadata/
+# Integration_Secret__mdt RECORDS carry webhook signing secrets. Added before any record
+# existed - once a secret is committed, gitignore cannot help. Narrowed in build 08 from the whole
+# customMetadata/ folder to this one type: Board_Source and Field_Mapping records hold no secret,
+# and ignoring them made them click-only setup that no fresh org could reproduce.
+force-app/main/default/customMetadata/Integration_Secret.*
 
 # Commit message drafts, written per build step. Ephemeral - not part of the source.
 .commit-messages/

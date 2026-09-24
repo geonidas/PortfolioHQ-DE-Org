@@ -10,6 +10,10 @@
  * remote value is empty". The processor assigns a field only when it is non-null, because most
  * deliveries are status transitions carrying nothing else, and writing a null through would blank
  * known data on every one of them.
+ *
+ * Three fields are the exception, because they can genuinely be emptied in the source: the start
+ * date, the due date and the description. Those carry an explicit flag - see carryDueDate - and
+ * the processor writes them, null included, exactly when the flag says the delivery carried them.
  */
 public class InboundChange {
   /**
@@ -56,6 +60,57 @@ public class InboundChange {
 
   /** When the remote record last changed, per the vendor. Required - it drives loop prevention. */
   public Datetime remoteUpdated;
+
+  /**
+   * When the item was created in the source system. Null when not carried, and never a reason
+   * to clear anything: an item's creation does not un-happen, so this field follows the null
+   * rule above like the title does.
+   */
+  public Datetime sourceCreated;
+
+  // ---------- fields that can be carried EMPTY ----------
+  //
+  // The rule above - null means "not carried" - cannot express "carried, and empty". A due date
+  // removed in the source arrives as an explicit null, and under that rule it would never clear
+  // in Salesforce. So these three carry a flag beside the value, set only through carry*(), which
+  // makes it impossible to set a value without saying it was carried. The processor writes the
+  // value, null included, exactly when the flag is true.
+
+  /** The start date. Meaningful only when carriesStartDate; then null means the source has none. */
+  public Date startDate { get; private set; }
+  public Boolean carriesStartDate { get; private set; }
+
+  /** The due date. Meaningful only when carriesDueDate; then null means the source has none. */
+  public Date dueDate { get; private set; }
+  public Boolean carriesDueDate { get; private set; }
+
+  /** Plain text, already cut to the field length. Null when carried means the source has none. */
+  public String description { get; private set; }
+  public Boolean carriesDescription { get; private set; }
+
+  public InboundChange() {
+    carriesStartDate = false;
+    carriesDueDate = false;
+    carriesDescription = false;
+  }
+
+  /** The delivery carried a start date field. Null means it is empty in the source. */
+  public void carryStartDate(Date value) {
+    startDate = value;
+    carriesStartDate = true;
+  }
+
+  /** The delivery carried a due date field. Null means it is empty in the source. */
+  public void carryDueDate(Date value) {
+    dueDate = value;
+    carriesDueDate = true;
+  }
+
+  /** The delivery carried a description. Blank means it is empty in the source. */
+  public void carryDescription(String value) {
+    description = String.isBlank(value) ? null : value;
+    carriesDescription = true;
+  }
 
   /**
    * The iteration the remote system says this item belongs to, or null when it names none.

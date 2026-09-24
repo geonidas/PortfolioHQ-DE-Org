@@ -1755,4 +1755,152 @@ private class WorkItemInboundProcessorTest {
       'And no outbound traffic from any of it.'
     );
   }
+
+  // ---------- created, dates and description (build 08) ----------
+
+  private static void mapJiraStartDate() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = new List<Field_Mapping__mdt>{
+      new Field_Mapping__mdt(
+        External_System__c = ExternalSystem.JIRA,
+        Mapping_Type__c = FieldMappingService.FIELD,
+        External_Value__c = 'customfield_10015',
+        Normalized_Value__c = 'Start_Date__c',
+        Is_Active__c = true
+      )
+    };
+  }
+
+  private static Work_Item__c datesOf(Id itemId) {
+    return [
+      SELECT
+        Source_Created__c,
+        Start_Date__c,
+        Due_Date__c,
+        Description__c,
+        Status__c
+      FROM Work_Item__c
+      WHERE Id = :itemId
+    ];
+  }
+
+  @IsTest
+  static void storesCreatedDatesAndDescriptionFromThePayload() {
+    mapJiraStartDate();
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10070', 'To Do', was);
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdatedWithFields(
+          '10070',
+          'DOPP-70',
+          'In Progress',
+          was.addMinutes(30),
+          new Map<String, Object>{
+            'created' => '2026-09-08T14:59:09.000-0700',
+            'duedate' => '2026-09-30',
+            'customfield_10015' => '2026-09-21',
+            'description' => 'Board cards grouped by status.'
+          }
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c stored = datesOf(item.Id);
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 8, 21, 59, 9),
+      stored.Source_Created__c,
+      'When the issue was made in Jira - not CreatedDate, which is when this record was.'
+    );
+    Assert.areEqual(Date.newInstance(2026, 9, 21), stored.Start_Date__c);
+    Assert.areEqual(Date.newInstance(2026, 9, 30), stored.Due_Date__c);
+    Assert.areEqual('Board cards grouped by status.', stored.Description__c);
+  }
+
+  @IsTest
+  static void aDeliveryCarryingEmptyDatesClearsThem() {
+    mapJiraStartDate();
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10071', 'To Do', was);
+    item.Start_Date__c = Date.newInstance(2026, 9, 1);
+    item.Due_Date__c = Date.newInstance(2026, 9, 30);
+    item.Description__c = 'Removed in Jira since.';
+    update item;
+
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdatedWithFields(
+          '10071',
+          'DOPP-71',
+          'To Do',
+          was.addMinutes(30),
+          new Map<String, Object>{
+            'duedate' => null,
+            'customfield_10015' => null,
+            'description' => null
+          }
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c stored = datesOf(item.Id);
+    Assert.isNull(
+      stored.Due_Date__c,
+      'Jira says the issue has no due date now. Keeping the old one would show a deadline ' +
+      'that no longer exists.'
+    );
+    Assert.isNull(stored.Start_Date__c);
+    Assert.isNull(stored.Description__c);
+  }
+
+  @IsTest
+  static void aDeliveryNotCarryingThemLeavesThemAlone() {
+    mapJiraStartDate();
+    Datetime was = System.now().addHours(-1);
+    Work_Item__c item = seedItem('jira:10072', 'To Do', was);
+    item.Start_Date__c = Date.newInstance(2026, 9, 1);
+    item.Due_Date__c = Date.newInstance(2026, 9, 30);
+    item.Description__c = 'Held already.';
+    item.Source_Created__c = Datetime.newInstanceGmt(2026, 9, 1, 12, 0, 0);
+    update item;
+
+    // The old payload shape: none of the four keys at all.
+    List<Webhook_Event__c> events = deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdated(
+          '10072',
+          'DOPP-72',
+          'In Progress',
+          was.addMinutes(30)
+        )
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c stored = datesOf(item.Id);
+    Assert.areEqual(Date.newInstance(2026, 9, 1), stored.Start_Date__c);
+    Assert.areEqual(Date.newInstance(2026, 9, 30), stored.Due_Date__c);
+    Assert.areEqual('Held already.', stored.Description__c);
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 1, 12, 0, 0),
+      stored.Source_Created__c,
+      'Not carried is not "none".'
+    );
+    Assert.areEqual(
+      'In Progress',
+      stored.Status__c,
+      'And the rest of the delivery still applies.'
+    );
+  }
 }

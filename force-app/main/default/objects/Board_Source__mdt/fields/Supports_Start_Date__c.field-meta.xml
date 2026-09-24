@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Supports_Start_Date__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Whether this source can hold a start date. When false, Apex refuses a start date on the source&apos;s items and the board offers no start date editor - hiding the editor is presentation, the refusal is the rule. Which vendor field holds the date is a separate fact and lives with the adapter, in a Field_Mapping__mdt row of type Field. False by default, so a new source never inherits a capability by accident.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Supports Start Date</label>
+    <type>Checkbox</type>
+</CustomField>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Accent_Token__c</fullName>
+    <description>The name of the colour token this source is drawn in, e.g. accent-1 - never a colour value. The shared board stylesheet maps each token to a colour that meets contrast as text and as a stripe; a token it does not know renders neutral. Changing a source&apos;s colour is a stylesheet or Theme panel change, not a metadata change.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Accent Token</label>
+    <length>20</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

@@ -17,6 +17,13 @@ public with sharing class FieldMappingService {
   /** Mapping_Type__c values. */
   public static final String STATUS = 'Status';
   public static final String TYPE = 'Type';
+  /**
+   * A Work_Item__c field API name to the vendor field that holds it, e.g. Start_Date__c to Jira
+   * customfield_10015. Custom field ids differ between Jira sites, so they are configuration and
+   * never constants. Read outbound with externalValueFor and inbound the same way: the adapter
+   * asks which key to read, then reads it.
+   */
+  public static final String FIELD = 'Field';
 
   // Custom metadata records cannot be inserted, so this is the only way a test can exercise a
   // populated table. Test context only.

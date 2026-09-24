@@ -48,4 +48,47 @@ private class InboundChangeTest {
       'A failure set by an adapter is what the processor fails the delivery on.'
     );
   }
+
+  @IsTest
+  static void aFreshChangeCarriesNoDateAndNoDescription() {
+    InboundChange change = new InboundChange();
+
+    // False, not null. The processor tests these flags directly, and a null Boolean in an if
+    // statement throws rather than reading as false.
+    Assert.areEqual(false, change.carriesStartDate);
+    Assert.areEqual(false, change.carriesDueDate);
+    Assert.areEqual(false, change.carriesDescription);
+    Assert.isNull(change.sourceCreated);
+  }
+
+  @IsTest
+  static void carryingAnEmptyValueIsDifferentFromNotCarryingOne() {
+    InboundChange change = new InboundChange();
+    change.carryDueDate(null);
+    change.carryDescription('   ');
+
+    // The whole reason the flags exist: a due date removed in the source arrives as an explicit
+    // null, and has to clear the one Salesforce holds.
+    Assert.isTrue(change.carriesDueDate, 'An explicit null is still carried.');
+    Assert.isNull(change.dueDate);
+    Assert.isTrue(change.carriesDescription);
+    Assert.isNull(
+      change.description,
+      'A blank description is an empty one, stored as null rather than as whitespace.'
+    );
+    Assert.areEqual(
+      false,
+      change.carriesStartDate,
+      'Carrying one field says nothing about another.'
+    );
+  }
+
+  @IsTest
+  static void carryingAValueSetsBothTheValueAndTheFlag() {
+    InboundChange change = new InboundChange();
+    change.carryStartDate(Date.newInstance(2026, 10, 1));
+
+    Assert.isTrue(change.carriesStartDate);
+    Assert.areEqual(Date.newInstance(2026, 10, 1), change.startDate);
+  }
 }

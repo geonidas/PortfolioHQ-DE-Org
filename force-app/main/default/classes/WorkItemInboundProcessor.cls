@@ -309,6 +309,25 @@ public with sharing class WorkItemInboundProcessor {
         );
       }
 
+      // When the work was created in the source, which CreatedDate cannot say: every card would
+      // read the day of the org move. The ordinary null rule - creation never un-happens.
+      if (change.sourceCreated != null) {
+        item.Source_Created__c = change.sourceCreated;
+      }
+
+      // Dates and the description can be emptied in the source, so these follow the carried
+      // flag rather than the null rule: carried and null clears the field, not carried leaves
+      // it alone. An explicit null assignment is what makes the upsert blank it.
+      if (change.carriesStartDate) {
+        item.Start_Date__c = change.startDate;
+      }
+      if (change.carriesDueDate) {
+        item.Due_Date__c = change.dueDate;
+      }
+      if (change.carriesDescription) {
+        item.Description__c = change.description;
+      }
+
       toUpsert.add(item);
       applied.add(delivery);
     }

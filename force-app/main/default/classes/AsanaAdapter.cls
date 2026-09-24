@@ -42,10 +42,19 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
    * the batch call itself looks like it worked. Found against the live API: the mock had been
    * reading the gid out of the path and answering happily whatever else was in it.
    */
+  //
+  // created_at, due_on and notes joined in build 08. start_on is absent on purpose and must stay
+  // absent: start dates are a paid Asana feature this workspace does not have, Board_Source__mdt
+  // says Asana does not support them, and a start date read in here would be one Salesforce then
+  // refuses to push back. AsanaAdapterTest fails if it appears.
+  @TestVisible
   private static final List<String> OPT_FIELDS = new List<String>{
     'name',
     'completed',
     'modified_at',
+    'created_at',
+    'due_on',
+    'notes',
     'resource_subtype',
     'memberships.project.gid',
     'memberships.project.name',
@@ -62,6 +71,8 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
   private static final Integer BODY_MAX = Integration_Log__c.Request_Body__c.getDescribe()
     .getLength();
   private static final Integer TITLE_MAX = Work_Item__c.Title__c.getDescribe()
+    .getLength();
+  private static final Integer DESCRIPTION_MAX = Work_Item__c.Description__c.getDescribe()
     .getLength();
 
   /**
@@ -196,6 +207,32 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     change.externalKey = null;
 
     change.title = Strings.truncate(asString(task.get('name')), TITLE_MAX);
+
+    change.sourceCreated = parseIso(asString(task.get('created_at')));
+
+    // The fetch asks for due_on and notes by name, so Asana answers with the key either way, and
+    // a null or empty value means the task has none - which has to clear what Salesforce holds.
+    // due_at, a due TIME, is not read: the board works in calendar days.
+    if (task.containsKey('due_on')) {
+      try {
+        change.carryDueDate(IsoDate.parseDay(task.get('due_on')));
+      } catch (IsoDate.UnreadableDateException e) {
+        log(
+          'Task ' +
+            gid +
+            ': due_on was not applied. ' +
+            e.getMessage() +
+            ' The date Salesforce holds was left as it was.'
+        );
+      }
+    }
+    if (task.containsKey('notes')) {
+      change.carryDescription(
+        Strings.truncate(asString(task.get('notes')), DESCRIPTION_MAX)
+      );
+    }
+    // No start date, ever - see OPT_FIELDS. carriesStartDate stays false, so the processor
+    // never touches Start_Date__c on an Asana item.
 
     change.remoteUpdated = parseIso(asString(task.get('modified_at')));
     if (change.remoteUpdated == null) {

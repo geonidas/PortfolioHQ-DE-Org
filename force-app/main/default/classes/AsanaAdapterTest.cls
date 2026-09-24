@@ -761,4 +761,102 @@ private class AsanaAdapterTest {
     }
     return matched;
   }
+
+  // ---------- created, due date and notes (build 08) ----------
+
+  private static InboundChange hydrate(Map<String, Object> extraFields) {
+    mapStatuses();
+    trackTheLearningProject();
+    AsanaCalloutMock mock = mockReturning(
+      new Map<String, String>{
+        TASK_A => AsanaPayloadFactory.withFields(
+          AsanaPayloadFactory.task(
+            TASK_A,
+            'Deep Work by Cal Newport',
+            AsanaPayloadFactory.SECTION_IN_PROGRESS,
+            'In Progress',
+            false,
+            modifiedAt
+          ),
+          extraFields
+        )
+      }
+    );
+    Test.startTest();
+    List<InboundChange> changes = new AsanaAdapter()
+      .parseInbound(
+        deliveries(new List<String>{ AsanaPayloadFactory.taskEvent(TASK_A) })
+      );
+    Test.stopTest();
+    Assert.isTrue(
+      mock.captured[0].body.contains('"due_on"') &&
+        mock.captured[0].body.contains('"created_at"') &&
+        mock.captured[0].body.contains('"notes"'),
+      'The fetch asks for the new fields by name; Asana leaves out anything not asked for: ' +
+      mock.captured[0].body
+    );
+    return changes[0];
+  }
+
+  @IsTest
+  static void aHydratedTaskMapsCreatedDueDateAndNotes() {
+    InboundChange change = hydrate(
+      new Map<String, Object>{
+        'created_at' => '2026-09-15T19:52:16.123Z',
+        'due_on' => '2026-10-03',
+        'notes' => 'Chapter 4 next.'
+      }
+    );
+
+    Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 15, 19, 52, 16).getTime() + 123,
+      change.sourceCreated.getTime(),
+      'created_at, to the millisecond.'
+    );
+    Assert.isTrue(change.carriesDueDate);
+    Assert.areEqual(Date.newInstance(2026, 10, 3), change.dueDate);
+    Assert.isTrue(change.carriesDescription);
+    Assert.areEqual('Chapter 4 next.', change.description);
+  }
+
+  @IsTest
+  static void aTaskWithNoDueDateAndNoNotesClearsBoth() {
+    // Asana answers a requested field that is empty with null for due_on and "" for notes.
+    InboundChange change = hydrate(
+      new Map<String, Object>{
+        'created_at' => '2026-09-15T19:52:16.123Z',
+        'due_on' => null,
+        'notes' => ''
+      }
+    );
+
+    Assert.isTrue(change.carriesDueDate, 'Asked for and empty is carried.');
+    Assert.isNull(change.dueDate);
+    Assert.isTrue(change.carriesDescription);
+    Assert.isNull(change.description, 'Empty notes are no description.');
+  }
+
+  @IsTest
+  static void neverAsksForNorReadsAStartDate() {
+    // As a paid workspace would answer if start_on were ever asked for. It is not, and even
+    // when it arrives it is not read.
+    InboundChange change = hydrate(
+      new Map<String, Object>{
+        'due_on' => '2026-10-03',
+        'start_on' => '2026-09-01'
+      }
+    );
+
+    Assert.isFalse(
+      change.carriesStartDate,
+      'Asana start dates are out of scope and Board_Source__mdt says Asana has none. A start ' +
+      'date read here would be one Salesforce refuses to push back.'
+    );
+    Assert.isNull(change.startDate);
+    Assert.isFalse(
+      AsanaAdapter.OPT_FIELDS.contains('start_on'),
+      'start_on must never be requested.'
+    );
+  }
 }

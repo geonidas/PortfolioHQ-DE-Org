@@ -159,6 +159,19 @@ public class AsanaPayloadFactory {
       '}';
   }
 
+  /**
+   * A hydrated task with more fields merged in - created_at, due_on, notes, or anything else a
+   * test needs Asana to have sent. A null value is sent as an explicit null, which is how Asana
+   * answers for a field that was asked for and is empty.
+   */
+  public static String withFields(String taskJson, Map<String, Object> extra) {
+    Map<String, Object> task = (Map<String, Object>) JSON.deserializeUntyped(
+      taskJson
+    );
+    task.putAll(extra);
+    return JSON.serialize(task);
+  }
+
   /** The Status mappings the learning project needs, as Field_Mapping__mdt rows. */
   public static List<Field_Mapping__mdt> statusMappings() {
     return new List<Field_Mapping__mdt>{

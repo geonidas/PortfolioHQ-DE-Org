@@ -151,6 +151,42 @@ public class JiraWebhookPayloadFactory {
       '}}}';
   }
 
+  /**
+   * A jira:issue_updated payload whose fields are built from a map, for fields the fixed
+   * overloads do not cover - created, duedate, a start date custom field, description.
+   *
+   * A map value of null is sent as an explicit JSON null, which is how Jira says a field is
+   * empty; a key left out of the map is absent from the payload, which is how a field is not
+   * carried at all. The processor treats the two differently, and a factory that could only
+   * produce one of them could not test that.
+   */
+  public static String issueUpdatedWithFields(
+    String issueId,
+    String issueKey,
+    String jiraStatus,
+    Datetime updated,
+    Map<String, Object> extraFields
+  ) {
+    Map<String, Object> fields = new Map<String, Object>{
+      'updated' => jiraTimestamp(updated),
+      'status' => new Map<String, Object>{ 'id' => '3', 'name' => jiraStatus }
+    };
+    if (extraFields != null) {
+      fields.putAll(extraFields);
+    }
+    return JSON.serialize(
+      new Map<String, Object>{
+        'timestamp' => updated.getTime(),
+        'webhookEvent' => 'jira:issue_updated',
+        'issue' => new Map<String, Object>{
+          'id' => issueId,
+          'key' => issueKey,
+          'fields' => fields
+        }
+      }
+    );
+  }
+
   /** Inserts a delivery the way the endpoint would have, ready for the processor. */
   public static Webhook_Event__c delivery(String payload) {
     return new Webhook_Event__c(

@@ -13,10 +13,10 @@ package.xml
 
 node_modules/
 
-# Custom metadata RECORDS carry secrets (Integration_Secret__mdt.Jira_Webhook).
-# Ignored before any record exists: gitignore cannot untrack a file that was already
-# committed, so the ordering here is the whole point.
-force-app/main/default/customMetadata/
+# Integration_Secret__mdt RECORDS carry webhook signing secrets, so they never travel in either
+# direction. Narrowed in build 08 from the whole customMetadata/ folder to this one type, in step
+# with .gitignore: other custom metadata records hold no secret and now deploy from source.
+force-app/main/default/customMetadata/Integration_Secret.*
 
 # Stray metadata that earlier retrieves dragged in and build 06 removed from source.
 # Ignored rather than deleted from the org: standard__LightningSales is a STANDARD app that

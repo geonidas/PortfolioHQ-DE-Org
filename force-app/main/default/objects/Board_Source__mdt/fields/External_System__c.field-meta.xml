@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_System__c</fullName>
+    <description>The system this record describes, matched against Work_Item__c.External_System__c. A local picklist because custom metadata types cannot use the External_System global value set; the values are kept in step with it by hand, as Field_Mapping__mdt.External_System__c is, and BoardSourceRulesTest asserts they agree.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>External System</label>
+    <required>true</required>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Jira</fullName>
+                <default>false</default>
+                <label>Jira</label>
+            </value>
+            <value>
+                <fullName>Asana</fullName>
+                <default>false</default>
+                <label>Asana</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

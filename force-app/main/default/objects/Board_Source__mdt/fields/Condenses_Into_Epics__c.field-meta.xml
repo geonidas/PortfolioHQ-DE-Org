@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Condenses_Into_Epics__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Whether the Epics view replaces this source&apos;s tasks with the epics they belong to. False means the source&apos;s work is flat and shows as itself in both views, which is never wrong; wrongly condensing would hide a card behind an epic it does not belong to. Replaced the hardcoded set in BoardSourceRules in build 08, so there is one mechanism for per-source rules rather than two.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Condenses Into Epics</label>
+    <type>Checkbox</type>
+</CustomField>

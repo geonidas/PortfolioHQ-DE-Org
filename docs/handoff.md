@@ -23,14 +23,14 @@ tick.
 
 None of this survives an org rebuild, and none of it is visible in the repo.
 
-| Thing                     | Value / where                                                                                                                                                                                                  |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scratch org alias         | `MyScratchOrg`                                                                                                                                                                                                 |
-| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                                                                  |
-| Webhook signing secret    | `Integration_Secret__mdt` records, `Is_Active__c = true`. Jira's is **`Jira_Webhook`**, created in Setup. Asana's is `Webhook_<resource gid>`, promoted by script. `customMetadata/` is gitignored on purpose. |
-| Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                        |
-| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                      |
-| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                          |
+| Thing                     | Value / where                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scratch org alias         | `MyScratchOrg`                                                                                                                                                                                                                                                                                                      |
+| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                                                                                                                                                                       |
+| Webhook signing secret    | `Integration_Secret__mdt` records, `Is_Active__c = true`. Jira's is **`Jira_Webhook`**, created in Setup. Asana's is `Webhook_<resource gid>`, promoted by script. `customMetadata/Integration_Secret.*` is gitignored and forceignored on purpose; since build 08 every other custom metadata record is in source. |
+| Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                                                                                                                             |
+| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                                                                                                                           |
+| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                                                                                                                               |
 
 ### Scheduled jobs — manual, not metadata
 
@@ -284,10 +284,15 @@ without a code change.
 
 ## 3. Traps, each of which cost real time here
 
-**A schedulable class cannot be deployed while it has scheduled jobs.** The deploy fails whole -
-every other class in the same command with it - with `This schedulable class has jobs pending or in
-progress - CronTrigger IDs (...)`. The message names ids and never says "unschedule it first". So
-any change to `WorkItemInboundSweeper` **or `IntegrationDataPurge`** is a three-step loop:
+**A schedulable class cannot be deployed while it has scheduled jobs - and neither can anything it
+uses.** The deploy fails whole - every other class in the same command with it - with `This
+schedulable class has jobs pending or in progress - CronTrigger IDs (...)`. The message names ids
+and never says "unschedule it first". Build 08 step 2 found the lock is on the scheduled class's
+whole dependency graph, not the class alone: `WorkItemInboundSweeper` enqueues
+`WorkItemInboundQueueable`, which calls `WorkItemInboundProcessor`, both adapters,
+`FieldMappingService` and `InboundChange`, and a `deploy validate` touching any of those failed with
+the sweeper's four CronTrigger ids. So any change on the inbound path, as well as to
+`WorkItemInboundSweeper` **or `IntegrationDataPurge`**, is a three-step loop:
 
 ```bash
 sf apex run --file scripts/apex/unschedule-inbound-sweeper.apex --target-org MyScratchOrg
@@ -297,6 +302,13 @@ then deploy, then re-run `schedule-inbound-sweeper.apex`. The alternative is the
 of components when corresponding Apex jobs are pending or in progress" checkbox in
 Setup > Deployment Settings, deliberately not enabled: the schedule script is also the thing that
 records which user the sweeps run as, and that matters more here than the convenience does.
+
+**`LightningSelfRegisterControllerTest.testSelfRegisterWithProperCredentials` fails about one run in
+four thousand, and that is not a regression.** The org-generated controller builds a nickname from
+`String.valueOf(Crypto.getRandomInteger()).substring(1,7)`, which throws `Ending position out of
+bounds: 7` whenever the random integer has fewer than seven characters. Seen once, in build 08
+step 2's validation; it passed on rerun. The class is site scaffolding and is not edited here - rerun
+the test rather than chase it.
 
 **Scheduled Apex cannot make callouts.** Which is why `WorkItemInboundSweeper` enqueues
 `WorkItemInboundQueueable` rather than calling `WorkItemInboundProcessor.process` itself. Same
@@ -621,7 +633,9 @@ work item exists.
 4. `Project__c` record with `External_Project_Key__c` = the project gid and
    `External_System__c` = `Asana`. **Without this the adapter cannot tell which of a task's
    memberships to read a section from**, so the item arrives with no project and no status.
-5. `Field_Mapping__mdt` records, created in Setup (`customMetadata/` is gitignored):
+5. `Field_Mapping__mdt` records. Since build 08 the nine this org uses are in source under
+   `customMetadata/` and deploy with the code; on a new Asana workspace the gids differ, so these
+   are the shape to reproduce, created in Setup or by script:
 
    | External System | Mapping Type | External Value            | External Label | Normalized Value |
    | --------------- | ------------ | ------------------------- | -------------- | ---------------- |

@@ -26,6 +26,23 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     .getLength();
   private static final Integer TITLE_MAX = Work_Item__c.Title__c.getDescribe()
     .getLength();
+  private static final Integer DESCRIPTION_MAX = Work_Item__c.Description__c.getDescribe()
+    .getLength();
+
+  /** The Work_Item__c field whose Jira counterpart is configuration, not a constant. */
+  private static final String START_DATE_FIELD = String.valueOf(
+    Work_Item__c.Start_Date__c
+  );
+
+  /**
+   * ADF node types whose children are inline text, joined without a separator. Every other
+   * container's children are blocks and go on separate lines. See plainText.
+   */
+  private static final Set<String> INLINE_PARENTS = new Set<String>{
+    'paragraph',
+    'heading',
+    'codeBlock'
+  };
 
   /**
    * Jira workflow status names that count as each of our normalized statuses.
@@ -297,12 +314,132 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     change.remoteStatus = status == null ? null : asString(status.get('name'));
     change.normalizedStatus = normalizeStatus(change.remoteStatus);
 
+    // When the issue was made, in the same wire format as updated - including the site's local
+    // offset, which is what parseIso's four-digit handling exists for (DOPP-20).
+    change.sourceCreated = parseIso(asString(fields.get('created')));
+
+    // These three can be emptied in Jira, so a key that is present with a null value is a
+    // real value - "none" - and has to clear what Salesforce holds. A key that is absent is
+    // not carried. Jira's webhook sends the full field set, so in practice all three are
+    // carried on every delivery.
+    if (fields.containsKey('duedate')) {
+      carryDay(change, fields.get('duedate'), 'duedate', false);
+    }
+    String startField = startDateFieldId();
+    if (startField != null && fields.containsKey(startField)) {
+      carryDay(change, fields.get(startField), startField, true);
+    }
+    if (fields.containsKey('description')) {
+      change.carryDescription(
+        Strings.truncate(plainText(fields.get('description')), DESCRIPTION_MAX)
+      );
+    }
+
     change.remoteUpdated = parseIso(asString(fields.get('updated')));
     if (change.remoteUpdated == null) {
       change.failure = 'Payload carries no usable issue.fields.updated timestamp.';
       return change;
     }
     return change;
+  }
+
+  /**
+   * The Jira field that holds the start date, from a Field_Mapping__mdt row of type Field.
+   *
+   * Custom field ids differ between Jira sites - customfield_10015 is this one's - so the id is
+   * configuration and never a constant. Null when no row exists, and then start dates are
+   * neither read nor pushed; whether a source supports start dates at all is a separate fact,
+   * in Board_Source__mdt.
+   */
+  @TestVisible
+  private static String startDateFieldId() {
+    return FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.FIELD,
+      START_DATE_FIELD
+    );
+  }
+
+  /**
+   * A Jira date field onto the change. A value that is not a real YYYY-MM-DD day is not carried
+   * at all - applying it as "none" would clear a date Salesforce holds on the strength of a value
+   * nobody could read - and a buffered log row says which field and what it said.
+   */
+  private void carryDay(
+    InboundChange change,
+    Object raw,
+    String jiraField,
+    Boolean isStart
+  ) {
+    Date day;
+    try {
+      day = IsoDate.parseDay(raw);
+    } catch (IsoDate.UnreadableDateException e) {
+      pendingLogs.add(
+        new Integration_Log__c(
+          Direction__c = LogDirection.INBOUND,
+          Is_Success__c = false,
+          Status_Code__c = 0,
+          Error_Message__c = Strings.truncate(
+            change.externalId +
+              ': ' +
+              jiraField +
+              ' was not applied. ' +
+              e.getMessage() +
+              ' The date Salesforce holds was left as it was.',
+            BODY_MAX
+          )
+        )
+      );
+      return;
+    }
+    if (isStart) {
+      change.carryStartDate(day);
+    } else {
+      change.carryDueDate(day);
+    }
+  }
+
+  /**
+   * Jira's description as plain text.
+   *
+   * Webhooks send the REST v2 representation, which is a string - wiki markup, stored as it
+   * arrives - and the backfill script asks v2 for the same reason. REST v3 sends the Atlassian
+   * Document Format tree instead. Should a delivery ever carry that shape, its text is read out
+   * a block per line rather than the description quietly stopping syncing.
+   */
+  @TestVisible
+  private static String plainText(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof String) {
+      return (String) value;
+    }
+    Map<String, Object> node = asMap(value);
+    return node == null ? String.valueOf(value) : textOf(node);
+  }
+
+  private static String textOf(Map<String, Object> node) {
+    String type = asString(node.get('type'));
+    if (type == 'text') {
+      return asString(node.get('text'));
+    }
+    if (type == 'hardBreak') {
+      return '\n';
+    }
+    List<String> parts = new List<String>();
+    Object children = node.get('content');
+    if (children instanceof List<Object>) {
+      for (Object child : (List<Object>) children) {
+        Map<String, Object> childNode = asMap(child);
+        String text = childNode == null ? null : textOf(childNode);
+        if (text != null) {
+          parts.add(text);
+        }
+      }
+    }
+    return String.join(parts, INLINE_PARENTS.contains(type) ? '' : '\n');
   }
 
   /**

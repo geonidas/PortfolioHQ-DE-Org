@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>Description__c</fullName>
-    <description>Body text of the remote issue.</description>
+    <description>Body text of the remote issue - Jira fields.description, Asana notes - as plain text. Synced inbound only since build 08 and never pushed: writing it back would flatten Jira&apos;s formatting, so it is read-only for Portfolio_HQ_Developer and an edit made here any other way is overwritten by the next delivery that carries it. Never on a guest DTO.</description>
+    <inlineHelpText>Synced from the source system. Edit it there.</inlineHelpText>
     <label>Description</label>
     <length>32768</length>
     <trackTrending>false</trackTrending>

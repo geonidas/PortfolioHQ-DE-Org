@@ -924,4 +924,217 @@ private class JiraAdapterTest {
     );
     Assert.isNull(JiraAdapter.parseIso(null), 'Null yields null.');
   }
+
+  // ---------- created, dates and description (build 08) ----------
+
+  private static void mapStartDateTo(String jiraFieldId) {
+    FieldMappingService.reset();
+    FieldMappingService.injected = new List<Field_Mapping__mdt>{
+      new Field_Mapping__mdt(
+        External_System__c = ExternalSystem.JIRA,
+        Mapping_Type__c = FieldMappingService.FIELD,
+        External_Value__c = jiraFieldId,
+        External_Label__c = 'Start date',
+        Normalized_Value__c = 'Start_Date__c',
+        Is_Active__c = true
+      )
+    };
+  }
+
+  private static final Datetime UPDATED = Datetime.newInstanceGmt(
+    2026,
+    9,
+    20,
+    10,
+    0,
+    0
+  );
+
+  @IsTest
+  static void readsCreatedDueStartAndDescription() {
+    mapStartDateTo('customfield_10015');
+    String payload = JiraWebhookPayloadFactory.issueUpdatedWithFields(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED,
+      new Map<String, Object>{
+        // The site's own offset, late in the evening: the UTC instant is the next day.
+        'created' => '2026-09-12T21:18:24.000-0700',
+        'duedate' => '2026-09-30',
+        'customfield_10015' => '2026-09-21',
+        'description' => 'Board cards grouped by status.'
+      }
+    );
+
+    InboundChange change = parseOne(new JiraAdapter(), payload);
+
+    Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 13, 4, 18, 24),
+      change.sourceCreated,
+      'fields.created, through the same offset handling as fields.updated (DOPP-20).'
+    );
+    Assert.isTrue(change.carriesDueDate);
+    Assert.areEqual(Date.newInstance(2026, 9, 30), change.dueDate);
+    Assert.isTrue(change.carriesStartDate);
+    Assert.areEqual(Date.newInstance(2026, 9, 21), change.startDate);
+    Assert.isTrue(change.carriesDescription);
+    Assert.areEqual('Board cards grouped by status.', change.description);
+  }
+
+  @IsTest
+  static void aDeliveryWithNoDatesCarriesThemAsEmpty() {
+    mapStartDateTo('customfield_10015');
+    // What Jira actually sends for an issue with no dates and no description: every key, null.
+    String payload = JiraWebhookPayloadFactory.issueUpdatedWithFields(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED,
+      new Map<String, Object>{
+        'duedate' => null,
+        'customfield_10015' => null,
+        'description' => null
+      }
+    );
+
+    InboundChange change = parseOne(new JiraAdapter(), payload);
+
+    Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
+    Assert.isTrue(
+      change.carriesDueDate,
+      'A key present with a null value is Jira saying "none" - it has to clear a due date ' +
+      'Salesforce holds, or a date removed in Jira would stay on the board forever.'
+    );
+    Assert.isNull(change.dueDate);
+    Assert.isTrue(change.carriesStartDate);
+    Assert.isNull(change.startDate);
+    Assert.isTrue(change.carriesDescription);
+    Assert.isNull(change.description);
+    Assert.isNull(
+      change.sourceCreated,
+      'No created in the payload: not carried.'
+    );
+  }
+
+  @IsTest
+  static void aPayloadWithoutTheKeysCarriesNoneOfThem() {
+    mapStartDateTo('customfield_10015');
+    String payload = JiraWebhookPayloadFactory.issueUpdated(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED
+    );
+
+    InboundChange change = parseOne(new JiraAdapter(), payload);
+
+    Assert.isTrue(change.isUsable(), 'Failure: ' + change.failure);
+    Assert.isFalse(change.carriesDueDate, 'Absent is not carried.');
+    Assert.isFalse(change.carriesStartDate);
+    Assert.isFalse(change.carriesDescription);
+  }
+
+  @IsTest
+  static void theStartDateFieldIdIsReadFromConfiguration() {
+    // A different Jira site with a different custom field id. Nothing but the mapping row
+    // changes, which is the whole point of it being configuration.
+    mapStartDateTo('customfield_99999');
+    String payload = JiraWebhookPayloadFactory.issueUpdatedWithFields(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED,
+      new Map<String, Object>{
+        'customfield_10015' => '2026-01-01',
+        'customfield_99999' => '2026-10-01'
+      }
+    );
+
+    InboundChange change = parseOne(new JiraAdapter(), payload);
+
+    Assert.areEqual('customfield_99999', JiraAdapter.startDateFieldId());
+    Assert.areEqual(
+      Date.newInstance(2026, 10, 1),
+      change.startDate,
+      'The configured field is read, and this site\'s customfield_10015 is just another field.'
+    );
+  }
+
+  @IsTest
+  static void withNoStartDateFieldConfiguredNoStartDateIsRead() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = new List<Field_Mapping__mdt>();
+    String payload = JiraWebhookPayloadFactory.issueUpdatedWithFields(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED,
+      new Map<String, Object>{ 'customfield_10015' => '2026-09-21' }
+    );
+
+    InboundChange change = parseOne(new JiraAdapter(), payload);
+
+    Assert.isNull(JiraAdapter.startDateFieldId());
+    Assert.isFalse(
+      change.carriesStartDate,
+      'No constant stands in for a missing mapping row.'
+    );
+  }
+
+  @IsTest
+  static void anUnreadableDateIsNotAppliedAndSaysSo() {
+    mapStartDateTo('customfield_10015');
+    JiraAdapter adapter = new JiraAdapter();
+    String payload = JiraWebhookPayloadFactory.issueUpdatedWithFields(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED,
+      new Map<String, Object>{
+        'duedate' => '30/09/2026',
+        'customfield_10015' => '2026-09-21'
+      }
+    );
+
+    InboundChange change = parseOne(adapter, payload);
+
+    Assert.isTrue(
+      change.isUsable(),
+      'One unreadable field does not cost the delivery its status change.'
+    );
+    Assert.isFalse(
+      change.carriesDueDate,
+      'Not carried rather than carried as empty: clearing a date Salesforce holds on the ' +
+      'strength of a value nobody could read would be worse than leaving it.'
+    );
+    Assert.isTrue(change.carriesStartDate, 'The readable field still applies.');
+    List<Integration_Log__c> logs = adapter.drainLogs();
+    Assert.areEqual(1, logs.size());
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('duedate') &&
+      logs[0].Error_Message__c.contains('30/09/2026'),
+      logs[0].Error_Message__c
+    );
+  }
+
+  @IsTest
+  static void aDocumentShapedDescriptionIsReadAsText() {
+    // REST v3's Atlassian Document Format. Webhooks send v2's plain string today; this is the
+    // insurance against that changing, so the description does not quietly stop syncing.
+    Object adf = JSON.deserializeUntyped(
+      '{"type":"doc","version":1,"content":[' +
+        '{"type":"paragraph","content":[{"type":"text","text":"First "},' +
+        '{"type":"text","text":"line","marks":[{"type":"strong"}]}]},' +
+        '{"type":"bulletList","content":[' +
+        '{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]}]},' +
+        '{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"two"}]}]}' +
+        ']}]}'
+    );
+
+    Assert.areEqual('First line\none\ntwo', JiraAdapter.plainText(adf));
+    Assert.areEqual('As sent', JiraAdapter.plainText('As sent'));
+    Assert.isNull(JiraAdapter.plainText(null));
+  }
 }

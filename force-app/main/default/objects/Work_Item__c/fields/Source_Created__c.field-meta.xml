@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Source_Created__c</fullName>
+    <description>When the work was created in the system it came from - Jira fields.created, Asana created_at - not when this record was created. CreatedDate would read the day of the org move on every card afterwards. Written by inbound sync whenever a delivery carries it, never cleared, never pushed.</description>
+    <inlineHelpText>When this was created in the source system. Synced; not editable.</inlineHelpText>
+    <label>Source Created</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>DateTime</type>
+</CustomField>
