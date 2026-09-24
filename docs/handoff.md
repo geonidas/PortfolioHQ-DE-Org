@@ -402,10 +402,43 @@ change goes live a minute or so later. Poll it:
 sf data query -o MyScratchOrg -q "SELECT Status, Error FROM BackgroundOperation WHERE Id = '<job id>'"
 ```
 
+**Deleting an LWC from source does not delete it from an org.** The org keeps the bundle, and a
+scoped deploy never mentions it. Build 08 replaced three card bundles (`workItemCard`,
+`publicWorkItemCard`, `publicEpicCard`) with shared ones; their deletion is recorded in
+`manifest/build-08/destructiveChangesPost.xml`, and **every org this branch reaches needs it run
+once** - the scratch org at step 6, the development org when the branch merges. Post, not pre: the
+old boards reference the old cards until the new boards replace them in the same deploy.
+
+```bash
+sf project deploy start -x manifest/build-08/package.xml \
+  --post-destructive-changes manifest/build-08/destructiveChangesPost.xml --target-org MyScratchOrg
+```
+
+**The LWC template compiler drops whitespace between tags** - even `<span>A</span> <span>B</span>`
+renders as `AB`. Visually a flex gap hides it; to a screen reader, adjacent spans can run together
+("JiraWI-0003"). A space has to come from data, not from the template. The board cards give each
+meta line a spoken string from `boardModel` in an `.assistive` span and hide the drawn line,
+separator dots included, with `aria-hidden`. Found in build 08 step 6 by probing the compiler.
+
 **`standard__LightningSales` cannot be deleted, and trying takes the whole deploy with it.** The org
 rejects it twice over — "standard and cannot be deleted", and separately because in-app guidance is
 attached. Deploys are atomic, so one unrelated deletion in the set fails everything. It is a standard
 app present in every org and needs no source file, so the answer is never to delete it.
+
+**Jest runs in `America/Los_Angeles`, pinned in `jest.config.js`.** A zone behind UTC is where
+`new Date('2026-09-24')` - midnight UTC - becomes the 23rd, so a date bug fails locally rather than
+for visitors in the Americas. A test file cannot move the zone itself: Jest hands each file a copy
+of `process.env`, so setting `TZ` there silently does nothing. `boardModel.test.js` asserts the
+zone first, so it fails loudly if the pin is removed.
+
+**Headless Chrome will not size a window below about 500px.** `--window-size=375,...` renders a
+500px page and crops it - a "375px" screenshot that is not one. `scripts/capture-public-board.mjs`
+emulates the device over the DevTools protocol instead, in a fresh profile with no session, and
+writes a desktop and a 375px capture of the public board as a guest sees it.
+
+**A CSS-only LWC module needs `css` in Jest's `moduleFileExtensions`.** `c/boardTheme` has no
+`.js`, and the resolver only tries the listed extensions. `jest.config.js` appends `css` last, so
+every other `c/` import still finds its `.js` first.
 
 **`.forceignore` does not retract a deletion already pending.** A pending delete lives in source
 tracking, not in file presence, so ignoring the path stops future retrieves pulling it back but does
@@ -603,7 +636,7 @@ SyncFields`. The one-line form of the same call compiles. Hold the result in a l
 | Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.                                                                                                                                                                                                                                    | Cosmetic                               |
 | A push that failed for a transient reason (timeout, 5xx, 429) is not retried on its own. The field stays in `Pending_Push_Fields__c`, so the next edit to the record retries it, but there is no way to retry without editing. Proposed for build 08 step 7: a Retry control whose save moves `Sync_Status__c` Failed to Pending, which the trigger treats as a request to push what is pending - never a controller calling the sync service. | Build 08 step 7                        |
 | `AsanaAdapter`'s callout log rows carry no `Work_Item__c`: its `send` takes no work item id, unlike `JiraAdapter`'s. An Asana push shows in `Integration_Log__c` with a blank work item, so the log cannot be filtered to one Asana task. Found during build 08 step 3's live check.                                                                                                                                                           | Next time the Asana adapter is touched |
-| An epic card does not truncate its title. Real Jira summaries run to four lines in a board column.                                                                                                                                                                                                                                                                                                                                             | Cosmetic                               |
+| ~~An epic card does not truncate its title~~ **Closed** in build 08 step 6: `boardEpicCard` clamps to two lines, like every card.                                                                                                                                                                                                                                                                                                              | Closed                                 |
 | A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.                                                                                                                                                                                                                                 | If `npm run test:unit` dies wholesale  |
 | Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so.                                                                                                                                                                                                           | After the next few live deliveries     |
 | The Asana `Format` option "Article / paper" (`1218523733859544`) has no `Field_Mapping__mdt` row, because `Work_Item__c.Type__c` has no value to map it to. A task carrying it lands on `Unspecified` with the raw word in `Source_Type__c`.                                                                                                                                                                                                   | When an article is added in Asana      |
@@ -640,6 +673,9 @@ sf data query -o MyScratchOrg -q "SELECT Processing_Status__c, COUNT(Id) c FROM 
 
 # The public board, as an anonymous visitor
 curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/work-item-board
+
+# ...and what it looks like to one, at desktop width and on a 375px phone
+node scripts/capture-public-board.mjs docs/build-08/screenshots <label>
 ```
 
 Build 06 added a second view. Both payloads ship on every call whichever is on screen, so check

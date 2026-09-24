@@ -35,7 +35,7 @@ the two backgrounds anything sits on.
 
 Both accents clear 4.5:1 where they colour text and 3:1 as a stripe, with room to spare. Line
 and Surface are decorative; every control that needs a visible boundary (inputs, selects) uses
-the theme's own form border, `--dxp-g-neutral-3`, at 3.7:1.
+the theme's own form border, `--dxp-g-neutral-3`, at 4.8:1.
 
 **Why indigo and magenta.** They were chosen by elimination, and the reasoning is worth keeping:
 
@@ -226,18 +226,34 @@ with `@import 'c/boardTheme';`, so there is one place to change and nothing to k
 :host {
   --board-ink: var(--dxp-g-root-contrast, #1a1b1e);
   --board-paper: var(--dxp-g-root, #ffffff);
-  --board-quiet: #636466; /* before color-mix, for any browser without it */
-  --board-quiet: color-mix(in srgb, var(--board-ink) 68%, var(--board-paper));
-  --board-line: color-mix(in srgb, var(--board-ink) 16%, var(--board-paper));
-  --board-surface: color-mix(in srgb, var(--board-ink) 4%, var(--board-paper));
+  --board-quiet: #636466;
+  --board-line: #dadbdb;
+  --board-surface: #f6f6f6;
   --board-danger: var(--dxp-g-destructive, #c23934);
   --board-link: var(--dxp-g-brand, #005fb2);
-  --board-field-border: var(--dxp-g-neutral-3, #858585);
+  --board-field-border: var(--dxp-g-neutral-3, #76716b);
   --board-font: var(--dxp-g-root-font-family, inherit);
   --board-accent-1: var(--phq-accent-1, #4a4fc2);
   --board-accent-2: var(--phq-accent-2, #a3306c);
 }
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :host {
+    --board-quiet: color-mix(in srgb, var(--board-ink) 68%, var(--board-paper));
+    --board-line: color-mix(in srgb, var(--board-ink) 16%, var(--board-paper));
+    --board-surface: color-mix(
+      in srgb,
+      var(--board-ink) 4%,
+      var(--board-paper)
+    );
+  }
+}
 ```
+
+**Corrected in step 6.** This block first declared `--board-quiet` twice, hex then `color-mix`,
+as a fallback. That is no fallback: a custom property accepts any value, so the second
+declaration always wins and a browser without `color-mix` is left with an invalid value at the
+point of use. The fallback is `@supports`. The field border's fallback also changed: the live
+site's `--dxp-g-neutral-3` is `#76716b`, not the `#858585` assumed here (3.7:1 became 4.8:1).
 
 A card sets `data-accent={card.accentToken}`, and the module maps the token:
 `[data-accent='accent-1'] { --card-accent: var(--board-accent-1); }`. Anything else, including a
@@ -257,9 +273,10 @@ missing token, falls to `--card-accent: var(--board-line)`, which is neutral.
 - **Lightning Experience:** none of the `--dxp-g-*` hooks exist there, and every fallback above
   is the value the internal board renders.
 
-Hook names to confirm against the rendered site in step 6: `--dxp-g-destructive` and
-`--dxp-g-neutral-3`. The branding set defines the colours; which hook name carries which one is
-read from the live page's computed styles, not assumed.
+Hook names confirmed against the rendered site's computed styles in step 6:
+`--dxp-g-root-contrast` `#1a1b1e`, `--dxp-g-root` `#ffffff`, `--dxp-g-destructive` `#c23934`,
+`--dxp-g-brand` `#005fb2`, `--dxp-g-neutral-3` `#76716b`, and `--dxp-g-root-font-family`, the
+system font stack.
 
 ## Decisions to approve
 

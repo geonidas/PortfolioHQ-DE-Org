@@ -1,0 +1,144 @@
+@import "c/boardTheme";
+
+:host {
+  display: block;
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* 4px of stripe, then the 12px the other sides have. */
+  padding: 8px 12px 8px 16px;
+  background: var(--board-paper);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+  overflow: hidden;
+  font-family: var(--board-font);
+  color: var(--board-ink);
+}
+/* The source accent: the one bold element on a card. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--card-accent);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+/* Two lines, then an ellipsis. A column of cards has to stay comparable in height; the full
+   title is still in the DOM, so a screen reader hears all of it. */
+.heading {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* An unbroken token - a URL, a branch name - wraps instead of widening the column. */
+  overflow-wrap: anywhere;
+}
+/* No title synced: an identifier is standing in, and should not look like a name. */
+.is-fallback {
+  font-weight: 500;
+  color: var(--board-quiet);
+}
+.title-btn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.title-btn:hover .heading {
+  text-decoration: underline;
+}
+.title-btn:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
+}
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.dates {
+  gap: 2px 0;
+}
+.source {
+  font-weight: 600;
+  color: var(--card-accent-text);
+}
+.sep {
+  margin: 0 4px;
+}
+.dates .sep {
+  margin: 0 6px;
+}
+.overdue {
+  font-weight: 600;
+  color: var(--board-danger);
+}
+
+/* Sentence case, 12px, outlined. The accent is the loudest thing on a card; a chip is not. */
+.chip {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--board-line);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--board-quiet);
+  white-space: nowrap;
+}
+.sync {
+  margin-top: 1px;
+}
+.sync-pending {
+  border-color: transparent;
+  background: var(--board-pending-bg);
+  color: var(--board-pending-ink);
+}
+/* The one state that needs action gets the strongest edge. */
+.sync-failed {
+  border-color: var(--board-danger);
+  color: var(--board-danger);
+}
+
+.parent-note {
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px dotted var(--board-line);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+}

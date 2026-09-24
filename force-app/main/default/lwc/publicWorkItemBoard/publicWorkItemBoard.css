@@ -1,182 +1,172 @@
+@import "c/boardTheme";
+
 :host {
   display: block;
-  --pwb-border: #d8dde6;
-  --pwb-text-soft: #56657a;
-  --pwb-text-faint: #7c8b9e;
-  --pwb-warn: #a86403;
-  --pwb-warn-bg: #fdf6e9;
-  --pwb-err: #b12b23;
-  --pwb-err-bg: #fdecea;
-  --pwb-ok: #1c6b3a;
-  --pwb-ok-bg: #e8f5ec;
-  --pwb-track: #e9edf3;
-  --pwb-bar: #5a7fa8;
 }
 .board {
-  padding: 0.75rem;
-  font-family: inherit;
+  padding: 12px;
+  font-family: var(--board-font);
+  color: var(--board-ink);
 }
 .board-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--pwb-border);
-  margin-bottom: 0.9rem;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--board-line);
+}
+.head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .title {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
-.freshness,
-.total {
-  margin: 0.15rem 0 0;
-  font-size: 0.74rem;
-  color: var(--pwb-text-faint);
+.subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
 }
-.total {
-  white-space: nowrap;
-}
-.head-side {
+.status-line {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.35rem;
-}
-.refresh {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-}
-.checked {
+  gap: 4px 12px;
+  margin: 0;
   font-size: 0.75rem;
-  color: var(--pwb-text-soft);
+  line-height: 1.5;
+  color: var(--board-quiet);
 }
+.total {
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.refresh-btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--board-ink);
+  cursor: pointer;
+}
+.refresh-btn:hover {
+  background: var(--board-surface);
+}
+.refresh-btn:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+}
+.toolbar {
+  margin-bottom: 16px;
+}
+
 .columns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
   align-items: start;
 }
 .column {
-  background: #f7f8fa;
-  border: 1px solid var(--pwb-border);
-  border-radius: 4px;
-  padding: 0.6rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
+  padding: 8px;
+  background: var(--board-surface);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
 }
+/* The status as the data spells it. Sentence case: it is also the word on a Move to button. */
 .col-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   margin: 0;
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--pwb-text-soft);
+  padding: 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .col-count {
-  font-weight: 700;
+  font-weight: 400;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
 }
 .col-empty {
   margin: 0;
-  font-size: 0.76rem;
-  font-style: italic;
-  color: var(--pwb-text-faint);
+  padding: 0 4px;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
 }
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 4px;
 }
 .children {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 0 0.85rem;
-  border-left: 2px solid var(--pwb-border);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-}
-.other {
-  margin-top: 1.1rem;
-  padding: 0.7rem;
-  border: 1px solid var(--pwb-border);
-  border-radius: 4px;
-  background: #f7f8fa;
-}
-.other-head {
-  margin: 0 0 0.5rem;
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--pwb-text-soft);
-}
-.other-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.5rem;
-}
-.state {
+  gap: 4px;
   margin: 0;
-  padding: 1rem;
-  border: 1px solid var(--pwb-border);
-  border-radius: 4px;
-  font-size: 0.85rem;
-  color: var(--pwb-text-soft);
-}
-.state-title {
-  margin: 0;
-  font-weight: 700;
-  color: #16325c;
-}
-.state-detail {
-  margin: 0.3rem 0 0;
-  font-size: 0.8rem;
-}
-.state-error {
-  border-color: var(--pwb-err);
-  background: var(--pwb-err-bg);
-}
-.state-error .state-title {
-  color: var(--pwb-err);
-}
-.views {
-  display: flex;
-  gap: 0.3rem;
-  margin-bottom: 0.9rem;
-}
-/* The one interactive control on this board, and it changes nothing but what is on screen.
-   A real button, so it is focusable and keyboard operable without being told to be. */
-.view-btn {
-  font: inherit;
-  font-size: 0.76rem;
-  padding: 0.28rem 0.7rem;
-  border: 1px solid var(--pwb-border);
-  border-radius: 3px;
-  background: #ffffff;
-  color: var(--pwb-text-soft);
-  cursor: pointer;
-}
-.view-btn:hover {
-  border-color: #b9c2cf;
-}
-.view-btn:focus-visible {
-  outline: 2px solid #5a7fa8;
-  outline-offset: 1px;
-}
-.view-btn.is-on {
-  background: #eef2f7;
-  border-color: #b9c2cf;
-  color: #16325c;
-  font-weight: 600;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--board-line);
+  list-style: none;
 }
 .epic-view {
   display: flex;
   flex-direction: column;
-  gap: 1.1rem;
+  gap: 16px;
+}
+.other {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--board-surface);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+}
+.other-head {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.other-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.state {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+  font-size: 0.875rem;
+  color: var(--board-quiet);
+}
+.state-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--board-ink);
+}
+.state-detail {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+}
+.state-error {
+  border-color: var(--board-danger);
+}
+.state-error .state-title {
+  color: var(--board-danger);
 }

@@ -9,9 +9,20 @@ import {
   layoutColumns,
   nestByParent
 } from "c/boardLayout";
+import {
+  VIEW_TASKS,
+  VIEW_EPICS,
+  ALL_SOURCES,
+  cardModel,
+  epicModel,
+  sourceOptions,
+  bySource,
+  keptSource,
+  countLabel,
+  epicViewCountLabel
+} from "c/boardModel";
 
-const UNMAPPED = "Unspecified";
-const SYNCED = "Synced";
+const DONE = "Done";
 
 /** Change Data Capture for Work_Item__c, enabled by its PlatformEventChannelMember. */
 export const CHANGE_CHANNEL = "/data/Work_Item__ChangeEvent";
@@ -42,8 +53,17 @@ export default class WorkItemBoard extends LightningElement {
   board;
   viewColumns = [];
   outsideCards = [];
+  epicColumns = [];
+  outsideEpics = [];
+  epicEntryCount = 0;
+  epicCount = 0;
   errorMessage;
   isLoading = true;
+
+  // What is on screen. Display state only: both views and every source are in the one payload.
+  view = VIEW_TASKS;
+  source = ALL_SOURCES;
+  sourceChoices = [];
 
   allCards = [];
   selectedId = null;
@@ -143,8 +163,7 @@ export default class WorkItemBoard extends LightningElement {
       this.rebuild();
     } else if (result.error) {
       this.board = undefined;
-      this.viewColumns = [];
-      this.outsideCards = [];
+      this.rebuild();
       this.errorMessage = this.readError(result.error);
       this.isLoading = false;
     }
@@ -163,16 +182,11 @@ export default class WorkItemBoard extends LightningElement {
       this.board.itemCount === 0
     );
   }
-  get showBoard() {
-    return (
-      !this.isLoading &&
-      !this.hasError &&
-      !!this.board &&
-      this.board.itemCount > 0
-    );
-  }
   get hasOutside() {
     return this.outsideCards.length > 0;
+  }
+  get hasOutsideEpics() {
+    return this.outsideEpics.length > 0;
   }
   get headingLabel() {
     return this.board && this.board.projectLabel
@@ -186,9 +200,44 @@ export default class WorkItemBoard extends LightningElement {
     const when = new Date(this.board.lastSyncedAt);
     return `Last synced ${when.toLocaleString()}`;
   }
+  // What is on screen, after the filters - not what the payload holds.
   get countLabel() {
-    const n = this.board ? this.board.itemCount : 0;
-    return `${n} ${n === 1 ? "item" : "items"}`;
+    return this.isEpicView
+      ? epicViewCountLabel(this.epicCount, this.epicEntryCount - this.epicCount)
+      : countLabel(this.allCards.length, "item", "items");
+  }
+
+  // ---------- filters ----------
+
+  handleViewChange(event) {
+    const next = event.detail.value;
+    if (next === VIEW_TASKS || next === VIEW_EPICS) {
+      this.view = next;
+    }
+  }
+
+  handleSourceChange(event) {
+    this.source = event.detail.value || ALL_SOURCES;
+    this.rebuild();
+  }
+
+  get isTaskView() {
+    return this.view === VIEW_TASKS;
+  }
+  get isEpicView() {
+    return this.view === VIEW_EPICS;
+  }
+  get isFiltered() {
+    return this.source !== ALL_SOURCES;
+  }
+  get isTaskViewEmpty() {
+    return this.allCards.length === 0;
+  }
+  get isEpicViewEmpty() {
+    return this.epicEntryCount === 0;
+  }
+  get filteredEmptyTitle() {
+    return `Nothing from ${this.source} here.`;
   }
 
   // ---------- view model ----------
@@ -197,21 +246,27 @@ export default class WorkItemBoard extends LightningElement {
     return columnsFrom(this._columnsRaw);
   }
 
+  /** Both views' layouts, from the payload through the Source filter. */
   rebuild() {
-    if (!this.board || !this.board.items) {
-      this.viewColumns = [];
-      this.outsideCards = [];
-      return;
-    }
+    const items = (this.board && this.board.items) || [];
+    const epics = (this.board && this.board.epics) || [];
+    this.sourceChoices = sourceOptions(items, epics);
+    this.source = keptSource(this.source, this.sourceChoices);
+    const shownItems = bySource(items, this.source);
 
-    const cards = this.board.items.map((item) => this.toCard(item));
+    this.rebuildEpics(bySource(epics, this.source), shownItems);
+
+    const cards = shownItems.map((item) => this.toCard(item));
     const byId = new Map(cards.map((card) => [card.id, card]));
 
     // Resolve parents before bucketing, so a child can tell whether its parent is on this
     // board at all. An orphan - parent filtered out, or deleted - must still render.
     cards.forEach((card) => {
       const parent = card.parentId ? byId.get(card.parentId) : undefined;
-      card.parentKey = parent ? parent.externalKey : null;
+      // The key the source knows the parent by, or its record number when it has none.
+      card.parentKey = parent
+        ? parent.externalKey || parent.recordNumber
+        : null;
       card.isOrphan = !!card.parentId && !parent;
     });
 
@@ -236,6 +291,28 @@ export default class WorkItemBoard extends LightningElement {
   }
 
   /**
+   * The Epics view, by the same rules as the public board's: epics from EpicRollup on the
+   * server, and every card whose source does not roll up into epics passing through untouched
+   * into the column its own status names.
+   */
+  rebuildEpics(epics, items) {
+    const entries = [
+      ...epics.map((epic) => epicModel(epic, { key: `epic-${epic.id}` })),
+      ...items
+        .filter((item) => !item.condensesIntoEpic)
+        .map((item) => this.toCard(item))
+    ];
+    const laid = layoutColumns(entries, this.configuredColumns);
+    this.epicColumns = laid.columns.map((col) => ({
+      ...col,
+      emptyLabel: col.key === DONE ? "No completed epics yet" : "No epics here"
+    }));
+    this.outsideEpics = laid.other;
+    this.epicEntryCount = entries.length;
+    this.epicCount = epics.length;
+  }
+
+  /**
    * The note under a card explaining where its parent is. Three cases, all of which have to
    * render without breaking: no parent, parent on the board, parent gone.
    */
@@ -256,69 +333,21 @@ export default class WorkItemBoard extends LightningElement {
   }
 
   /**
-   * One card's view model, from the controller's card payload. The property names match the
-   * public board's, so the shared functions coming in step 6 read either.
+   * One card's view model: the shared collapsed card from boardModel, plus what only this
+   * board uses - the id it selects by, the parent it nests under, and the detail panel's facts.
+   * Overdue is shown here and not on the public board, which shows dates rather than verdicts.
    */
   toCard(item) {
-    const type = item.type;
-    const title = item.title;
-    const hasTitle = !!title;
-    const externalKey = item.externalKey || item.recordNumber;
-    const hasType = !!type;
-    const sync = item.syncStatus;
-    // No sync state at all means the record has no remote record and will never push.
-    const showSyncFlag = !!sync && sync !== SYNCED;
-    const projectLabel = item.projectLabel || null;
-    const isUnmappedStatus = item.status === UNMAPPED;
-    const hasPoints =
-      item.storyPoints !== null && item.storyPoints !== undefined;
-
-    const card = {
+    const card = cardModel(item, { key: item.id, showOverdue: true });
+    return Object.assign(card, {
       id: item.id,
-      name: item.recordNumber,
-      // The heading is what the work is called. With no title synced the key is the only
-      // name we have, so it stands in - marked as a fallback so it does not pose as one.
-      heading: hasTitle ? title : externalKey,
-      hasTitle,
-      // A stand-in key is toned down so the card does not read as though it has a title.
-      headingClass: hasTitle ? "heading" : "heading heading-fallback",
-      // Identity, not headline: the auto number, and the remote key beside it. When the key
-      // is already doing duty as the heading, repeating it here would say nothing twice.
-      identLabel: hasTitle
-        ? `${item.recordNumber} · ${externalKey}`
-        : item.recordNumber,
-      title,
-      externalKey,
-      status: item.status,
-      isUnmappedStatus,
-      type,
-      hasType,
-      syncStatus: sync,
-      showSyncFlag,
-      syncClass:
-        sync === "Failed" ? "sync-flag sync-failed" : "sync-flag sync-pending",
-      syncTitle: showSyncFlag
-        ? `Salesforce and the source system are not reconciled: ${sync}`
-        : "",
-      storyPoints: item.storyPoints,
-      hasPoints,
-      description: item.description,
-      hasDescription: !!item.description,
-      projectLabel,
-      hasProjectLabel: !!projectLabel,
-      // The row is skipped rather than rendered empty; an empty flex row is invisible but
-      // still spends the card's gap, which shows up as a card that looks mis-padded.
-      hasMeta: hasPoints || !!projectLabel,
       parentId: item.parentId || null,
       parentKey: null,
       isOrphan: false,
-      showParentNote: false,
-      parentNote: null,
-      children: [],
-      hasChildren: false,
-      cssClass: isUnmappedStatus ? "is-unmapped" : ""
-    };
-    return card;
+      identLabel: card.ids.map((id) => id.text).join(" · "),
+      // No sync state at all means the record has no remote record and never pushes.
+      syncLabel: item.syncStatus || "No remote record"
+    });
   }
 
   // ---------- selection and status change ----------
@@ -361,7 +390,7 @@ export default class WorkItemBoard extends LightningElement {
   }
 
   handleCardSelect(event) {
-    this.selectedId = event.detail.id;
+    this.selectedId = event.detail.key;
     this.actionMessage = undefined;
     this.actionError = undefined;
   }

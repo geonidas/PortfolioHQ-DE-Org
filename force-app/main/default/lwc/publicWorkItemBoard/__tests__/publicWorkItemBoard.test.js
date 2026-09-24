@@ -104,11 +104,41 @@ const columnNames = (el) =>
     c.getAttribute("data-column")
   );
 const cards = (el) =>
-  Array.from(el.shadowRoot.querySelectorAll("c-public-work-item-card"));
+  Array.from(el.shadowRoot.querySelectorAll("c-board-card"));
 const epicCards = (el) =>
-  Array.from(el.shadowRoot.querySelectorAll("c-public-epic-card"));
-const toggle = (el, view) =>
-  el.shadowRoot.querySelector(`button[data-view="${view}"]`);
+  Array.from(el.shadowRoot.querySelectorAll("c-board-epic-card"));
+const heading = (cardEl) => cardEl.shadowRoot.querySelector(".heading");
+const toolbar = (el) => el.shadowRoot.querySelector("c-board-toolbar");
+const filter = (el, name) =>
+  toolbar(el).shadowRoot.querySelector(`select[data-filter="${name}"]`);
+/** Chooses a value in one of the toolbar's selects, as a visitor would. */
+async function choose(el, name, value) {
+  const control = filter(el, name);
+  control.value = value;
+  control.dispatchEvent(new CustomEvent("change"));
+  await flush();
+}
+const setView = (el, view) => choose(el, "view", view);
+const setSource = (el, source) => choose(el, "source", source);
+
+/**
+ * Every element in the board, through every shadow root. The cards and the toolbar render in
+ * their own shadow trees, so a query on the board's alone would miss a control inside them -
+ * which is exactly where one would be added.
+ */
+function everything(root) {
+  const found = [];
+  const walk = (node) => {
+    node.querySelectorAll("*").forEach((child) => {
+      found.push(child);
+      if (child.shadowRoot) {
+        walk(child.shadowRoot);
+      }
+    });
+  };
+  walk(root.shadowRoot);
+  return found;
+}
 const epicColumn = (el, status) =>
   el.shadowRoot.querySelector(`[data-epic-column="${status}"]`);
 const epicColumnNames = (el) =>
@@ -133,12 +163,12 @@ describe("c-public-work-item-board", () => {
 
     const rendered = cards(element);
     expect(rendered).toHaveLength(1);
-    expect(rendered[0].shadowRoot.querySelector("h3").textContent).toBe(
+    expect(heading(rendered[0]).textContent).toBe(
       "Render work items on the board"
     );
-    expect(rendered[0].shadowRoot.querySelector(".num").textContent).toBe(
-      "WI-0001 · DOPP-17"
-    );
+    expect(
+      rendered[0].shadowRoot.querySelector("[data-meta] .assistive").textContent
+    ).toBe("Jira, WI-0001, DOPP-17, Story");
   });
 
   it("takes its columns from configuration, not from the markup", async () => {
@@ -163,10 +193,10 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card({ title: null })]));
     await flush();
 
-    const heading = cards(element)[0].shadowRoot.querySelector("h3");
-    expect(heading.textContent).toBe("DOPP-17");
+    const fallback = heading(cards(element)[0]);
+    expect(fallback.textContent).toBe("DOPP-17");
     // An untitled card should not pose as a titled one.
-    expect(heading.className).toContain("is-fallback");
+    expect(fallback.className).toContain("is-fallback");
   });
 
   it("renders no type badge when the DTO sends a null type", async () => {
@@ -175,16 +205,18 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card({ type: null })]));
     await flush();
 
-    expect(cards(element)[0].shadowRoot.querySelector(".badge")).toBeNull();
+    expect(
+      cards(element)[0].shadowRoot.querySelector("[data-type]")
+    ).toBeNull();
   });
 
-  it("flags a record that is not reconciled with Jira", async () => {
+  it("flags a record that is not reconciled with its source", async () => {
     const element = mount();
     getPublicBoardData.emit(board([card({ syncStatus: "Pending" })]));
     await flush();
 
     expect(
-      cards(element)[0].shadowRoot.querySelector(".sync-flag").textContent
+      cards(element)[0].shadowRoot.querySelector("[data-sync]").textContent
     ).toBe("Pending");
   });
 
@@ -211,7 +243,7 @@ describe("c-public-work-item-board", () => {
       '[data-column="To Do"] .children'
     );
     expect(nested).not.toBeNull();
-    expect(nested.querySelectorAll("c-public-work-item-card")).toHaveLength(1);
+    expect(nested.querySelectorAll("c-board-card")).toHaveLength(1);
   });
 
   it("renders a child whose parent is withheld, with no note about it", async () => {
@@ -234,7 +266,7 @@ describe("c-public-work-item-board", () => {
 
     const other = element.shadowRoot.querySelector('[data-region="other"]');
     expect(other).not.toBeNull();
-    expect(other.querySelectorAll("c-public-work-item-card")).toHaveLength(1);
+    expect(other.querySelectorAll("c-board-card")).toHaveLength(1);
   });
 
   it("explains an empty board", async () => {
@@ -280,14 +312,12 @@ describe("c-public-work-item-board", () => {
     expect(cards(element)).toHaveLength(1);
     expect(epicCards(element)).toHaveLength(0);
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     expect(epicCards(element)).toHaveLength(1);
     expect(cards(element)).toHaveLength(0);
 
-    toggle(element, "tasks").click();
-    await flush();
+    await setView(element, "tasks");
 
     expect(cards(element)).toHaveLength(1);
     // Unchanged across both switches. getPublicBoardData takes no parameters, so the
@@ -300,14 +330,11 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic()]));
     await flush();
 
-    expect(toggle(element, "tasks").getAttribute("aria-pressed")).toBe("true");
-    expect(toggle(element, "epics").getAttribute("aria-pressed")).toBe("false");
+    expect(filter(element, "view").value).toBe("tasks");
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
-    expect(toggle(element, "tasks").getAttribute("aria-pressed")).toBe("false");
-    expect(toggle(element, "epics").getAttribute("aria-pressed")).toBe("true");
+    expect(filter(element, "view").value).toBe("epics");
   });
 
   it("gives each view its own empty state", async () => {
@@ -322,8 +349,7 @@ describe("c-public-work-item-board", () => {
     // The global empty state is the wrong message here and must not appear.
     expect(element.shadowRoot.querySelector('[data-state="empty"]')).toBeNull();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     expect(epicCards(element)).toHaveLength(1);
     expect(element.shadowRoot.querySelector('[data-empty="epics"]')).toBeNull();
@@ -334,8 +360,7 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic({ status: "In Progress" })]));
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     const completed = element.shadowRoot.querySelector(
       '[data-empty="completed"]'
@@ -363,14 +388,13 @@ describe("c-public-work-item-board", () => {
     await flush();
 
     const taskColumns = columnNames(element);
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     expect(epicColumnNames(element)).toEqual(taskColumns);
     expect(epicColumnNames(element)).toEqual(["To Do", "In Progress", "Done"]);
     ["To Do", "In Progress", "Done"].forEach((status) => {
       const col = epicColumn(element, status);
-      expect(col.querySelectorAll("c-public-epic-card")).toHaveLength(1);
+      expect(col.querySelectorAll("c-board-epic-card")).toHaveLength(1);
       expect(col.querySelector(".col-count").textContent).toBe("1");
     });
   });
@@ -380,14 +404,13 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic({ status: "Backlog" })]));
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     // One column set for the whole board. When Asana tasks join the epic view they land in
     // these columns too, rather than bringing their own.
     expect(epicColumnNames(element)).toEqual(["Backlog", "Shipping"]);
     expect(
-      epicColumn(element, "Backlog").querySelectorAll("c-public-epic-card")
+      epicColumn(element, "Backlog").querySelectorAll("c-board-epic-card")
     ).toHaveLength(1);
   });
 
@@ -396,8 +419,7 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic({ status: "In Progress" })]));
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     // Same rule as the task view: silently dropping a record from a public page is worse
     // than showing it somewhere unexpected.
@@ -405,7 +427,7 @@ describe("c-public-work-item-board", () => {
       '[data-region="other-epics"]'
     );
     expect(other).not.toBeNull();
-    expect(other.querySelectorAll("c-public-epic-card")).toHaveLength(1);
+    expect(other.querySelectorAll("c-board-epic-card")).toHaveLength(1);
   });
 
   it("explains an epic view with no epics at all", async () => {
@@ -413,8 +435,7 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], []));
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     expect(
       element.shadowRoot.querySelector('[data-empty="epics"]').textContent
@@ -430,8 +451,7 @@ describe("c-public-work-item-board", () => {
     );
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     const rendered = epicCards(element)[0].shadowRoot;
     expect(rendered.querySelector(".count").textContent).toBe("3 of 4 done");
@@ -449,8 +469,7 @@ describe("c-public-work-item-board", () => {
     );
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     const rendered = epicCards(element)[0].shadowRoot;
     expect(rendered.querySelector(".count").textContent).toBe(
@@ -465,12 +484,11 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic({ title: null })]));
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
-    const heading = epicCards(element)[0].shadowRoot.querySelector("h3");
-    expect(heading.textContent).toBe("Untitled epic");
-    expect(heading.className).toContain("is-fallback");
+    const untitled = heading(epicCards(element)[0]);
+    expect(untitled.textContent).toBe("Untitled epic");
+    expect(untitled.className).toContain("is-fallback");
   });
 
   it("keeps epic cards as inert as work item cards", async () => {
@@ -478,8 +496,7 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic()]));
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     const article = epicCards(element)[0].shadowRoot.querySelector("article");
     expect(article.getAttribute("role")).toBeNull();
@@ -492,19 +509,22 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()]));
     await flush();
 
-    // Build 06 added a view toggle and build 08 a Refresh button, so "no buttons at all" is no
-    // longer the right assertion - but the guarantee it protected still holds. Every button is
-    // either a view toggle, which re-renders data already in memory, or Refresh, which re-reads
-    // through the same parameterless method the page loaded with. Anything else appearing
-    // here is a control that could act.
-    const buttons = Array.from(element.shadowRoot.querySelectorAll("button"));
-    expect(buttons.length).toBeGreaterThan(0);
-    buttons.forEach((button) => {
-      expect(
-        button.dataset.view !== undefined || button.dataset.action === "refresh"
-      ).toBe(true);
-      expect(button.type).toBe("button");
-    });
+    // Build 06 added a view toggle, build 08 a Refresh button and then two filters, so "no
+    // controls at all" is no longer the right assertion - but the guarantee it protected still
+    // holds. The only controls are the two filters, which re-render data already in memory, and
+    // Refresh, which re-reads through the same parameterless method the page loaded with.
+    // Searched through every shadow root: a control added inside a card is still a control.
+    const controls = everything(element).filter((node) =>
+      node.matches(
+        "button, input, select, textarea, a[href], [tabindex], [contenteditable], [role='button']"
+      )
+    );
+    expect(
+      controls.map((node) => node.dataset.filter || node.dataset.action)
+    ).toEqual(["refresh", "view", "source"]);
+    controls
+      .filter((node) => node.tagName === "BUTTON")
+      .forEach((button) => expect(button.type).toBe("button"));
 
     // The cards themselves stay inert, which is the half that never changes.
     const article = cards(element)[0].shadowRoot.querySelector("article");
@@ -528,9 +548,10 @@ describe("c-public-work-item-board card freshness", () => {
 
     const text = cards(element)[0].shadowRoot.textContent;
     expect(text).not.toContain("Updated");
-    expect(
-      element.shadowRoot.querySelector(".freshness").textContent
-    ).toContain("Last updated");
+    // The board-level line: when the data last changed, in the visitor's own date.
+    expect(element.shadowRoot.querySelector(".freshness").textContent).toMatch(
+      /^Updated \d{1,2} [A-Z][a-z]{2}/
+    );
   });
 
   // ---------- a second source on one board (build 07 step 9) ----------
@@ -545,9 +566,7 @@ describe("c-public-work-item-board card freshness", () => {
     );
     await flush();
 
-    const titles = cards(element).map(
-      (c) => c.shadowRoot.querySelector("h3").textContent
-    );
+    const titles = cards(element).map((c) => heading(c).textContent);
     expect(titles).toContain("Superbadge: Apex Specialist");
     expect(titles).toHaveLength(2);
   });
@@ -565,13 +584,12 @@ describe("c-public-work-item-board card freshness", () => {
     );
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     const inProgress = epicColumn(element, "In Progress");
     const rendered = Array.from(
-      inProgress.querySelectorAll("c-public-work-item-card")
-    ).map((c) => c.shadowRoot.querySelector("h3").textContent);
+      inProgress.querySelectorAll("c-board-card")
+    ).map((c) => heading(c).textContent);
     expect(rendered).toEqual(["Superbadge: Apex Specialist"]);
   });
 
@@ -592,12 +610,9 @@ describe("c-public-work-item-board card freshness", () => {
     expect(cards(element)).toHaveLength(2);
     expect(epicCards(element)).toHaveLength(0);
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
-    const titles = cards(element).map(
-      (c) => c.shadowRoot.querySelector("h3").textContent
-    );
+    const titles = cards(element).map((c) => heading(c).textContent);
     expect(titles).toEqual(["Superbadge: Apex Specialist"]);
     expect(titles).not.toContain("A story");
     expect(epicCards(element)).toHaveLength(1);
@@ -613,8 +628,7 @@ describe("c-public-work-item-board card freshness", () => {
     );
     await flush();
 
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
 
     // A flat card's status is a configured column, so it belongs in that column and nowhere
     // else. The Other region exists for statuses the columns do not account for.
@@ -622,9 +636,7 @@ describe("c-public-work-item-board card freshness", () => {
       element.shadowRoot.querySelector('[data-region="other-epics"]')
     ).toBeNull();
     expect(
-      epicColumn(element, "In Progress").querySelector(
-        "c-public-work-item-card"
-      )
+      epicColumn(element, "In Progress").querySelector("c-board-card")
     ).not.toBeNull();
   });
 
@@ -641,38 +653,164 @@ describe("c-public-work-item-board card freshness", () => {
     const before = getPublicBoardData.getLastConfig();
     expect(before).toEqual({});
 
-    toggle(element, "epics").click();
-    await flush();
-    toggle(element, "tasks").click();
-    await flush();
+    await setView(element, "epics");
+    await setView(element, "tasks");
 
     expect(getPublicBoardData.getLastConfig()).toEqual({});
   });
 
-  it("has no button but the view toggle and Refresh, in either view", async () => {
+  it("has no button but Refresh, in either view, anywhere in the tree", async () => {
     const element = mount();
     getPublicBoardData.emit(
       board([flatCard({})], [epic({ title: "Guest board" })])
     );
     await flush();
 
-    const allowed = (button) =>
-      !!button.dataset.view || button.dataset.action === "refresh";
-    const buttons = Array.from(element.shadowRoot.querySelectorAll("button"));
-    expect(buttons.length).toBeGreaterThan(0);
+    const buttons = () =>
+      everything(element).filter((node) => node.tagName === "BUTTON");
     // Cards are inert. Anything else that gained a button would be a write path on a
     // read-only board.
-    expect(buttons.every(allowed)).toBe(true);
-    expect(buttons.filter((b) => b.dataset.action === "refresh")).toHaveLength(
-      1
-    );
+    expect(buttons().map((b) => b.dataset.action)).toEqual(["refresh"]);
 
-    toggle(element, "epics").click();
+    await setView(element, "epics");
+
+    expect(buttons().map((b) => b.dataset.action)).toEqual(["refresh"]);
+  });
+});
+
+// Build 08 step 6. The toolbar's Source filter and the page's subtitle.
+describe("c-public-work-item-board filters and header", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    jest.clearAllMocks();
+  });
+
+  const mixed = () =>
+    board(
+      [
+        card({ recordNumber: "WI-0001", status: "To Do" }),
+        card({ recordNumber: "WI-0002", status: "In Progress" }),
+        flatCard({ recordNumber: "WI-0015", status: "To Do" })
+      ],
+      [epic({ title: "Guest board", status: "In Progress" })]
+    );
+  const total = (el) => el.shadowRoot.querySelector(".total").textContent;
+
+  it("offers the sources the data names, after All sources", async () => {
+    const element = mount();
+    getPublicBoardData.emit(mixed());
     await flush();
 
     expect(
-      Array.from(element.shadowRoot.querySelectorAll("button")).every(allowed)
-    ).toBe(true);
+      Array.from(filter(element, "source").options).map((o) =>
+        o.textContent.trim()
+      )
+    ).toEqual(["All sources", "Asana", "Jira"]);
+  });
+
+  it("filters the task view by source, and counts what is left", async () => {
+    const element = mount();
+    getPublicBoardData.emit(mixed());
+    await flush();
+    expect(total(element)).toBe("3 items");
+
+    await setSource(element, "Asana");
+
+    expect(cards(element).map((c) => heading(c).textContent)).toEqual([
+      "Superbadge: Apex Specialist"
+    ]);
+    expect(total(element)).toBe("1 item");
+    expect(
+      element.shadowRoot.querySelector('[data-column="To Do"] .col-count')
+        .textContent
+    ).toBe("1");
+  });
+
+  it("filters the epic view too: the epic goes with its source", async () => {
+    const element = mount();
+    getPublicBoardData.emit(mixed());
+    await flush();
+    await setView(element, "epics");
+    expect(epicCards(element)).toHaveLength(1);
+    // Found on the live page: this read "2 epics" - the flat card counted as an epic - and,
+    // filtered to the flat source, "1 epic" over a view with no epic in it.
+    expect(total(element)).toBe("1 epic, 1 item");
+
+    await setSource(element, "Asana");
+
+    expect(epicCards(element)).toHaveLength(0);
+    expect(cards(element)).toHaveLength(1);
+    expect(total(element)).toBe("1 item");
+
+    await setSource(element, "Jira");
+
+    expect(epicCards(element)).toHaveLength(1);
+    expect(cards(element)).toHaveLength(0);
+    expect(total(element)).toBe("1 epic");
+  });
+
+  it("filters without going back to the server", async () => {
+    const element = mount();
+    getPublicBoardData.emit(mixed());
+    await flush();
+
+    await setSource(element, "Asana");
+    await setView(element, "epics");
+    await setSource(element, "");
+
+    // No parameters to send, and none sent: the wire config is what would carry them.
+    expect(getPublicBoardData.getLastConfig()).toEqual({});
+    expect(refreshApex).not.toHaveBeenCalled();
+  });
+
+  it("says when a filter leaves a view empty, and keeps the toolbar to undo it", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(
+        [flatCard({ status: "To Do" })],
+        [epic({ title: "Guest board", status: "Done" })]
+      )
+    );
+    await flush();
+
+    // Jira has an epic but no open task on this board.
+    await setSource(element, "Jira");
+
+    const empty = element.shadowRoot.querySelector('[data-empty="tasks"]');
+    expect(empty.textContent).toContain("Nothing from Jira here.");
+    expect(toolbar(element)).not.toBeNull();
+    expect(element.shadowRoot.querySelector('[data-state="empty"]')).toBeNull();
+  });
+
+  it("falls back to all sources when the chosen one leaves the data", async () => {
+    const element = mount();
+    getPublicBoardData.emit(mixed());
+    await flush();
+    await setSource(element, "Asana");
+
+    getPublicBoardData.emit(
+      board([card({ recordNumber: "WI-0001", status: "To Do" })])
+    );
+    await flush();
+
+    expect(filter(element, "source").value).toBe("");
+    expect(cards(element)).toHaveLength(1);
+  });
+
+  it("shows the subtitle set on the page, and nothing when it is blank", async () => {
+    const element = mount({ subtitle: "Work in progress, in public." });
+    getPublicBoardData.emit(mixed());
+    await flush();
+    expect(
+      element.shadowRoot.querySelector("[data-subtitle]").textContent
+    ).toBe("Work in progress, in public.");
+
+    const blank = mount({ subtitle: "   " });
+    getPublicBoardData.emit(mixed());
+    await flush();
+    expect(blank.shadowRoot.querySelector("[data-subtitle]")).toBeNull();
   });
 });
 
@@ -728,8 +866,7 @@ describe("c-public-work-item-board accessibility", () => {
     const element = mount();
     getPublicBoardData.emit(busyBoard());
     await flush();
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
     await expect(element).toBeAccessible();
   });
 
@@ -738,8 +875,7 @@ describe("c-public-work-item-board accessibility", () => {
     getPublicBoardData.emit(board([], [epic({ status: "Done" })]));
     await flush();
     await expect(element).toBeAccessible();
-    toggle(element, "epics").click();
-    await flush();
+    await setView(element, "epics");
     await expect(element).toBeAccessible();
   });
 
@@ -754,6 +890,14 @@ describe("c-public-work-item-board accessibility", () => {
     const element = mount();
     getPublicBoardData.error({ message: "Nope" }, 500, "Server Error");
     await flush();
+    await expect(element).toBeAccessible();
+  });
+  it("is accessible with a subtitle and a filter that empties a view", async () => {
+    const element = mount({ subtitle: "Work in progress, in public." });
+    getPublicBoardData.emit(busyBoard());
+    await flush();
+    await setSource(element, "Asana");
+    await setView(element, "epics");
     await expect(element).toBeAccessible();
   });
 });

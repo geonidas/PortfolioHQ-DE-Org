@@ -1,0 +1,70 @@
+/*
+ * The board's design tokens, shared by every board component through @import 'c/boardTheme'.
+ * docs/build-08/design-plan.md is the reasoning; this is the one place the values live.
+ *
+ * Every neutral comes from the site theme's own hooks, so restyling is a Theme panel change. In
+ * Lightning Experience none of the --dxp-g-* hooks exist, and each fallback here is what the
+ * internal board renders. The accents are the one thing a theme cannot express: they read
+ * --phq-accent-1 and --phq-accent-2 from the page, so the site's CSS can override them. A value
+ * declared on :host here would otherwise beat anything set above it.
+ */
+:host {
+  --board-ink: var(--dxp-g-root-contrast, #1a1b1e);
+  --board-paper: var(--dxp-g-root, #ffffff);
+  /* The fixed values below are the derived ones measured against the default theme; the
+     @supports block replaces them with the same mix of whatever the theme's colours are. */
+  --board-quiet: #636466;
+  --board-line: #dadbdb;
+  --board-surface: #f6f6f6;
+  --board-danger: var(--dxp-g-destructive, #c23934);
+  --board-pending-ink: #7a5000;
+  --board-pending-bg: #fdf3dc;
+  --board-link: var(--dxp-g-brand, #005fb2);
+  --board-field-border: var(--dxp-g-neutral-3, #76716b);
+  --board-font: var(--dxp-g-root-font-family, inherit);
+  --board-accent-1: var(--phq-accent-1, #4a4fc2);
+  --board-accent-2: var(--phq-accent-2, #a3306c);
+  --board-radius: 6px;
+}
+
+/* A custom property accepts any value, so declaring color-mix() after a hex fallback would
+   always win, and leave a browser without color-mix() with nothing. @supports is the fallback. */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :host {
+    --board-quiet: color-mix(in srgb, var(--board-ink) 68%, var(--board-paper));
+    --board-line: color-mix(in srgb, var(--board-ink) 16%, var(--board-paper));
+    --board-surface: color-mix(
+      in srgb,
+      var(--board-ink) 4%,
+      var(--board-paper)
+    );
+  }
+}
+
+/* Source accents, by token. A card carries data-accent={accentToken}; a token this map does not
+   know - or none at all - leaves the neutral defaults: a Line stripe and a Quiet label. */
+[data-accent] {
+  --card-accent: var(--board-line);
+  --card-accent-text: var(--board-quiet);
+}
+[data-accent="accent-1"] {
+  --card-accent: var(--board-accent-1);
+  --card-accent-text: var(--board-accent-1);
+}
+[data-accent="accent-2"] {
+  --card-accent: var(--board-accent-2);
+  --card-accent-text: var(--board-accent-2);
+}
+
+/* Text for screen readers only. */
+.assistive {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

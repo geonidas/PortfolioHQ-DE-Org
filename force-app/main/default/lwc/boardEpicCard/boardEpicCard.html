@@ -1,0 +1,32 @@
+<template>
+  <article
+    class="card"
+    data-accent={epic.accent}
+    data-key={epic.key}
+    data-status={epic.status}
+  >
+    <h3 class="title">
+      <span class={epic.headingClass}>{epic.heading}</span>
+    </h3>
+
+    <p class="meta" data-meta>
+      <span class="assistive">{epic.metaSpoken}</span>
+      <span class="line" aria-hidden="true">
+        <template lwc:if={epic.hasSourceLabel}>
+          <span class="source" data-source>{epic.sourceLabel}</span>
+        </template>
+        <template lwc:if={epic.hasRecordNumber}>
+          <span class="id">{epic.recordNumber}</span>
+        </template>
+        <span class="chip" data-epic-status>{epic.status}</span>
+      </span>
+    </p>
+
+    <template lwc:if={epic.hasChildren}>
+      <div class="track" aria-hidden="true">
+        <div class="bar" style={epic.barStyle}></div>
+      </div>
+    </template>
+    <p class="count">{epic.progressLabel}</p>
+  </article>
+</template>

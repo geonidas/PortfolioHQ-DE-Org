@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Build 08: every LWC bundle in source, deployed together with the removals beside it.
+
+  sf project deploy start -x manifest/build-08/package.xml \
+    --post-destructive-changes manifest/build-08/destructiveChangesPost.xml
+
+  Post, not pre: the old boards reference the old cards until the new boards replace them.
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>*</members>
+        <name>LightningComponentBundle</name>
+    </types>
+    <version>67.0</version>
+</Package>

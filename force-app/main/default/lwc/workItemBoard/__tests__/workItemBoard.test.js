@@ -84,7 +84,18 @@ function columnNames(element) {
 }
 
 function cards(element) {
-  return Array.from(element.shadowRoot.querySelectorAll("c-work-item-card"));
+  return Array.from(element.shadowRoot.querySelectorAll("c-board-card"));
+}
+
+const toolbar = (element) =>
+  element.shadowRoot.querySelector("c-board-toolbar");
+async function choose(element, name, value) {
+  const control = toolbar(element).shadowRoot.querySelector(
+    `select[data-filter="${name}"]`
+  );
+  control.value = value;
+  control.dispatchEvent(new CustomEvent("change"));
+  await flush();
 }
 
 describe("c-work-item-board", () => {
@@ -156,11 +167,11 @@ describe("c-work-item-board", () => {
         '[data-region="outside"]'
       );
       expect(outside).not.toBeNull();
-      expect(outside.querySelectorAll("c-work-item-card")).toHaveLength(1);
+      expect(outside.querySelectorAll("c-board-card")).toHaveLength(1);
 
       // It must not have been bucketed into To Do, which would read as a workflow stage.
       const toDo = element.shadowRoot.querySelector('[data-column="To Do"]');
-      expect(toDo.querySelectorAll("c-work-item-card")).toHaveLength(1);
+      expect(toDo.querySelectorAll("c-board-card")).toHaveLength(1);
     });
 
     it("surfaces a status that is simply not configured rather than dropping it", async () => {
@@ -173,7 +184,7 @@ describe("c-work-item-board", () => {
         '[data-region="outside"]'
       );
       expect(outside).not.toBeNull();
-      expect(outside.querySelectorAll("c-work-item-card")).toHaveLength(1);
+      expect(outside.querySelectorAll("c-board-card")).toHaveLength(1);
     });
   });
 
@@ -185,7 +196,7 @@ describe("c-work-item-board", () => {
       await flush();
 
       const card = cards(element)[0];
-      expect(card.shadowRoot.querySelector(".badge")).toBeNull();
+      expect(card.shadowRoot.querySelector("[data-type]")).toBeNull();
       // Still a readable card, not a damaged one.
       expect(card.shadowRoot.querySelector(".heading").textContent).toBe(
         "Reconcile the nightly Jira pull"
@@ -198,12 +209,12 @@ describe("c-work-item-board", () => {
       await flush();
 
       const card = cards(element)[0];
-      expect(card.shadowRoot.querySelector("h3.heading").textContent).toBe(
+      expect(card.shadowRoot.querySelector("h3 .heading").textContent).toBe(
         "Reconcile the nightly Jira pull"
       );
-      expect(card.shadowRoot.querySelector(".num").textContent).toBe(
-        "WI-0000 · DOPP-0"
-      );
+      expect(
+        card.shadowRoot.querySelector("[data-meta] .assistive").textContent
+      ).toBe("Jira, WI-0000, DOPP-0, Story");
     });
 
     it("stands the key in as the heading when no title has synced", async () => {
@@ -211,13 +222,15 @@ describe("c-work-item-board", () => {
       getBoardData.emit(board([item({ id: "1", title: null })]));
       await flush();
 
-      const heading = cards(element)[0].shadowRoot.querySelector("h3.heading");
+      const heading = cards(element)[0].shadowRoot.querySelector("h3 .heading");
       expect(heading.textContent).toBe("DOPP-0");
-      expect(heading.className).toContain("heading-fallback");
+      expect(heading.className).toContain("is-fallback");
       // Not printed twice: the identity line carries the auto number alone.
       expect(
-        cards(element)[0].shadowRoot.querySelector(".num").textContent
-      ).toBe("WI-0000");
+        Array.from(
+          cards(element)[0].shadowRoot.querySelectorAll("[data-ids] .id")
+        ).map((id) => id.textContent)
+      ).toEqual(["WI-0000"]);
     });
 
     it("renders a known type with a badge", async () => {
@@ -226,16 +239,16 @@ describe("c-work-item-board", () => {
       await flush();
 
       expect(
-        cards(element)[0].shadowRoot.querySelector(".badge").textContent
+        cards(element)[0].shadowRoot.querySelector("[data-type]").textContent
       ).toBe("Bug");
     });
 
-    it("flags a record that is not reconciled with Jira", async () => {
+    it("flags a record that is not reconciled with its source", async () => {
       const element = mount();
       getBoardData.emit(board([item({ id: "1", syncStatus: "Pending" })]));
       await flush();
 
-      const flag = cards(element)[0].shadowRoot.querySelector(".sync-flag");
+      const flag = cards(element)[0].shadowRoot.querySelector("[data-sync]");
       expect(flag).not.toBeNull();
       expect(flag.textContent).toBe("Pending");
     });
@@ -246,7 +259,7 @@ describe("c-work-item-board", () => {
       await flush();
 
       expect(
-        cards(element)[0].shadowRoot.querySelector(".sync-flag")
+        cards(element)[0].shadowRoot.querySelector("[data-sync]")
       ).toBeNull();
     });
   });
@@ -270,7 +283,7 @@ describe("c-work-item-board", () => {
       const column = element.shadowRoot.querySelector('[data-column="To Do"]');
       const nested = column.querySelector(".children");
       expect(nested).not.toBeNull();
-      expect(nested.querySelectorAll("c-work-item-card")).toHaveLength(1);
+      expect(nested.querySelectorAll("c-board-card")).toHaveLength(1);
     });
 
     it("leaves a child in its own column when it differs from the parent", async () => {
@@ -293,9 +306,9 @@ describe("c-work-item-board", () => {
       const inProgress = element.shadowRoot.querySelector(
         '[data-column="In Progress"]'
       );
-      expect(inProgress.querySelectorAll("c-work-item-card")).toHaveLength(1);
+      expect(inProgress.querySelectorAll("c-board-card")).toHaveLength(1);
       const note = inProgress
-        .querySelector("c-work-item-card")
+        .querySelector("c-board-card")
         .shadowRoot.querySelector(".parent-note");
       expect(note.textContent).toBe("Child of DOPP-16");
     });
@@ -378,7 +391,7 @@ describe("c-work-item-board", () => {
       getBoardData.emit(board([item({ id: "w1", status: "To Do" })]));
       await flush();
       cards(element)[0].dispatchEvent(
-        new CustomEvent("select", { detail: { id: "w1" } })
+        new CustomEvent("select", { detail: { key: "w1" } })
       );
       await flush();
     }
@@ -461,12 +474,9 @@ describe("c-work-item-board", () => {
   // only exists while the detail panel is open, or only in the error state, would pass a check
   // of the plain board.
   describe("accessibility", () => {
-    // The one known violation, pinned exactly rather than waived. Every card on the board is an
-    // <article role="button">, which axe rejects (aria-allowed-role) and which also flattens
-    // the heading inside it for a screen reader. Not patched here: a <div role="button"> would
-    // satisfy the rule and keep the flattened heading. Build 08 step 7 replaces the clickable
-    // card with a disclosure button in the card header, and this list must then be empty.
-    const KNOWN = ["aria-allowed-role"];
+    // Step 1 pinned one known violation here, aria-allowed-role, for the old card's
+    // <article role="button">. Step 6's shared card puts a real button inside its heading
+    // instead, the pinned matcher failed on the fix as it was built to, and the pin is gone.
 
     const busyBoard = () =>
       board([
@@ -495,7 +505,7 @@ describe("c-work-item-board", () => {
 
     async function selectFirst(element) {
       cards(element)[0].dispatchEvent(
-        new CustomEvent("select", { detail: { id: "p1" } })
+        new CustomEvent("select", { detail: { key: "p1" } })
       );
       await flush();
     }
@@ -504,22 +514,22 @@ describe("c-work-item-board", () => {
       await expect(mount()).toBeAccessible();
     });
 
-    it("has no violation but the known one with cards, nesting, a sync flag and the outside region", async () => {
+    it("is accessible with cards, nesting, a sync flag and the outside region", async () => {
       const element = mount();
       getBoardData.emit(busyBoard());
       await flush();
-      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+      await expect(element).toBeAccessible();
     });
 
-    it("has no violation but the known one with the detail panel open", async () => {
+    it("is accessible with the detail panel open", async () => {
       const element = mount();
       getBoardData.emit(busyBoard());
       await flush();
       await selectFirst(element);
-      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+      await expect(element).toBeAccessible();
     });
 
-    it("has no violation but the known one after a status change is reported", async () => {
+    it("is accessible after a status change is reported", async () => {
       changeStatus.mockResolvedValue({
         workItemId: "p1",
         status: "Done",
@@ -534,10 +544,10 @@ describe("c-work-item-board", () => {
       element.shadowRoot.querySelector('[data-status="Done"]').click();
       await flush();
       await flush();
-      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+      await expect(element).toBeAccessible();
     });
 
-    it("has no violation but the known one when a status change fails", async () => {
+    it("is accessible when a status change fails", async () => {
       changeStatus.mockRejectedValue({ body: { message: "Not available." } });
       const element = mount();
       getBoardData.emit(busyBoard());
@@ -546,7 +556,7 @@ describe("c-work-item-board", () => {
       element.shadowRoot.querySelector('[data-status="Done"]').click();
       await flush();
       await flush();
-      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+      await expect(element).toBeAccessible();
     });
 
     it("is accessible when empty", async () => {
@@ -560,6 +570,144 @@ describe("c-work-item-board", () => {
       const element = mount();
       getBoardData.error({ message: "Access denied" }, 400, "Bad Request");
       await flush();
+      await expect(element).toBeAccessible();
+    });
+  });
+
+  // Build 08 step 6. The shared toolbar, card and epic view.
+  describe("toolbar, cards and the epic view", () => {
+    const mixed = () => {
+      const data = board([
+        item({
+          id: "e1",
+          recordNumber: "WI-0000",
+          type: "Epic",
+          status: "In Progress"
+        }),
+        item({
+          id: "s1",
+          recordNumber: "WI-0003",
+          parentId: "e1",
+          status: "To Do"
+        }),
+        item({
+          id: "a1",
+          recordNumber: "WI-0015",
+          title: "Deep Work",
+          externalKey: null,
+          type: "Book",
+          status: "To Do",
+          sourceLabel: "Asana",
+          accentToken: "accent-2",
+          condensesIntoEpic: false,
+          supportsStartDate: false
+        })
+      ]);
+      data.epics = [
+        {
+          id: "e1",
+          recordNumber: "WI-0000",
+          title: "Integration app",
+          status: "In Progress",
+          totalChildren: 1,
+          completedChildren: 0,
+          sourceLabel: "Jira",
+          accentToken: "accent-1"
+        }
+      ];
+      return data;
+    };
+    const total = (el) => el.shadowRoot.querySelector(".total").textContent;
+
+    it("opens the detail panel from the button in a card's heading", async () => {
+      const element = mount();
+      getBoardData.emit(board([item({ id: "w1" })]));
+      await flush();
+
+      cards(element)[0].shadowRoot.querySelector("button[data-select]").click();
+      await flush();
+
+      expect(
+        element.shadowRoot.querySelector('[data-region="detail"]')
+      ).not.toBeNull();
+    });
+
+    it("shows the Epics view from the payload's epics, with flat work passing through", async () => {
+      const element = mount();
+      getBoardData.emit(mixed());
+      await flush();
+      expect(total(element)).toBe("3 items");
+
+      await choose(element, "view", "epics");
+
+      const epicCards =
+        element.shadowRoot.querySelectorAll("c-board-epic-card");
+      expect(epicCards).toHaveLength(1);
+      expect(epicCards[0].shadowRoot.querySelector(".count").textContent).toBe(
+        "0 of 1 done"
+      );
+      // The flat source's card keeps its own column; the story rolls up into the epic.
+      expect(
+        cards(element).map(
+          (c) => c.shadowRoot.querySelector(".heading").textContent
+        )
+      ).toEqual(["Deep Work"]);
+      // Two kinds of card, counted as what they are.
+      expect(total(element)).toBe("1 epic, 1 item");
+    });
+
+    it("filters both views by source", async () => {
+      const element = mount();
+      getBoardData.emit(mixed());
+      await flush();
+
+      await choose(element, "source", "Asana");
+      expect(cards(element)).toHaveLength(1);
+      expect(total(element)).toBe("1 item");
+
+      await choose(element, "view", "epics");
+      expect(
+        element.shadowRoot.querySelectorAll("c-board-epic-card")
+      ).toHaveLength(0);
+      expect(cards(element)).toHaveLength(1);
+    });
+
+    it("says Overdue on this board, where the public one shows only dates", async () => {
+      const element = mount();
+      getBoardData.emit(
+        board([item({ id: "1", dueDate: "2020-01-01", status: "To Do" })])
+      );
+      await flush();
+
+      expect(
+        cards(element)[0].shadowRoot.querySelector("[data-date='overdue']")
+      ).not.toBeNull();
+    });
+
+    it("gives a record with no remote record no sync chip, and says why in the panel", async () => {
+      const element = mount();
+      getBoardData.emit(board([item({ id: "c1", syncStatus: null })]));
+      await flush();
+
+      expect(
+        cards(element)[0].shadowRoot.querySelector("[data-sync]")
+      ).toBeNull();
+
+      cards(element)[0].dispatchEvent(
+        new CustomEvent("select", { detail: { key: "c1" } })
+      );
+      await flush();
+      expect(
+        element.shadowRoot.querySelector('[data-region="detail"]').textContent
+      ).toContain("No remote record");
+    });
+
+    it("is accessible in the Epics view with a source chosen", async () => {
+      const element = mount();
+      getBoardData.emit(mixed());
+      await flush();
+      await choose(element, "view", "epics");
+      await choose(element, "source", "Jira");
       await expect(element).toBeAccessible();
     });
   });

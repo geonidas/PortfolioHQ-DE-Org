@@ -5,12 +5,14 @@
         <h1 class="title">{headingLabel}</h1>
         <p class="freshness">{freshnessLabel}</p>
       </div>
-      <span class="total"
-        >{countLabel}
+      <p class="head-side">
+        <span class="total" aria-live="polite">{countLabel}</span>
         <template lwc:if={isLive}>
-          <span class="live" data-live> · {liveLabel}</span>
+          <span class="live" data-live
+            ><span class="sep" aria-hidden="true">·</span>{liveLabel}</span
+          >
         </template>
-      </span>
+      </p>
     </header>
 
     <template lwc:if={isLoading}>
@@ -36,6 +38,15 @@
     </template>
 
     <template lwc:else>
+      <c-board-toolbar
+        class="toolbar"
+        view={view}
+        source={source}
+        source-options={sourceChoices}
+        onviewchange={handleViewChange}
+        onsourcechange={handleSourceChange}
+      ></c-board-toolbar>
+
       <template lwc:if={hasSelection}>
         <aside class="detail" data-region="detail">
           <div class="detail-head">
@@ -52,7 +63,7 @@
             </div>
             <div>
               <dt>Sync</dt>
-              <dd>{selectedCard.syncStatus}</dd>
+              <dd>{selectedCard.syncLabel}</dd>
             </div>
             <div>
               <dt>Type</dt>
@@ -106,61 +117,148 @@
         </aside>
       </template>
 
-      <div class="columns" data-state="ready">
-        <template for:each={viewColumns} for:item="col">
-          <section class="column" key={col.key} data-column={col.key}>
-            <h2 class="col-head">
-              <span class="col-name">{col.label}</span>
-              <span class="col-count">{col.countLabel}</span>
-            </h2>
-            <template lwc:if={col.isEmpty}>
-              <p class="col-empty">Nothing here</p>
-            </template>
-            <template for:each={col.cards} for:item="card">
-              <div class="stack" key={card.id}>
-                <c-work-item-card
-                  card={card}
-                  onselect={handleCardSelect}
-                ></c-work-item-card>
-                <template lwc:if={card.hasChildren}>
-                  <ul class="children">
-                    <template for:each={card.children} for:item="child">
-                      <li key={child.id}>
-                        <c-work-item-card
-                          card={child}
-                          onselect={handleCardSelect}
-                        ></c-work-item-card>
-                      </li>
-                    </template>
-                  </ul>
-                </template>
-              </div>
-            </template>
-          </section>
+      <template lwc:if={isTaskView}>
+        <template lwc:if={isTaskViewEmpty}>
+          <div class="state" data-empty="tasks">
+            <p class="state-title">{filteredEmptyTitle}</p>
+            <p class="state-detail">
+              Choose All sources to see the rest of the board.
+            </p>
+          </div>
         </template>
-      </div>
-
-      <!-- Records the configured columns do not account for. Kept visible on purpose:
-                 dropping them would hide exactly the data build 03 chose to surface. -->
-      <template lwc:if={hasOutside}>
-        <section class="outside" data-region="outside">
-          <h2 class="outside-head">Outside the configured columns</h2>
-          <p class="outside-note">
-            These have a status that is not one of the board columns — either
-            the source system reported something with no Salesforce mapping, or
-            the column is not configured. They are not "to do" and are not
-            counted as such.
-          </p>
-          <div class="outside-cards">
-            <template for:each={outsideCards} for:item="card">
-              <c-work-item-card
-                key={card.id}
-                card={card}
-                onselect={handleCardSelect}
-              ></c-work-item-card>
+        <template lwc:else>
+          <div class="columns" data-state="ready">
+            <template for:each={viewColumns} for:item="col">
+              <section class="column" key={col.key} data-column={col.key}>
+                <h2 class="col-head">
+                  <span class="col-name">{col.label}</span>
+                  <span class="col-count">{col.countLabel}</span>
+                </h2>
+                <template lwc:if={col.isEmpty}>
+                  <p class="col-empty">Nothing here</p>
+                </template>
+                <template for:each={col.cards} for:item="card">
+                  <div class="stack" key={card.key}>
+                    <c-board-card
+                      card={card}
+                      selectable
+                      onselect={handleCardSelect}
+                    ></c-board-card>
+                    <template lwc:if={card.hasChildren}>
+                      <ul class="children">
+                        <template for:each={card.children} for:item="child">
+                          <li key={child.key}>
+                            <c-board-card
+                              card={child}
+                              selectable
+                              onselect={handleCardSelect}
+                            ></c-board-card>
+                          </li>
+                        </template>
+                      </ul>
+                    </template>
+                  </div>
+                </template>
+              </section>
             </template>
           </div>
-        </section>
+
+          <!-- Records the configured columns do not account for. Kept visible on purpose:
+               dropping them would hide exactly the data build 03 chose to surface. -->
+          <template lwc:if={hasOutside}>
+            <section class="outside" data-region="outside">
+              <h2 class="outside-head">Outside the configured columns</h2>
+              <p class="outside-note">
+                These have a status that is not one of the board columns —
+                either the source system reported something with no Salesforce
+                mapping, or the column is not configured. They are not "to do"
+                and are not counted as such.
+              </p>
+              <div class="outside-cards">
+                <template for:each={outsideCards} for:item="card">
+                  <c-board-card
+                    key={card.key}
+                    card={card}
+                    selectable
+                    onselect={handleCardSelect}
+                  ></c-board-card>
+                </template>
+              </div>
+            </section>
+          </template>
+        </template>
+      </template>
+
+      <template lwc:else>
+        <template lwc:if={isEpicViewEmpty}>
+          <div class="state" data-empty="epics">
+            <template lwc:if={isFiltered}>
+              <p class="state-title">{filteredEmptyTitle}</p>
+              <p class="state-detail">
+                Choose All sources to see the rest of the board.
+              </p>
+            </template>
+            <template lwc:else>
+              <p class="state-title">Nothing to roll up yet.</p>
+              <p class="state-detail">
+                Nothing on this board is typed as an epic.
+              </p>
+            </template>
+          </div>
+        </template>
+        <template lwc:else>
+          <!-- The public board's epic view, from the same rules: epics from EpicRollup, and
+               cards whose source has no epics passing through into their own column. -->
+          <div class="columns" data-region="epic-columns">
+            <template for:each={epicColumns} for:item="col">
+              <section class="column" key={col.key} data-epic-column={col.key}>
+                <h2 class="col-head">
+                  <span class="col-name">{col.label}</span>
+                  <span class="col-count">{col.countLabel}</span>
+                </h2>
+                <template lwc:if={col.isEmpty}>
+                  <p class="col-empty">{col.emptyLabel}</p>
+                </template>
+                <template for:each={col.cards} for:item="entry">
+                  <div class="stack" key={entry.key}>
+                    <template lwc:if={entry.isEpic}>
+                      <c-board-epic-card epic={entry}></c-board-epic-card>
+                    </template>
+                    <template lwc:else>
+                      <c-board-card
+                        card={entry}
+                        selectable
+                        onselect={handleCardSelect}
+                      ></c-board-card>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </div>
+
+          <template lwc:if={hasOutsideEpics}>
+            <section class="outside" data-region="outside-epics">
+              <h2 class="outside-head">Outside the configured columns</h2>
+              <div class="outside-cards">
+                <template for:each={outsideEpics} for:item="entry">
+                  <div class="stack" key={entry.key}>
+                    <template lwc:if={entry.isEpic}>
+                      <c-board-epic-card epic={entry}></c-board-epic-card>
+                    </template>
+                    <template lwc:else>
+                      <c-board-card
+                        card={entry}
+                        selectable
+                        onselect={handleCardSelect}
+                      ></c-board-card>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </section>
+          </template>
+        </template>
       </template>
     </template>
   </section>

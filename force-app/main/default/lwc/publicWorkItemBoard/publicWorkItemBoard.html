@@ -1,28 +1,29 @@
 <template>
   <section class="board">
     <header class="board-head">
-      <div>
+      <div class="head-main">
         <h1 class="title">{headingLabel}</h1>
-        <template lwc:if={freshnessLabel}>
-          <p class="freshness">{freshnessLabel}</p>
+        <template lwc:if={hasSubtitle}>
+          <p class="subtitle" data-subtitle>{subtitle}</p>
         </template>
-      </div>
-      <div class="head-side">
-        <span class="total">{countLabel}</span>
         <!-- Re-reads through the same parameterless method the page loaded with. It can ask
              for nothing narrower or wider, and there is no write path behind it. -->
-        <span class="refresh">
+        <p class="status-line">
+          <template lwc:if={freshnessLabel}>
+            <span class="freshness">{freshnessLabel}</span>
+          </template>
           <span class="checked" data-checked>{checkedLabel}</span>
           <button
             type="button"
-            class="view-btn"
+            class="refresh-btn"
             data-action="refresh"
             onclick={handleRefresh}
           >
             Refresh
           </button>
-        </span>
+        </p>
       </div>
+      <span class="total" aria-live="polite">{countLabel}</span>
     </header>
 
     <template lwc:if={isLoading}>
@@ -48,37 +49,33 @@
 
     <template lwc:else>
       <!-- Display only. Both payloads arrived in the one cacheable call that loaded the
-           page; switching here re-renders what is already in memory and never reaches the
-           server. The Apex method takes no parameters, so there is nothing this control
-           could send even if it tried. -->
-      <div class="views" role="group" aria-label="Board view">
-        <button
-          type="button"
-          class={taskToggleClass}
-          data-view="tasks"
-          aria-pressed={taskPressed}
-          onclick={handleView}
-        >
-          Tasks
-        </button>
-        <button
-          type="button"
-          class={epicToggleClass}
-          data-view="epics"
-          aria-pressed={epicPressed}
-          onclick={handleView}
-        >
-          Epics
-        </button>
-      </div>
+           page; the filters re-render what is already in memory and never reach the server.
+           The Apex method takes no parameters, so there is nothing they could send. -->
+      <c-board-toolbar
+        class="toolbar"
+        view={view}
+        source={source}
+        source-options={sourceChoices}
+        onviewchange={handleViewChange}
+        onsourcechange={handleSourceChange}
+      ></c-board-toolbar>
 
       <template lwc:if={isTaskView}>
         <template lwc:if={isTaskViewEmpty}>
           <div class="state" data-empty="tasks">
-            <p class="state-title">No open work right now.</p>
-            <p class="state-detail">
-              Every epic on this board is complete. Switch to Epics to see them.
-            </p>
+            <template lwc:if={isFiltered}>
+              <p class="state-title">{filteredEmptyTitle}</p>
+              <p class="state-detail">
+                Choose All sources to see the rest of the board.
+              </p>
+            </template>
+            <template lwc:else>
+              <p class="state-title">No open work right now.</p>
+              <p class="state-detail">
+                Every epic on this board is complete. Switch to Epics to see
+                them.
+              </p>
+            </template>
           </div>
         </template>
 
@@ -94,17 +91,13 @@
                   <p class="col-empty">Nothing here</p>
                 </template>
                 <template for:each={col.cards} for:item="card">
-                  <div class="stack" key={card.recordNumber}>
-                    <c-public-work-item-card
-                      card={card}
-                    ></c-public-work-item-card>
+                  <div class="stack" key={card.key}>
+                    <c-board-card card={card}></c-board-card>
                     <template lwc:if={card.hasChildren}>
                       <ul class="children">
                         <template for:each={card.children} for:item="child">
-                          <li key={child.recordNumber}>
-                            <c-public-work-item-card
-                              card={child}
-                            ></c-public-work-item-card>
+                          <li key={child.key}>
+                            <c-board-card card={child}></c-board-card>
                           </li>
                         </template>
                       </ul>
@@ -120,10 +113,7 @@
               <h2 class="other-head">Other</h2>
               <div class="other-cards">
                 <template for:each={otherCards} for:item="card">
-                  <c-public-work-item-card
-                    key={card.recordNumber}
-                    card={card}
-                  ></c-public-work-item-card>
+                  <c-board-card key={card.key} card={card}></c-board-card>
                 </template>
               </div>
             </section>
@@ -135,11 +125,19 @@
         <div class="epic-view" data-state="epics">
           <template lwc:if={isEpicViewEmpty}>
             <div class="state" data-empty="epics">
-              <p class="state-title">Nothing to roll up yet.</p>
-              <p class="state-detail">
-                No public work is typed as an epic, and nothing else is public
-                either.
-              </p>
+              <template lwc:if={isFiltered}>
+                <p class="state-title">{filteredEmptyTitle}</p>
+                <p class="state-detail">
+                  Choose All sources to see the rest of the board.
+                </p>
+              </template>
+              <template lwc:else>
+                <p class="state-title">Nothing to roll up yet.</p>
+                <p class="state-detail">
+                  No public work is typed as an epic, and nothing else is public
+                  either.
+                </p>
+              </template>
             </div>
           </template>
 
@@ -165,18 +163,16 @@
                     </p>
                   </template>
                   <!-- Two kinds of card share these columns. Which one a card is was
-                       decided by the server: the epic toggle is a transform that applies
+                       decided by the server: the epic view is a transform that applies
                        only to cards whose source rolls up into epics, and the rest pass
                        through untouched into the column their own status names. -->
                   <template for:each={col.cards} for:item="entry">
                     <div class="stack" key={entry.key}>
                       <template lwc:if={entry.isEpic}>
-                        <c-public-epic-card epic={entry}></c-public-epic-card>
+                        <c-board-epic-card epic={entry}></c-board-epic-card>
                       </template>
                       <template lwc:else>
-                        <c-public-work-item-card
-                          card={entry}
-                        ></c-public-work-item-card>
+                        <c-board-card card={entry}></c-board-card>
                       </template>
                     </div>
                   </template>
@@ -191,12 +187,10 @@
                   <template for:each={otherEpics} for:item="entry">
                     <div class="stack" key={entry.key}>
                       <template lwc:if={entry.isEpic}>
-                        <c-public-epic-card epic={entry}></c-public-epic-card>
+                        <c-board-epic-card epic={entry}></c-board-epic-card>
                       </template>
                       <template lwc:else>
-                        <c-public-work-item-card
-                          card={entry}
-                        ></c-public-work-item-card>
+                        <c-board-card card={entry}></c-board-card>
                       </template>
                     </div>
                   </template>

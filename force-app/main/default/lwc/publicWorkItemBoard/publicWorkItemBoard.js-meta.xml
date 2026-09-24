@@ -17,6 +17,12 @@
                 default="To Do,In Progress,Done"
                 label="Board columns"
                 description="Ordered, comma separated Status__c values. Adding a status here is all that is needed to add a column." />
+            <property
+                name="subtitle"
+                type="String"
+                default=""
+                label="Subtitle"
+                description="A line under the board title. Empty shows nothing." />
         </targetConfig>
         <targetConfig targets="lightning__AppPage">
             <property
@@ -25,6 +31,12 @@
                 default="To Do,In Progress,Done"
                 label="Board columns"
                 description="Ordered, comma separated Status__c values. Adding a status here is all that is needed to add a column." />
+            <property
+                name="subtitle"
+                type="String"
+                default=""
+                label="Subtitle"
+                description="A line under the board title. Empty shows nothing." />
         </targetConfig>
     </targetConfigs>
 </LightningComponentBundle>

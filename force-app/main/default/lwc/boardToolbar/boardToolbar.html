@@ -1,0 +1,33 @@
+<template>
+  <div class="toolbar">
+    <!-- A label wrapping its select names it without an id, which LWC would rewrite. -->
+    <label class="field">
+      <span class="field-label">View</span>
+      <select class="field-input" data-filter="view" onchange={handleView}>
+        <template for:each={viewItems} for:item="option">
+          <option
+            key={option.value}
+            value={option.value}
+            selected={option.selected}
+          >
+            {option.label}
+          </option>
+        </template>
+      </select>
+    </label>
+    <label class="field">
+      <span class="field-label">Source</span>
+      <select class="field-input" data-filter="source" onchange={handleSource}>
+        <template for:each={sourceItems} for:item="option">
+          <option
+            key={option.value}
+            value={option.value}
+            selected={option.selected}
+          >
+            {option.label}
+          </option>
+        </template>
+      </select>
+    </label>
+  </div>
+</template>

@@ -1,180 +1,191 @@
+@import "c/boardTheme";
+
 :host {
   display: block;
-  --wib-border: #d8dde6;
-  --wib-text-soft: #56657a;
-  --wib-text-faint: #7c8b9e;
-  --wib-warn: #a86403;
-  --wib-warn-bg: #fdf6e9;
-  --wib-err: #b12b23;
-  --wib-err-bg: #fdecea;
 }
 .board {
-  padding: 0.75rem;
-  font-family: inherit;
+  padding: 12px;
+  font-family: var(--board-font);
+  color: var(--board-ink);
 }
 .board-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--wib-border);
-  margin-bottom: 0.9rem;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--board-line);
 }
 .title {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 .freshness {
-  margin: 0.15rem 0 0;
-  font-size: 0.74rem;
-  color: var(--wib-text-faint);
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
 }
-.total {
-  font-size: 0.74rem;
-  color: var(--wib-text-faint);
+.head-side {
+  display: flex;
+  align-items: baseline;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
+.sep {
+  margin: 0 6px;
+}
+.toolbar {
+  margin-bottom: 16px;
+}
+
 .columns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
   align-items: start;
 }
 .column {
-  background: #f7f8fa;
-  border: 1px solid var(--wib-border);
-  border-radius: 4px;
-  padding: 0.6rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
+  padding: 8px;
+  background: var(--board-surface);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
 }
+/* The status as the data spells it. Sentence case: it is also the word on a Move to button. */
 .col-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   margin: 0;
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--wib-text-soft);
+  padding: 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
 }
 .col-count {
-  font-weight: 700;
+  font-weight: 400;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
 }
 .col-empty {
   margin: 0;
-  font-size: 0.76rem;
-  font-style: italic;
-  color: var(--wib-text-faint);
+  padding: 0 4px;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
 }
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 4px;
 }
 .children {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 0 0.85rem;
-  border-left: 2px solid var(--wib-border);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--board-line);
+  list-style: none;
 }
+/* Statuses no column accounts for. Marked in Pending's amber: worth a look, not an error. */
 .outside {
-  margin-top: 1.1rem;
-  padding: 0.7rem;
-  border: 1px dashed var(--wib-warn);
-  border-radius: 4px;
-  background: var(--wib-warn-bg);
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px dashed var(--board-pending-ink);
+  border-radius: var(--board-radius);
+  background: var(--board-pending-bg);
 }
 .outside-head {
   margin: 0;
-  font-size: 0.76rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--wib-warn);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--board-pending-ink);
 }
 .outside-note {
-  margin: 0.3rem 0 0.6rem;
-  font-size: 0.76rem;
-  line-height: 1.45;
-  color: var(--wib-text-soft);
   max-width: 62ch;
+  margin: 4px 0 8px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-ink);
 }
 .outside-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
 }
+
 .state {
   margin: 0;
-  padding: 1rem;
-  border: 1px solid var(--wib-border);
-  border-radius: 4px;
-  font-size: 0.85rem;
-  color: var(--wib-text-soft);
+  padding: 16px;
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+  font-size: 0.875rem;
+  color: var(--board-quiet);
 }
 .state-title {
   margin: 0;
-  font-weight: 700;
-  color: #16325c;
+  font-weight: 600;
+  color: var(--board-ink);
 }
 .state-detail,
 .state-hint {
-  margin: 0.3rem 0 0;
-  font-size: 0.8rem;
-}
-.state-hint {
-  color: var(--wib-text-faint);
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
 }
 .state-error {
-  border-color: var(--wib-err);
-  background: var(--wib-err-bg);
+  border-color: var(--board-danger);
 }
 .state-error .state-title {
-  color: var(--wib-err);
+  color: var(--board-danger);
 }
 
+/* The detail panel. Build 08 step 7 replaces it with cards that expand in place. */
 .detail {
-  border: 1px solid var(--wib-border);
-  border-left: 3px solid var(--wib-accent, #0176d3);
-  border-radius: 4px;
-  background: #fff;
-  padding: 0.75rem 0.85rem;
-  margin-bottom: 0.9rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--board-paper);
+  border: 1px solid var(--board-line);
+  border-left: 4px solid var(--board-ink);
+  border-radius: var(--board-radius);
 }
 .detail-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 16px;
 }
 .detail-title {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 .close,
 .status-btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
   font: inherit;
-  font-size: 0.78rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--wib-border);
-  border-radius: 3px;
-  background: #f7f8fa;
+  font-size: 0.8125rem;
+  color: var(--board-ink);
   cursor: pointer;
 }
 .status-btn:hover:not(:disabled),
 .close:hover {
-  border-color: var(--wib-accent, #0176d3);
-  color: var(--wib-accent, #0176d3);
+  background: var(--board-surface);
 }
 .status-btn:disabled {
   opacity: 0.5;
@@ -182,55 +193,50 @@
 }
 .close:focus-visible,
 .status-btn:focus-visible {
-  outline: 2px solid var(--wib-accent, #0176d3);
+  outline: 2px solid var(--board-ink);
   outline-offset: 2px;
 }
 .detail-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 1.4rem;
+  gap: 4px 24px;
   margin: 0;
 }
-.detail-facts dt {
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--wib-text-faint);
+.detail-facts dt,
+.detail-label {
+  font-size: 0.75rem;
+  color: var(--board-quiet);
 }
 .detail-facts dd {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
 }
 .detail-label {
-  margin: 0.2rem 0 0;
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--wib-text-faint);
+  margin: 4px 0 0;
 }
 .detail-actions {
   display: flex;
-  gap: 0.4rem;
   flex-wrap: wrap;
+  gap: 8px;
 }
 .detail-async {
-  margin: 0;
-  font-size: 0.74rem;
-  line-height: 1.45;
-  color: var(--wib-text-faint);
   max-width: 68ch;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
 }
 .detail-note {
   margin: 0;
-  font-size: 0.78rem;
-  padding: 0.4rem 0.55rem;
-  border-radius: 3px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8125rem;
 }
 .detail-ok {
-  background: #eef6ec;
-  color: #2e5c3f;
+  background: var(--board-surface);
+  color: var(--board-ink);
 }
 .detail-bad {
-  background: var(--wib-err-bg);
-  color: var(--wib-err);
+  border: 1px solid var(--board-danger);
+  color: var(--board-danger);
 }

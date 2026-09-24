@@ -1,0 +1,73 @@
+<template>
+  <!-- data-accent is a token from the payload; boardTheme maps it to a colour, and an unknown
+       one to neutral. The card never learns which source a token belongs to. -->
+  <article
+    class="card"
+    data-accent={card.accent}
+    data-key={card.key}
+    data-status={card.status}
+  >
+    <div class="head">
+      <h3 class="title">
+        <template lwc:if={selectable}>
+          <button
+            type="button"
+            class="title-btn"
+            data-select
+            onclick={handleSelect}
+          >
+            <span class={card.headingClass}>{card.heading}</span>
+          </button>
+        </template>
+        <template lwc:else>
+          <span class={card.headingClass}>{card.heading}</span>
+        </template>
+      </h3>
+      <!-- Pending and Failed only. Synced needs no second look, and a record with no remote
+           record has no sync state to show. -->
+      <template lwc:if={card.showSync}>
+        <span class={card.syncClass} data-sync>{card.syncStatus}</span>
+      </template>
+    </div>
+
+    <p class="meta" data-meta>
+      <span class="assistive">{card.metaSpoken}</span>
+      <span class="line" aria-hidden="true">
+        <template lwc:if={card.hasSourceLabel}>
+          <span class="source" data-source>{card.sourceLabel}</span>
+        </template>
+        <span class="ids" data-ids>
+          <template for:each={card.ids} for:item="id">
+            <span key={id.key} class="id"
+              ><template lwc:if={id.showSep}
+                ><span class="sep">·</span></template
+              >{id.text}</span
+            >
+          </template>
+        </span>
+        <template lwc:if={card.hasType}>
+          <span class="chip type" data-type>{card.type}</span>
+        </template>
+      </span>
+    </p>
+
+    <template lwc:if={card.hasDates}>
+      <p class="meta" data-dates>
+        <span class="assistive">{card.datesSpoken}</span>
+        <span class="line dates" aria-hidden="true">
+          <template for:each={card.dates} for:item="part">
+            <span key={part.key} class={part.cssClass} data-date={part.key}
+              ><template lwc:if={part.showSep}
+                ><span class="sep">·</span></template
+              >{part.text}</span
+            >
+          </template>
+        </span>
+      </p>
+    </template>
+
+    <template lwc:if={card.showParentNote}>
+      <p class="parent-note">{card.parentNote}</p>
+    </template>
+  </article>
+</template>

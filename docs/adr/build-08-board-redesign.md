@@ -46,3 +46,49 @@ behaviours stay answered rather than inferred.
 
 **Revisit when** a source is added whose name should not appear publicly - its `Board_Source__mdt`
 label can say something generic without any code change.
+
+---
+
+## 2. One card for both boards, with abilities granted by the board
+
+**Context.** Until step 6 there were three card components: `workItemCard` for the internal board
+and `publicWorkItemCard` and `publicEpicCard` for the public one. The split existed for a real
+reason - the internal card was clickable, and a clickable card in front of an anonymous visitor
+advertises an action that does not exist - but it meant every card change was made twice, and the
+two had already drifted: different sizes, different fallbacks, a sync flag on one and not the
+other's epics.
+
+**Decision.** One `boardCard` and one `boardEpicCard`, used by both boards. What a card can do is
+passed in by the board, not inferred by the card: `selectable` puts a button in the card's heading,
+the internal board passes it and the public board does not. A public card therefore contains no
+control at all, by construction rather than by a branch. Step 7 adds the rest of the abilities -
+expand, edit, drag - the same way, so each is something the internal board grants and the public
+board never does. The shared view model lives in `boardModel`, pure functions beside
+`boardLayout`, and the shared tokens in `boardTheme`, a CSS-only module.
+
+**What makes sharing safe.** An LWC import is not conditional: anything a shared module imports
+ships to the guest. `lwc/__tests__/guestBundle.test.js` walks the public board's graph from source
+(JavaScript imports, the child components its templates render, the stylesheets they import) and
+fails if:
+
+- any Apex import appears in it other than `PublicBoardController.getPublicBoardData`, made by the
+  public board itself;
+- `WorkItemBoardController` is named anywhere in it;
+- anything in it imports `lightning/empApi`;
+- any module the two boards share imports from `@salesforce/*` or `lightning/*` at all.
+
+It was run against a deliberately planted `WorkItemBoardController` import in `boardCard` and
+failed on three of its five rules before being trusted.
+
+**The guard test widened too.** The public board's "no control but these" test used to query the
+board's own shadow root, so a button added inside a card - which renders in its own shadow tree -
+would have passed it. It now walks every shadow root and asserts the exact list: Refresh, View,
+Source.
+
+**Consequences.** A card change is made once. The internal board's step 1 accessibility pin,
+`aria-allowed-role` for `<article role="button">`, is gone: the matcher failed on the fix as it was
+built to, and both boards now pass sa11y with nothing pinned. The epic title truncation carried
+since build 06 is fixed because there is one epic card to fix.
+
+**Revisit when** a board needs a card that differs in more than its abilities. Until then, a
+difference between the boards is a capability, not a component.

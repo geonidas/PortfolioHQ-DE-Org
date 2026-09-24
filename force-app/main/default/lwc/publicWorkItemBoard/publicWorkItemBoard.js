@@ -7,9 +7,20 @@ import {
   layoutColumns,
   nestByParent
 } from "c/boardLayout";
+import {
+  VIEW_TASKS,
+  VIEW_EPICS,
+  ALL_SOURCES,
+  cardModel,
+  epicModel,
+  sourceOptions,
+  bySource,
+  keptSource,
+  formatInstant,
+  countLabel,
+  epicViewCountLabel
+} from "c/boardModel";
 
-const VIEW_TASKS = "tasks";
-const VIEW_EPICS = "epics";
 const DONE = "Done";
 
 /** How often a visible, active page re-reads the board. */
@@ -47,6 +58,7 @@ export default class PublicWorkItemBoard extends LightningElement {
   board;
   viewColumns = [];
   otherCards = [];
+  taskCards = [];
   epicCards = [];
   passThroughCards = [];
   epicColumns = [];
@@ -54,8 +66,16 @@ export default class PublicWorkItemBoard extends LightningElement {
   errorMessage;
   isLoading = true;
 
-  // Which view is on screen. Display state only - see handleView.
+  // What is on screen: which view, and which source. Display state only - see handleView.
   view = VIEW_TASKS;
+  source = ALL_SOURCES;
+  sourceChoices = [];
+
+  /**
+   * A line under the title, set in Experience Builder and empty by default. Page copy, so it
+   * lives with the page rather than in the component or the payload.
+   */
+  @api subtitle;
 
   // Staying current. LWR sites do not support lightning/empApi, so this board re-reads instead
   // of subscribing: every POLL_MS while the page is visible and the visitor has done something
@@ -175,11 +195,14 @@ export default class PublicWorkItemBoard extends LightningElement {
       this.rebuild();
     } else if (result.error) {
       this.board = undefined;
-      this.viewColumns = [];
-      this.otherCards = [];
+      this.rebuild();
       this.errorMessage = "The board is unavailable right now.";
       this.isLoading = false;
     }
+  }
+
+  get hasSubtitle() {
+    return !!(this.subtitle && String(this.subtitle).trim());
   }
 
   // ---------- state ----------
@@ -187,44 +210,42 @@ export default class PublicWorkItemBoard extends LightningElement {
   get hasError() {
     return !!this.errorMessage;
   }
-  // The board as a whole is empty only when neither view has anything. With epics present
-  // but no open work, the task view shows its own empty state and the toggle stays reachable.
+  // The board as a whole is empty only when the payload has nothing for either view. Judged on
+  // the payload, not on what the filters leave: a filter that empties a view shows that view's
+  // own empty state, and the toolbar stays on screen to undo it.
   get isEmpty() {
     return (
       !this.isLoading &&
       !this.hasError &&
       !!this.board &&
-      this.taskCount === 0 &&
-      this.epicCount === 0
-    );
-  }
-  get showBoard() {
-    return (
-      !this.isLoading &&
-      !this.hasError &&
-      !!this.board &&
-      (this.taskCount > 0 || this.epicCount > 0)
+      (this.board.items || []).length === 0 &&
+      (this.board.epics || []).length === 0
     );
   }
   get hasOther() {
     return this.otherCards.length > 0;
   }
 
-  // ---------- view switching ----------
+  // ---------- filters ----------
 
   /**
-   * Switches which payload is rendered. Nothing else.
+   * Switches which view is rendered. Nothing else.
    *
    * Both datasets arrived together in the single cacheable call that loaded the page, so this
    * re-renders from memory and issues no request. It could not issue a narrower one in any
    * case: getPublicBoardData takes no parameters, so there is nothing the client can send that
-   * would change what comes back.
+   * would change what comes back. The same is true of the Source filter below.
    */
-  handleView(event) {
-    const next = event.currentTarget.dataset.view;
-    if (next && next !== this.view) {
+  handleViewChange(event) {
+    const next = event.detail.value;
+    if (next === VIEW_TASKS || next === VIEW_EPICS) {
       this.view = next;
     }
+  }
+
+  handleSourceChange(event) {
+    this.source = event.detail.value || ALL_SOURCES;
+    this.rebuild();
   }
 
   get isTaskView() {
@@ -233,18 +254,11 @@ export default class PublicWorkItemBoard extends LightningElement {
   get isEpicView() {
     return this.view === VIEW_EPICS;
   }
-  // aria-pressed wants the string, not the boolean.
-  get taskPressed() {
-    return String(this.isTaskView);
+  get isFiltered() {
+    return this.source !== ALL_SOURCES;
   }
-  get epicPressed() {
-    return String(this.isEpicView);
-  }
-  get taskToggleClass() {
-    return this.isTaskView ? "view-btn is-on" : "view-btn";
-  }
-  get epicToggleClass() {
-    return this.isEpicView ? "view-btn is-on" : "view-btn";
+  get filteredEmptyTitle() {
+    return `Nothing from ${this.source} here.`;
   }
 
   // Everything the epic view shows: the epics, plus the cards the toggle leaves alone. A board
@@ -256,7 +270,7 @@ export default class PublicWorkItemBoard extends LightningElement {
     return this.otherEpics.length > 0;
   }
   get taskCount() {
-    return this.board ? this.board.itemCount : 0;
+    return this.taskCards.length;
   }
 
   // Each view says for itself when it has nothing, because "no epics yet" and "no open work"
@@ -272,19 +286,16 @@ export default class PublicWorkItemBoard extends LightningElement {
       ? this.board.projectLabel
       : "Work items";
   }
+  /** When the data last changed, as opposed to checkedLabel: when this page last asked. */
   get freshnessLabel() {
-    if (!this.board || !this.board.lastSyncedAt) {
-      return "";
-    }
-    return `Last updated ${new Date(this.board.lastSyncedAt).toLocaleDateString()}`;
+    const when = this.board && formatInstant(this.board.lastSyncedAt);
+    return when ? `Updated ${when}` : "";
   }
+  // What is on screen, after the filters - not what the payload holds.
   get countLabel() {
-    if (this.isEpicView) {
-      const e = this.epicCount;
-      return `${e} ${e === 1 ? "epic" : "epics"}`;
-    }
-    const n = this.taskCount;
-    return `${n} ${n === 1 ? "item" : "items"}`;
+    return this.isEpicView
+      ? epicViewCountLabel(this.epicCards.length, this.passThroughCards.length)
+      : countLabel(this.taskCount, "item", "items");
   }
 
   // ---------- view model ----------
@@ -293,15 +304,27 @@ export default class PublicWorkItemBoard extends LightningElement {
     return columnsFrom(this._columnsRaw);
   }
 
+  /**
+   * Both views' layouts, from the payload through the Source filter. The filter runs first, so
+   * the epic view's pass-through cards and the counts all agree with it.
+   */
   rebuild() {
-    this.rebuildEpics();
-    if (!this.board || !this.board.items) {
-      this.viewColumns = [];
-      this.otherCards = [];
-      return;
-    }
+    const items = (this.board && this.board.items) || [];
+    const epics = (this.board && this.board.epics) || [];
+    this.sourceChoices = sourceOptions(items, epics);
+    this.source = keptSource(this.source, this.sourceChoices);
+    const shownItems = bySource(items, this.source);
 
-    const cards = this.board.items.map((item) => this.toCard(item));
+    this.rebuildEpics(bySource(epics, this.source), shownItems);
+
+    // The parent is named by auto number, and only when it is itself public; the board nests
+    // on it and says nothing when it is absent.
+    const cards = shownItems.map((item) =>
+      Object.assign(cardModel(item), {
+        parentNumber: item.parentNumber || null
+      })
+    );
+    this.taskCards = cards;
     // Nest only when parent and child share a column. A child elsewhere simply stands on its
     // own - no note, because a note about a record a visitor cannot see is either noise or a
     // leak. Keyed on auto numbers, since this board publishes no ids at all.
@@ -339,21 +362,19 @@ export default class PublicWorkItemBoard extends LightningElement {
    * recently updated completed ones. That cap is not re-implemented here and cannot drift from
    * it; it simply means the Done column is bounded, which is the whole point of capping it.
    */
-  rebuildEpics() {
-    const epics = (this.board && this.board.epics) || [];
-    this.epicCards = epics.map((epic, index) => this.toEpicCard(epic, index));
+  rebuildEpics(epics, items) {
+    // The DTO carries no identifier at all, by design - no id, no auto number, no key. The list
+    // is rebuilt whole from each payload, so a positional key is stable for exactly as long as
+    // it needs to be.
+    this.epicCards = epics.map((epic, index) =>
+      epicModel(epic, { key: `epic-${index}` })
+    );
 
-    // Cards the toggle does not transform, shown identically in both views.
-    this.passThroughCards = ((this.board && this.board.items) || [])
+    // Cards the view does not transform, shown identically in both views. A pass-through card
+    // has an auto number, so it keys on that rather than a position.
+    this.passThroughCards = items
       .filter((item) => !item.condensesIntoEpic)
-      .map((item) => ({
-        ...this.toCard(item),
-        isEpic: false,
-        // The epic columns key on `key`, because epic cards carry no identifier of any kind.
-        // A pass-through card has an auto number, so it uses that rather than a position -
-        // stable across a re-render in a way an index is not.
-        key: `item-${item.recordNumber}`
-      }));
+      .map((item) => cardModel(item, { key: `item-${item.recordNumber}` }));
 
     const laid = layoutColumns(
       [...this.epicCards, ...this.passThroughCards],
@@ -371,66 +392,5 @@ export default class PublicWorkItemBoard extends LightningElement {
       emptyLabel: col.key === DONE ? "No completed epics yet" : "No epics here"
     }));
     this.otherEpics = laid.other;
-  }
-
-  toEpicCard(epic, index) {
-    const total = epic.totalChildren || 0;
-    const done = epic.completedChildren || 0;
-    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-    const isComplete = epic.status === DONE;
-    return {
-      // The DTO carries no identifier at all, by design - no id, no auto number, no key.
-      // The list is rebuilt whole from each payload, so a positional key is stable for
-      // exactly as long as it needs to be.
-      key: `epic-${index}`,
-      // Tells the template which component to render, now that the epic columns hold both.
-      isEpic: true,
-      // No fallback to an external key or record number, because neither is in the epic
-      // payload. An untitled epic is labelled here rather than published differently.
-      heading: epic.title || "Untitled epic",
-      headingClass: epic.title ? "has-title" : "is-fallback",
-      status: epic.status,
-      statusClass: isComplete ? "status status-done" : "status",
-      isComplete,
-      hasChildren: total > 0,
-      // "0 of 0" reads as broken. An epic with nothing under it says so in words.
-      progressLabel:
-        total > 0 ? `${done} of ${total} done` : "No child items yet",
-      barStyle: `width: ${percent}%`
-    };
-  }
-
-  toCard(item) {
-    const hasTitle = !!item.title;
-    const heading = item.title || item.externalKey || item.recordNumber;
-    const ident = item.externalKey
-      ? `${item.recordNumber} · ${item.externalKey}`
-      : item.recordNumber;
-    const isSynced = item.syncStatus === "Synced";
-    return {
-      recordNumber: item.recordNumber,
-      heading,
-      headingClass: hasTitle ? "has-title" : "is-fallback",
-      identLabel: ident,
-      status: item.status,
-      // The DTO already sends null for an unmapped type, so the component never has to know
-      // the sentinel value.
-      type: item.type,
-      hasType: !!item.type,
-      projectLabel: item.projectLabel,
-      hasProjectLabel: !!item.projectLabel,
-      syncStatus: item.syncStatus,
-      showSyncFlag: !isSynced,
-      syncClass:
-        item.syncStatus === "Failed"
-          ? "sync-flag sync-failed"
-          : "sync-flag sync-pending",
-      parentNumber: item.parentNumber || null,
-      children: [],
-      hasChildren: false,
-      // Decided by the server, from BoardSourceRules. The client never sees a vendor name.
-      condensesIntoEpic: !!item.condensesIntoEpic,
-      isEpic: false
-    };
   }
 }
