@@ -31,13 +31,55 @@
   font-weight: 600;
   line-height: 1.35;
 }
-/* The build 06 carry-over: an epic title ran to four lines in a column. Two, as on every card. */
+.disclosure {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.disclosure:hover .heading {
+  text-decoration: underline;
+}
+.disclosure:focus-visible,
+.record-link:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* The build 06 carry-over: an epic title ran to four lines in a column. Two, as on every card,
+   and all of it once the card is open. */
 .heading {
+  flex: 1 1 auto;
+  min-width: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+.heading.is-open {
+  display: block;
+}
+.chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 6px 2px 0 4px;
+  border-right: 2px solid var(--board-quiet);
+  border-bottom: 2px solid var(--board-quiet);
+  transform: rotate(45deg);
+}
+.is-expanded .chevron {
+  margin-top: 9px;
+  transform: rotate(-135deg);
 }
 .is-fallback {
   font-weight: 500;
@@ -87,4 +129,23 @@
   line-height: 1.5;
   color: var(--board-quiet);
   font-variant-numeric: tabular-nums;
+}
+
+.card.is-expanded {
+  padding-left: 18px;
+  border-color: var(--board-quiet);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--board-ink) 14%, transparent);
+}
+.card.is-expanded::before {
+  width: 6px;
+}
+.details[hidden] {
+  display: none;
+}
+.record-row {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.record-link {
+  color: var(--board-link);
 }

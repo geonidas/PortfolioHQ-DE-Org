@@ -83,7 +83,9 @@ failed on three of its five rules before being trusted.
 **The guard test widened too.** The public board's "no control but these" test used to query the
 board's own shadow root, so a button added inside a card - which renders in its own shadow tree -
 would have passed it. It now walks every shadow root and asserts the exact list: Refresh, View,
-Source.
+Source. (As written in step 6 it compared with `toEqual`, which skips `undefined` entries, so a
+control with no identifying attribute still slipped past it. Step 7 found that and made it
+`toStrictEqual`; see below.)
 
 **Consequences.** A card change is made once. The internal board's step 1 accessibility pin,
 `aria-allowed-role` for `<article role="button">`, is gone: the matcher failed on the fix as it was
@@ -92,3 +94,25 @@ since build 06 is fixed because there is one epic card to fix.
 
 **Revisit when** a board needs a card that differs in more than its abilities. Until then, a
 difference between the boards is a capability, not a component.
+
+**Amended in step 7.** Two things step 6 said here were wrong or are superseded.
+
+- **Opening a card is not an ability.** Step 6 listed "expand" among the abilities the internal
+  board would grant. The spec gives the public board an open card too - read only, showing what
+  the payload already carries - so the disclosure is on every card on both boards, and the board
+  says which card is open through `expandedKey`. What opening _shows_ is still the board's to
+  grant: `abilities` is `{ moveTo, edit, openRecord, titleMax }`, the internal board passes it, and
+  the public board passes nothing. A public open card holds its full title, dates with years, the
+  public parent's number and the project, and one control: its disclosure. `selectable` is gone;
+  the disclosure replaced it.
+- **The guard's exact list was not exact.** It mapped each control to its `data-filter` or
+  `data-action` and compared with `toEqual`, which ignores `undefined` array entries - so every
+  control without one of those attributes vanished from the comparison. Step 7's disclosure buttons
+  passed it untouched, which is how it was found. It now names every control (an unknown one by its
+  tag) and compares with `toStrictEqual`; the expected list is Refresh, View, Source, and one
+  disclosure per card. It was proven by planting a link in the card: both guards failed.
+
+The card still calls no Apex. It raises `toggle`, `move`, `save` and `openrecord`; the internal
+board calls `changeStatus` and `saveDetails`, generates the record URL with `NavigationMixin`, and
+hands the outcome back as `feedback`. `lightning/navigation` is imported by the internal board
+alone, so the guest-bundle rule that shared modules import nothing from `lightning/*` still holds.

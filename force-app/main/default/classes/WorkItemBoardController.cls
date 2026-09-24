@@ -10,6 +10,10 @@
  * is what makes adding a status a configuration change rather than a deployment.
  */
 public with sharing class WorkItemBoardController {
+  /** Grants the board's Open record link. Assigned through Portfolio_HQ_Developer. */
+  @TestVisible
+  private static final String OPEN_RECORD_PERMISSION = 'Portfolio_HQ_Open_Record';
+
   /**
    * Everything the board needs, in one round trip: every card, and the epic view built by the
    * same rules the public board uses.
@@ -41,6 +45,8 @@ public with sharing class WorkItemBoardController {
       board.projectId = projectId;
       board.projectLabel = ProjectSelector.labelFor(project);
       board.lastSyncedAt = mostRecentSync(items);
+      board.canOpenRecord = canOpenRecord();
+      board.titleMaxLength = TITLE_MAX;
       return board;
     } catch (Exception e) {
       // A raw exception reaches the client as an opaque server error. Converting it gives
@@ -329,6 +335,17 @@ public with sharing class WorkItemBoardController {
     }
   }
 
+  /**
+   * Whether the running user sees the Open record link. A custom permission rather than a
+   * profile check, so it is granted by assignment and an administrator without the permission
+   * set does not get it by default. It gates a link, not access: the record page applies the
+   * user's own sharing and permissions.
+   */
+  @TestVisible
+  private static Boolean canOpenRecord() {
+    return FeatureManagement.checkPermission(OPEN_RECORD_PERMISSION);
+  }
+
   /** The stored title limit, capped at 255 - the most either source takes as a title. */
   @TestVisible
   private static final Integer TITLE_MAX = Math.min(
@@ -417,6 +434,12 @@ public with sharing class WorkItemBoardController {
     public String projectLabel { get; set; }
     @AuraEnabled
     public Datetime lastSyncedAt { get; set; }
+    /** Whether the running user has Portfolio_HQ_Open_Record: the card's Open record link. */
+    @AuraEnabled
+    public Boolean canOpenRecord { get; set; }
+    /** The title limit saveDetails enforces, so the card can say so before it sends. */
+    @AuraEnabled
+    public Integer titleMaxLength { get; set; }
   }
 
   /**

@@ -237,6 +237,91 @@ private class WorkItemBoardControllerTest {
     );
   }
 
+  // ---------- the record link (build 08 step 7) ----------
+
+  /** A Standard User, optionally holding Portfolio_HQ_Developer. */
+  private static User boardUser(String alias, Boolean withDeveloperSet) {
+    User created;
+    // Creating a User alongside custom object DML needs its own context.
+    System.runAs(new User(Id = UserInfo.getUserId())) {
+      Profile standard = [
+        SELECT Id
+        FROM Profile
+        WHERE Name = 'Standard User'
+        LIMIT 1
+      ];
+      created = new User(
+        ProfileId = standard.Id,
+        LastName = alias,
+        Email = alias + '@example.com',
+        Username = alias +
+          DateTime.now().getTime() +
+          '@example.com.portfoliohq',
+        Alias = alias.left(8),
+        TimeZoneSidKey = 'GMT',
+        LocaleSidKey = 'en_US',
+        EmailEncodingKey = 'UTF-8',
+        LanguageLocaleKey = 'en_US'
+      );
+      insert created;
+      if (withDeveloperSet) {
+        PermissionSet developer = [
+          SELECT Id
+          FROM PermissionSet
+          WHERE Name = 'Portfolio_HQ_Developer'
+          LIMIT 1
+        ];
+        insert new PermissionSetAssignment(
+          AssigneeId = created.Id,
+          PermissionSetId = developer.Id
+        );
+      }
+    }
+    return created;
+  }
+
+  @IsTest
+  static void theRecordLinkFollowsTheCustomPermission() {
+    User developer = boardUser('phqdev', true);
+    User other = boardUser('phqother', false);
+
+    WorkItemBoardController.BoardData board;
+    Boolean otherMayOpen;
+    Test.startTest();
+    System.runAs(developer) {
+      board = WorkItemBoardController.getBoardData(null);
+    }
+    System.runAs(other) {
+      otherMayOpen = WorkItemBoardController.canOpenRecord();
+    }
+    Test.stopTest();
+
+    Assert.isTrue(
+      board.canOpenRecord,
+      'Portfolio_HQ_Developer carries ' +
+        WorkItemBoardController.OPEN_RECORD_PERMISSION +
+        ', so its holder sees the link.'
+    );
+    // Asked directly, because a user without the permission set cannot read the board at all
+    // and getBoardData would refuse before answering.
+    Assert.isFalse(
+      otherMayOpen,
+      'Without the permission set there is no link: a profile does not grant it.'
+    );
+  }
+
+  @IsTest
+  static void theBoardSaysHowLongATitleMayBe() {
+    Test.startTest();
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      null
+    );
+    Test.stopTest();
+
+    // The card checks the same limit saveDetails enforces, and says so before it sends.
+    Assert.areEqual(WorkItemBoardController.TITLE_MAX, board.titleMaxLength);
+  }
+
   // ---------- status change ----------
 
   @IsTest

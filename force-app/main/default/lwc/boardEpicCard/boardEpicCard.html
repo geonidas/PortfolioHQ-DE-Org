@@ -1,12 +1,23 @@
 <template>
   <article
-    class="card"
+    class={cardClass}
     data-accent={epic.accent}
     data-key={epic.key}
     data-status={epic.status}
+    onkeydown={handleKeydown}
   >
     <h3 class="title">
-      <span class={epic.headingClass}>{epic.heading}</span>
+      <button
+        type="button"
+        class="disclosure"
+        aria-expanded={expandedText}
+        aria-controls="details"
+        data-disclosure
+        onclick={handleToggle}
+      >
+        <span class={headingClass}>{epic.heading}</span>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
     </h3>
 
     <p class="meta" data-meta>
@@ -28,5 +39,21 @@
       </div>
     </template>
     <p class="count">{epic.progressLabel}</p>
+
+    <!-- Opening shows the whole title, above; the link is the only thing added here. -->
+    <div id="details" class="details" hidden={isCollapsed} data-details>
+      <template lwc:if={showRecordLink}>
+        <p class="record-row">
+          <a
+            class="record-link"
+            href={recordUrl}
+            aria-label={recordLinkLabel}
+            data-record-link
+            onclick={handleRecordLink}
+            >Open record</a
+          >
+        </p>
+      </template>
+    </div>
   </article>
 </template>

@@ -66,10 +66,12 @@ export default class PublicWorkItemBoard extends LightningElement {
   errorMessage;
   isLoading = true;
 
-  // What is on screen: which view, and which source. Display state only - see handleView.
+  // What is on screen: which view, which source, and which card is open. Display state only -
+  // see handleViewChange.
   view = VIEW_TASKS;
   source = ALL_SOURCES;
   sourceChoices = [];
+  expandedKey = null;
 
   /**
    * A line under the title, set in Experience Builder and empty by default. Page copy, so it
@@ -248,6 +250,16 @@ export default class PublicWorkItemBoard extends LightningElement {
     this.rebuild();
   }
 
+  /**
+   * Opens a card in place, one at a time. The open card shows what the payload already carries
+   * - the whole title, dates in full, the public parent and the project - and nothing more:
+   * this board passes its cards no abilities, so an open card has nothing to act with.
+   */
+  handleToggle(event) {
+    const key = event.detail.key;
+    this.expandedKey = this.expandedKey === key ? null : key;
+  }
+
   get isTaskView() {
     return this.view === VIEW_TASKS;
   }
@@ -317,13 +329,7 @@ export default class PublicWorkItemBoard extends LightningElement {
 
     this.rebuildEpics(bySource(epics, this.source), shownItems);
 
-    // The parent is named by auto number, and only when it is itself public; the board nests
-    // on it and says nothing when it is absent.
-    const cards = shownItems.map((item) =>
-      Object.assign(cardModel(item), {
-        parentNumber: item.parentNumber || null
-      })
-    );
+    const cards = shownItems.map((item) => this.toCard(item));
     this.taskCards = cards;
     // Nest only when parent and child share a column. A child elsewhere simply stands on its
     // own - no note, because a note about a record a visitor cannot see is either noise or a
@@ -374,7 +380,7 @@ export default class PublicWorkItemBoard extends LightningElement {
     // has an auto number, so it keys on that rather than a position.
     this.passThroughCards = items
       .filter((item) => !item.condensesIntoEpic)
-      .map((item) => cardModel(item, { key: `item-${item.recordNumber}` }));
+      .map((item) => this.toCard(item, `item-${item.recordNumber}`));
 
     const laid = layoutColumns(
       [...this.epicCards, ...this.passThroughCards],
@@ -392,5 +398,17 @@ export default class PublicWorkItemBoard extends LightningElement {
       emptyLabel: col.key === DONE ? "No completed epics yet" : "No epics here"
     }));
     this.otherEpics = laid.other;
+  }
+
+  /**
+   * The parent is named by auto number, and only when it is itself public: the payload leaves
+   * parentNumber empty otherwise, and the card then says nothing about a parent at all. The
+   * board nests on it too.
+   */
+  toCard(item, key) {
+    return Object.assign(cardModel(item, { key }), {
+      parentNumber: item.parentNumber || null,
+      parentLine: item.parentNumber || null
+    });
   }
 }

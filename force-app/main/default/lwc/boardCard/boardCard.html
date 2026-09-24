@@ -2,33 +2,32 @@
   <!-- data-accent is a token from the payload; boardTheme maps it to a colour, and an unknown
        one to neutral. The card never learns which source a token belongs to. -->
   <article
-    class="card"
+    class={cardClass}
     data-accent={card.accent}
     data-key={card.key}
     data-status={card.status}
+    onkeydown={handleKeydown}
   >
-    <div class="head">
-      <h3 class="title">
-        <template lwc:if={selectable}>
-          <button
-            type="button"
-            class="title-btn"
-            data-select
-            onclick={handleSelect}
-          >
-            <span class={card.headingClass}>{card.heading}</span>
-          </button>
+    <!-- The header is the disclosure: one button, named by the title and the sync state. -->
+    <h3 class="title">
+      <button
+        type="button"
+        class="disclosure"
+        aria-expanded={expandedText}
+        aria-controls="details"
+        aria-label={headerLabel}
+        data-disclosure
+        onclick={handleToggle}
+      >
+        <span class={headingClass}>{card.heading}</span>
+        <!-- Pending and Failed only. Synced needs no second look, and a record with no remote
+             record has no sync state to show. -->
+        <template lwc:if={card.showSync}>
+          <span class={card.syncClass} data-sync>{card.syncStatus}</span>
         </template>
-        <template lwc:else>
-          <span class={card.headingClass}>{card.heading}</span>
-        </template>
-      </h3>
-      <!-- Pending and Failed only. Synced needs no second look, and a record with no remote
-           record has no sync state to show. -->
-      <template lwc:if={card.showSync}>
-        <span class={card.syncClass} data-sync>{card.syncStatus}</span>
-      </template>
-    </div>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
+    </h3>
 
     <p class="meta" data-meta>
       <span class="assistive">{card.metaSpoken}</span>
@@ -53,9 +52,9 @@
 
     <template lwc:if={card.hasDates}>
       <p class="meta" data-dates>
-        <span class="assistive">{card.datesSpoken}</span>
+        <span class="assistive">{datesSpoken}</span>
         <span class="line dates" aria-hidden="true">
-          <template for:each={card.dates} for:item="part">
+          <template for:each={dateLine} for:item="part">
             <span key={part.key} class={part.cssClass} data-date={part.key}
               ><template lwc:if={part.showSep}
                 ><span class="sep">·</span></template
@@ -66,8 +65,159 @@
       </p>
     </template>
 
-    <template lwc:if={card.showParentNote}>
+    <template lwc:if={showParentNote}>
       <p class="parent-note">{card.parentNote}</p>
     </template>
+
+    <!-- Always present, so aria-controls always names something; filled only while open. -->
+    <div id="details" class="details" hidden={isCollapsed} data-details>
+      <template lwc:if={isExpanded}>
+        <template lwc:if={card.hasDescription}>
+          <p class="description" data-description>{card.description}</p>
+        </template>
+
+        <template lwc:if={hasFacts}>
+          <dl class="facts">
+            <template lwc:if={card.parentLine}>
+              <div class="fact">
+                <dt>Part of</dt>
+                <dd data-parent>{card.parentLine}</dd>
+              </div>
+            </template>
+            <template lwc:if={card.hasProjectLabel}>
+              <div class="fact">
+                <dt>Project</dt>
+                <dd data-project>{card.projectLabel}</dd>
+              </div>
+            </template>
+            <template lwc:if={card.syncNote}>
+              <div class="fact">
+                <dt>Sync</dt>
+                <dd data-sync-note>{card.syncNote}</dd>
+              </div>
+            </template>
+          </dl>
+        </template>
+
+        <template lwc:if={hasMoveItems}>
+          <div class="move" role="group" aria-labelledby="move-label">
+            <span id="move-label" class="field-label">Move to</span>
+            <template for:each={moveItems} for:item="option">
+              <button
+                key={option.key}
+                type="button"
+                class="btn"
+                data-move={option.key}
+                aria-disabled={busyText}
+                onclick={handleMove}
+              >
+                {option.label}
+              </button>
+            </template>
+          </div>
+        </template>
+
+        <template lwc:if={canEdit}>
+          <form class="editor" novalidate onsubmit={handleSubmit}>
+            <div class="field">
+              <label class="field-label" for="title">Title</label>
+              <input
+                id="title"
+                class="field-input"
+                type="text"
+                value={titleValue}
+                aria-invalid={titleInvalid}
+                aria-describedby="title-error"
+                data-field="title"
+                oninput={handleTitle}
+              />
+              <p id="title-error" class="field-error" data-error="title">
+                {titleError}
+              </p>
+            </div>
+
+            <div class="field-row">
+              <template lwc:if={card.supportsStartDate}>
+                <div class="field">
+                  <label class="field-label" for="start">Start</label>
+                  <input
+                    id="start"
+                    class="field-input"
+                    type="date"
+                    value={startValue}
+                    aria-invalid={startInvalid}
+                    aria-describedby="start-error"
+                    data-field="startDate"
+                    onchange={handleStart}
+                  />
+                </div>
+              </template>
+              <div class="field">
+                <label class="field-label" for="due">Due</label>
+                <input
+                  id="due"
+                  class="field-input"
+                  type="date"
+                  value={dueValue}
+                  aria-invalid={dueInvalid}
+                  aria-describedby="due-error"
+                  data-field="dueDate"
+                  onchange={handleDue}
+                />
+              </div>
+            </div>
+            <!-- Under the pair, because "start is after due" is about both. -->
+            <p id="start-error" class="field-error" data-error="startDate">
+              {startError}
+            </p>
+            <p id="due-error" class="field-error" data-error="dueDate">
+              {dueError}
+            </p>
+            <template lwc:if={showNoStartNote}>
+              <p class="field-note" data-no-start>{startUnsupportedNote}</p>
+            </template>
+
+            <div class="actions">
+              <button
+                type="submit"
+                class="btn btn-primary"
+                data-action="save"
+                aria-disabled={busyText}
+              >
+                Save changes
+              </button>
+              <button
+                type="button"
+                class="btn"
+                data-action="cancel"
+                onclick={handleCancel}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </template>
+
+        <template lwc:if={showRecordLink}>
+          <p class="record-row">
+            <a
+              class="record-link"
+              href={recordUrl}
+              aria-label={recordLinkLabel}
+              data-record-link
+              onclick={handleRecordLink}
+              >Open record</a
+            >
+          </p>
+        </template>
+
+        <template lwc:if={abilities}>
+          <!-- Announced when it changes: what the save or the move did, in the board's words. -->
+          <p class={feedbackClass} role="status" data-feedback>
+            {feedbackMessage}
+          </p>
+        </template>
+      </template>
+    </div>
   </article>
 </template>

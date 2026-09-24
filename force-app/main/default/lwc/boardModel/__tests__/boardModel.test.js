@@ -1,5 +1,8 @@
 import {
   ALL_SOURCES,
+  detailErrors,
+  moveOptions,
+  syncNote,
   bySource,
   cardModel,
   dateParts,
@@ -214,6 +217,82 @@ describe("boardModel cards", () => {
       headingClass: "heading is-fallback",
       hasRecordNumber: false
     });
+  });
+});
+
+describe("boardModel open card", () => {
+  it("spells dates out with their year when asked", () => {
+    expect(formatDay("2026-09-24", NOW, true)).toBe("24 Sep 2026");
+    expect(
+      cardModel(item({ dueDate: "2026-10-01" }), { now: NOW }).datesLongSpoken
+    ).toBe("Created 12 Sep 2026, Due 1 Oct 2026");
+  });
+
+  it("explains each sync state by the source's label, and never overclaims", () => {
+    const at = (syncStatus, syncError) =>
+      syncNote({ syncStatus, syncError, sourceLabel: "Source A" });
+    expect(at("Pending")).toBe(
+      "Pending: saved in Salesforce, and the Source A update is running."
+    );
+    expect(at("Synced")).toBe("In step with Source A.");
+    expect(at("Failed", "Refused: no such transition.")).toBe(
+      "Failed: Source A did not accept the last change. Refused: no such transition. " +
+        "It is sent again with the next change you save."
+    );
+    // No sync state: the record has no remote record, and says so rather than "Pending".
+    expect(at(null)).toBe(
+      "Not linked to a Source A record, so nothing is sent."
+    );
+    expect(syncNote({ syncStatus: "Synced" })).toBe(
+      "In step with the source system."
+    );
+  });
+
+  it("offers every column but the card's own", () => {
+    expect(
+      moveOptions(["To Do", "In Progress", "Done"], "In Progress").map(
+        (o) => o.key
+      )
+    ).toStrictEqual(["To Do", "Done"]);
+    expect(moveOptions(undefined, "To Do")).toStrictEqual([]);
+  });
+
+  it("checks a draft the way saveDetails does, in the same words", () => {
+    const rules = {
+      titleMax: 10,
+      supportsStartDate: true,
+      sourceLabel: "Source A"
+    };
+    expect(
+      detailErrors({ title: "Fine", startDate: "", dueDate: "" }, rules)
+    ).toStrictEqual({});
+    expect(detailErrors({ title: "  " }, rules).title).toBe(
+      "A title is required. Type one before saving."
+    );
+    expect(detailErrors({ title: "x".repeat(12) }, rules).title).toBe(
+      "The title is 12 characters; the limit is 10. Shorten it by 2."
+    );
+    expect(
+      detailErrors(
+        { title: "Fine", startDate: "2026-10-02", dueDate: "2026-10-01" },
+        rules
+      ).startDate
+    ).toBe(
+      "The start date (2026-10-02) is after the due date (2026-10-01). Move one of them."
+    );
+    expect(
+      detailErrors(
+        { title: "Fine", startDate: "2026-10-02" },
+        { ...rules, supportsStartDate: false }
+      ).startDate
+    ).toBe(
+      "Source A does not support start dates. Clear the start date to save."
+    );
+    expect(
+      detailErrors({ title: "Fine", dueDate: "2026-02-30x" }, rules).dueDate
+    ).toBe(
+      "The due date is not a date. Pick one from the calendar, or clear it."
+    );
   });
 });
 

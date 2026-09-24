@@ -2,9 +2,10 @@
  * Screenshots of the public board as an anonymous visitor sees it: a fresh browser profile, no
  * session, at a desktop width and at a 375px phone in portrait.
  *
- *   node scripts/capture-public-board.mjs <out-dir> <label>
+ *   node scripts/capture-public-board.mjs <out-dir> <label> [record number to open]
  *
- * Writes <label>-public-desktop.png and <label>-public-375.png. Drives headless Chrome over the
+ * Writes <label>-public-desktop.png and <label>-public-375.png. With a record number, that card
+ * is opened first, the way a visitor opens it: by clicking its header. Drives headless Chrome over the
  * DevTools protocol rather than with --screenshot, because headless Chrome will not size a window
  * below about 500px - a "375px" capture that way is a 500px page cropped. Device emulation sets
  * the viewport itself, and marks it a touch phone.
@@ -25,7 +26,22 @@ const VIEWPORTS = [
   { name: "375", width: 375, height: 812, scale: 2, mobile: true }
 ];
 
-const [outDir = ".", label = "capture"] = process.argv.slice(2);
+const [outDir = ".", label = "capture", openRecord] = process.argv.slice(2);
+
+// Finds the card through every shadow root and clicks its disclosure. Returns whether it did.
+const openCardScript = (recordNumber) => `(() => {
+  const all = [];
+  const walk = (root) => root.querySelectorAll("*").forEach((node) => {
+    all.push(node);
+    if (node.shadowRoot) walk(node.shadowRoot);
+  });
+  walk(document);
+  const card = all.find((node) => node.tagName === "C-BOARD-CARD" &&
+    node.shadowRoot.querySelector("article").dataset.key === ${JSON.stringify(recordNumber)});
+  if (!card) return false;
+  card.shadowRoot.querySelector("[data-disclosure]").click();
+  return true;
+})()`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function pageSocketUrl() {
@@ -114,6 +130,16 @@ try {
     await loaded;
     // The board renders after the page loads: the site boots, then the wire returns.
     await sleep(8000);
+    if (openRecord) {
+      const { result } = await cdp.send("Runtime.evaluate", {
+        expression: openCardScript(openRecord),
+        returnByValue: true
+      });
+      if (!result.value) {
+        throw new Error(`No card ${openRecord} on the public board`);
+      }
+      await sleep(500);
+    }
     const { data } = await cdp.send("Page.captureScreenshot", {
       format: "png",
       captureBeyondViewport: true

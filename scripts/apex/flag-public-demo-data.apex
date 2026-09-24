@@ -132,7 +132,6 @@ if (canaries.isEmpty()) {
         External_System__c = 'Jira',
         Project__c = privateProject.Id,
         Status__c = 'In Progress',
-        Sync_Status__c = 'Pending',
         Type__c = 'Story',
         Is_Public__c = true,
         OwnerId = UserInfo.getUserId()
@@ -142,8 +141,12 @@ if (canaries.isEmpty()) {
     canary = canaries[0];
     canary.Is_Public__c = true;
     canary.OwnerId = UserInfo.getUserId();
-    update canary;
 }
+// No sync state: with no External_Id__c this row can never push, so Pending would be a claim
+// that something is on its way. Cleared explicitly after the insert, so the picklist's default
+// of Pending cannot apply. Build 08 step 7; the canary showed Pending from build 06 until then.
+canary.Sync_Status__c = null;
+update canary;
 // Re-queried because Name is an auto number: it is not populated on the in-memory record
 // that insert returns, so reading canary.Name directly prints null.
 canary = [SELECT Id, Name FROM Work_Item__c WHERE Id = :canary.Id];

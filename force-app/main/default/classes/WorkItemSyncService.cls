@@ -46,6 +46,26 @@ public with sharing class WorkItemSyncService {
    *              budget ran out, which tells the caller what still needs doing
    */
   public static List<SyncResult> pushPending(List<Work_Item__c> items) {
+    return pushPending(items, null);
+  }
+
+  /**
+   * Push only the pending fields this push owns.
+   *
+   * Two saves a few seconds apart queue two jobs, and until build 08 step 7 each sent everything
+   * in Pending_Push_Fields__c. When the second started before the first had written back - its
+   * write-back can wait on a row lock - it sent the first save's fields again: seen live on
+   * WI-0015, a status sent twice. A job now sends the fields its own save staged, where they are
+   * still pending, and leaves another job's to that job.
+   *
+   * @param owned per item, the fields this push may send; null sends everything pending, which is
+   *              what WorkItemSyncQueueable asks for when no other push is queued or running and
+   *              so nothing else can be holding a field
+   */
+  public static List<SyncResult> pushPending(
+    List<Work_Item__c> items,
+    Map<Id, Set<SyncField>> owned
+  ) {
     List<SyncResult> results = new List<SyncResult>();
     if (items == null || items.isEmpty()) {
       return results;
@@ -77,9 +97,14 @@ public with sharing class WorkItemSyncService {
       }
 
       Set<SyncField> pending = SyncFields.parse(item.Pending_Push_Fields__c);
+      if (owned != null) {
+        Set<SyncField> mine = owned.get(item.Id);
+        pending.retainAll(mine == null ? new Set<SyncField>() : mine);
+      }
       if (pending.isEmpty()) {
-        // An earlier job already pushed it. Nothing is sent, and nothing is written back -
-        // writing Synced here could overwrite a Failed that job recorded.
+        // An earlier job already pushed it, or what is pending belongs to another job. Nothing
+        // is sent, and nothing is written back - writing Synced here could overwrite a Failed an
+        // earlier job recorded, or claim agreement while the other job's fields are in flight.
         SyncResult idle = SyncResult.nothingToPush();
         idle.workItemId = item.Id;
         idle.externalId = item.External_Id__c;
@@ -119,7 +144,8 @@ public with sharing class WorkItemSyncService {
   }
 
   /**
-   * Queue the whole set for async processing, chunked and chained.
+   * Queue the whole set for async processing, chunked and chained. The job sends whatever is
+   * pending on each item, as a push owning no particular fields.
    *
    * @return the job id of the first chunk, null if there was nothing to do
    */
@@ -128,6 +154,18 @@ public with sharing class WorkItemSyncService {
       return null;
     }
     return System.enqueueJob(new WorkItemSyncQueueable(workItemIds));
+  }
+
+  /**
+   * Queue a push that owns, per item, the fields a save staged. See pushPending(items, owned).
+   *
+   * @return the job id of the first chunk, null if there was nothing to do
+   */
+  public static Id enqueueStaged(Map<Id, Set<SyncField>> staged) {
+    if (staged == null || staged.isEmpty()) {
+      return null;
+    }
+    return System.enqueueJob(new WorkItemSyncQueueable(staged));
   }
 
   // ---------- internals ----------

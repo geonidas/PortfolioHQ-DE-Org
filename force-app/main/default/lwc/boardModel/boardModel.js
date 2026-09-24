@@ -49,10 +49,13 @@ export function todayIso(now = new Date()) {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** "12 Sep", with the year only when it is not the viewer's current one. */
-function formatParts(year, monthIndex, day, currentYear) {
+/**
+ * "12 Sep", with the year only when it is not the viewer's current one - or always, for the
+ * expanded card, which spells its dates out in full.
+ */
+function formatParts(year, monthIndex, day, currentYear, withYear) {
   const base = `${day} ${MONTHS[monthIndex]}`;
-  return year === currentYear ? base : `${base} ${year}`;
+  return withYear || year !== currentYear ? `${base} ${year}` : base;
 }
 
 /**
@@ -61,7 +64,7 @@ function formatParts(year, monthIndex, day, currentYear) {
  * UTC and show 23 Sep to anyone west of Greenwich. Anything that is not a real YYYY-MM-DD day
  * formats as null, and the caller leaves the date out.
  */
-export function formatDay(value, now = new Date()) {
+export function formatDay(value, now = new Date(), withYear = false) {
   const match = ISO_DAY.exec(value || "");
   if (!match) {
     return null;
@@ -73,11 +76,11 @@ export function formatDay(value, now = new Date()) {
   if (check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) {
     return null;
   }
-  return formatParts(year, month - 1, day, now.getFullYear());
+  return formatParts(year, month - 1, day, now.getFullYear(), withYear);
 }
 
 /** When a record was created: a real instant, so it shows as the viewer's own date. */
-export function formatInstant(value, now = new Date()) {
+export function formatInstant(value, now = new Date(), withYear = false) {
   if (!value) {
     return null;
   }
@@ -89,7 +92,8 @@ export function formatInstant(value, now = new Date()) {
     when.getFullYear(),
     when.getMonth(),
     when.getDate(),
-    now.getFullYear()
+    now.getFullYear(),
+    withYear
   );
 }
 
@@ -111,7 +115,7 @@ export function isOverdue(card, now = new Date()) {
  */
 export function dateParts(
   card,
-  { showOverdue = false, now = new Date() } = {}
+  { showOverdue = false, now = new Date(), withYear = false } = {}
 ) {
   const parts = [];
   const add = (key, text, cssClass) => {
@@ -124,9 +128,9 @@ export function dateParts(
       });
     }
   };
-  const created = formatInstant(card.createdAt, now);
-  const start = formatDay(card.startDate, now);
-  const due = formatDay(card.dueDate, now);
+  const created = formatInstant(card.createdAt, now, withYear);
+  const start = formatDay(card.startDate, now, withYear);
+  const due = formatDay(card.dueDate, now, withYear);
   add("created", created && `Created ${created}`);
   add("start", start && `Start ${start}`);
   add("due", due && `Due ${due}`);
@@ -193,6 +197,7 @@ export function cardModel(
   const heading = item.title || item.externalKey || item.recordNumber;
   const sync = syncChip(item.syncStatus);
   const dates = dateParts(item, { showOverdue, now });
+  const datesLong = dateParts(item, { showOverdue, now, withYear: true });
   const ids = idParts(item.recordNumber, item.externalKey, heading);
   return {
     key: key || item.recordNumber,
@@ -224,7 +229,23 @@ export function cardModel(
       item.type
     ]),
     datesSpoken: spoken(dates.map((part) => part.text)),
+    // The expanded card's date line: the same dates, each with its year.
+    datesLong,
+    datesLongSpoken: spoken(datesLong.map((part) => part.text)),
     isOverdue: showOverdue && isOverdue(item, now),
+    // What the expanded card adds. Absent from the public payload, and so absent there.
+    title: item.title || "",
+    startDate: item.startDate || "",
+    dueDate: item.dueDate || "",
+    sourceName: sourceName(item.sourceLabel),
+    supportsStartDate: !!item.supportsStartDate,
+    description: item.description || null,
+    hasDescription: !!item.description,
+    projectLabel: item.projectLabel || null,
+    hasProjectLabel: !!item.projectLabel,
+    // Set by the board: the parent it can name, and the sync explanation it can give.
+    parentLine: null,
+    syncNote: null,
     condensesIntoEpic: !!item.condensesIntoEpic,
     isEpic: false,
     showParentNote: false,
@@ -232,6 +253,84 @@ export function cardModel(
     children: [],
     hasChildren: false
   };
+}
+
+/** A source's name for a sentence: its label, or a phrase that names none. */
+export function sourceName(label) {
+  return label || "the source system";
+}
+
+/**
+ * The expanded card's account of its sync state, naming the source by its label. Honest in both
+ * directions: it never says the source has changed before it has, and a record that can never
+ * push does not claim to be waiting.
+ */
+export function syncNote({ syncStatus, syncError, sourceLabel }) {
+  const name = sourceName(sourceLabel);
+  if (syncStatus === PENDING) {
+    return `Pending: saved in Salesforce, and the ${name} update is running.`;
+  }
+  if (syncStatus === FAILED) {
+    const reason = syncError ? ` ${syncError}` : "";
+    // Not "save again": a save with nothing changed saves nothing. The failed fields stay
+    // queued on the record and go out with the next change that is saved.
+    return `Failed: ${name} did not accept the last change.${reason} It is sent again with the next change you save.`;
+  }
+  if (syncStatus === "Synced") {
+    return `In step with ${name}.`;
+  }
+  return `Not linked to a ${name} record, so nothing is sent.`;
+}
+
+/** The statuses a card can move to: the board's columns, less the one it is in. */
+export function moveOptions(columns, status) {
+  return (columns || [])
+    .filter((column) => column !== status)
+    .map((column) => ({ key: column, label: column }));
+}
+
+/**
+ * The expanded card's checks, run before a save is sent. They mirror
+ * WorkItemBoardController.saveDetails, which runs them again and is the one that counts: the
+ * messages match so a problem reads the same whichever side caught it. Keyed like the server's
+ * fieldErrors - title, startDate, dueDate - so each sits beside its field.
+ *
+ * Dates are compared as YYYY-MM-DD strings, which sort as they read. No Date is built.
+ */
+export function detailErrors(
+  { title, startDate, dueDate },
+  { titleMax, supportsStartDate, sourceLabel }
+) {
+  const errors = {};
+  const clean = (title || "").trim();
+  if (!clean) {
+    errors.title = "A title is required. Type one before saving.";
+  } else if (titleMax && clean.length > titleMax) {
+    errors.title =
+      `The title is ${clean.length} characters; the limit is ${titleMax}. ` +
+      `Shorten it by ${clean.length - titleMax}.`;
+  }
+  if (startDate && !ISO_DAY.test(startDate)) {
+    errors.startDate =
+      "The start date is not a date. Pick one from the calendar, or clear it.";
+  }
+  if (dueDate && !ISO_DAY.test(dueDate)) {
+    errors.dueDate =
+      "The due date is not a date. Pick one from the calendar, or clear it.";
+  }
+  if (startDate && !supportsStartDate && !errors.startDate) {
+    errors.startDate = `${sourceLabel || "This source"} does not support start dates. Clear the start date to save.`;
+  }
+  if (
+    startDate &&
+    dueDate &&
+    !errors.startDate &&
+    !errors.dueDate &&
+    startDate > dueDate
+  ) {
+    errors.startDate = `The start date (${startDate}) is after the due date (${dueDate}). Move one of them.`;
+  }
+  return errors;
 }
 
 /** An epic card's view model. The public payload carries no identifier; the internal one does. */
@@ -247,6 +346,7 @@ export function epicModel(epic, { key } = {}) {
     // Labelled here rather than falling back to an identifier: the public payload has none.
     heading: epic.title || "Untitled epic",
     headingClass: epic.title ? "heading" : "heading is-fallback",
+    id: epic.id || null,
     status: epic.status,
     sourceLabel: epic.sourceLabel || null,
     hasSourceLabel: !!epic.sourceLabel,

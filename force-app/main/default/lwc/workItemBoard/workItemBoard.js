@@ -1,8 +1,10 @@
 import { LightningElement, api, wire } from "lwc";
 import { refreshApex } from "@salesforce/apex";
 import { subscribe, unsubscribe, onError } from "lightning/empApi";
+import { NavigationMixin } from "lightning/navigation";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
+import saveDetails from "@salesforce/apex/WorkItemBoardController.saveDetails";
 import {
   DEFAULT_COLUMNS,
   columnsFrom,
@@ -19,7 +21,9 @@ import {
   bySource,
   keptSource,
   countLabel,
-  epicViewCountLabel
+  epicViewCountLabel,
+  sourceName,
+  syncNote
 } from "c/boardModel";
 
 const DONE = "Done";
@@ -45,7 +49,7 @@ export const REFRESH_DEBOUNCE_MS = 1500;
  * columns still appears, in a region below the board, rather than vanishing - the same principle
  * build 03 applied when it chose to surface unmapped statuses instead of hiding them.
  */
-export default class WorkItemBoard extends LightningElement {
+export default class WorkItemBoard extends NavigationMixin(LightningElement) {
   _projectId = null;
   _columnsRaw = DEFAULT_COLUMNS;
 
@@ -66,10 +70,15 @@ export default class WorkItemBoard extends LightningElement {
   sourceChoices = [];
 
   allCards = [];
-  selectedId = null;
-  isSaving = false;
-  actionMessage;
-  actionError;
+
+  // The open card - one at a time, on either view - and what the board has to tell it.
+  expandedKey = null;
+  feedback;
+  recordLink;
+  // What this board's cards may do. The public board passes none of it: its cards open and
+  // show more, and that is all. Rebuilt with the data, so it is one object between renders.
+  abilities;
+  _focusTarget;
 
   // Live updates. The subscription is the container's alone: the shared components never import
   // lightning/empApi, which LWR sites do not support, and the public board polls instead.
@@ -254,6 +263,18 @@ export default class WorkItemBoard extends LightningElement {
     this.source = keptSource(this.source, this.sourceChoices);
     const shownItems = bySource(items, this.source);
 
+    this.abilities = this.board
+      ? {
+          moveTo: this.configuredColumns,
+          edit: true,
+          openRecord: !!this.board.canOpenRecord,
+          titleMax: this.board.titleMaxLength
+        }
+      : undefined;
+    // Every item on the board, before the filter, so an open card can name its parent even
+    // when the filter has hidden it.
+    this._itemsById = new Map(items.map((item) => [item.id, item]));
+
     this.rebuildEpics(bySource(epics, this.source), shownItems);
 
     const cards = shownItems.map((item) => this.toCard(item));
@@ -344,85 +365,144 @@ export default class WorkItemBoard extends LightningElement {
       parentId: item.parentId || null,
       parentKey: null,
       isOrphan: false,
-      identLabel: card.ids.map((id) => id.text).join(" · "),
-      // No sync state at all means the record has no remote record and never pushes.
-      syncLabel: item.syncStatus || "No remote record"
+      parentLine: this.parentLine(item),
+      syncNote: syncNote(item)
     });
   }
 
-  // ---------- selection and status change ----------
-
-  get selectedCard() {
-    if (!this.selectedId) {
+  /** The expanded card's "Part of" line: the parent's number and title, when it has one. */
+  parentLine(item) {
+    if (!item.parentId) {
       return null;
     }
-    // Resolved by id rather than held as an object: refreshApex rebuilds every card, so a
-    // stored reference would silently go stale after a save.
-    return this.allCards.find((card) => card.id === this.selectedId) || null;
+    const parent = this._itemsById && this._itemsById.get(item.parentId);
+    if (!parent) {
+      return "A work item that is not on this board";
+    }
+    return parent.title
+      ? `${parent.recordNumber} ${parent.title}`
+      : parent.recordNumber;
   }
 
-  get hasSelection() {
-    return !!this.selectedCard;
+  // ---------- the open card ----------
+
+  /** Cards are keyed by record id; epic cards by "epic-" and the epic's id. */
+  recordIdFor(key) {
+    return key && key.startsWith("epic-") ? key.slice(5) : key;
+  }
+
+  sourceLabelFor(key) {
+    const item = this._itemsById && this._itemsById.get(this.recordIdFor(key));
+    return item ? item.sourceLabel : null;
+  }
+
+  /** One card open at a time: opening one closes the other, and a second click closes it. */
+  handleToggle(event) {
+    const key = event.detail.key;
+    this.expandedKey = this.expandedKey === key ? null : key;
+    this.feedback = undefined;
+    this.recordLink = undefined;
+    if (this.expandedKey && this.abilities && this.abilities.openRecord) {
+      this.makeRecordLink(this.expandedKey);
+    }
+  }
+
+  /** A real href for the admin link, so it opens a new tab like any link when asked to. */
+  makeRecordLink(key) {
+    this[NavigationMixin.GenerateUrl](this.recordPage(key)).then((url) => {
+      // Only if that card is still the open one: a quick second toggle must not inherit it.
+      if (this.expandedKey === key) {
+        this.recordLink = { key, url };
+      }
+    });
+  }
+
+  recordPage(key) {
+    return {
+      type: "standard__recordPage",
+      attributes: {
+        recordId: this.recordIdFor(key),
+        objectApiName: "Work_Item__c",
+        actionName: "view"
+      }
+    };
+  }
+
+  handleOpenRecord(event) {
+    this[NavigationMixin.Navigate](this.recordPage(event.detail.key));
   }
 
   /**
-   * The statuses offered are the configured columns minus the one the card is already in.
-   * Driving this from the same configuration as the columns means a status the board does not
-   * show is a status nobody can pick - which is why the unreachable In Review never appears.
+   * The Move to buttons. changeStatus writes Status__c and the trigger queues the push; this
+   * reports what Salesforce did and that the source has not confirmed yet. The card changes
+   * column on the refresh, so focus follows it to its new place.
    */
-  get statusOptions() {
-    const card = this.selectedCard;
-    if (!card) {
-      return [];
-    }
-    return this.configuredColumns
-      .filter((status) => status !== card.status)
-      .map((status) => ({ key: status, label: status }));
-  }
-
-  get hasStatusOptions() {
-    return this.statusOptions.length > 0;
-  }
-
-  get detailTitle() {
-    const card = this.selectedCard;
-    return card ? card.heading : "";
-  }
-
-  handleCardSelect(event) {
-    this.selectedId = event.detail.key;
-    this.actionMessage = undefined;
-    this.actionError = undefined;
-  }
-
-  handleCloseDetail() {
-    this.selectedId = null;
-    this.actionMessage = undefined;
-    this.actionError = undefined;
-  }
-
-  async handleStatusClick(event) {
-    const newStatus = event.currentTarget.dataset.status;
-    const card = this.selectedCard;
-    if (!card || !newStatus || this.isSaving) {
-      return;
-    }
-
-    this.isSaving = true;
-    this.actionMessage = undefined;
-    this.actionError = undefined;
+  async handleMove(event) {
+    const { key, status } = event.detail;
+    this.feedback = { key, busy: true };
     try {
-      const result = await changeStatus({ workItemId: card.id, newStatus });
-      // Report what actually happened locally, and do not imply the source system has agreed
-      // yet. Generic until build 08 step 7, which names it from the card's source label.
-      this.actionMessage = result.pushQueued
-        ? `${result.message} This card stays ${result.syncStatus} until the source system confirms.`
-        : result.message;
+      const result = await changeStatus({ workItemId: key, newStatus: status });
+      // Focus follows the card once it has rendered in its new column - not before, when the
+      // first render after this one still shows it in the old one.
+      this._focusTarget = { key, status: result.status };
+      this.feedback = {
+        key,
+        tone: "ok",
+        message: result.pushQueued
+          ? `${result.message} This card stays ${result.syncStatus} until ${sourceName(
+              this.sourceLabelFor(key)
+            )} confirms.`
+          : result.message
+      };
       await refreshApex(this.boardResult);
     } catch (error) {
-      this.actionError = this.readError(error);
-    } finally {
-      this.isSaving = false;
+      this._focusTarget = undefined;
+      this.feedback = { key, tone: "error", message: this.readError(error) };
+    }
+  }
+
+  /**
+   * Save changes. The card has already checked the draft; the server checks it again and its
+   * answer is the one that counts. Problems come back per field and the card shows each beside
+   * its input; a save that went through says so and that the push is still running.
+   */
+  async handleSave(event) {
+    const { key, title, startDate, dueDate } = event.detail;
+    this.feedback = { key, busy: true };
+    try {
+      const result = await saveDetails({
+        workItemId: key,
+        title,
+        startDate,
+        dueDate
+      });
+      const fieldErrors = result.fieldErrors || {};
+      this.feedback = {
+        key,
+        tone: Object.keys(fieldErrors).length ? "error" : "ok",
+        saved: !!result.saved,
+        message: result.message,
+        fieldErrors
+      };
+      if (result.saved) {
+        await refreshApex(this.boardResult);
+      }
+    } catch (error) {
+      this.feedback = { key, tone: "error", message: this.readError(error) };
+    }
+  }
+
+  renderedCallback() {
+    if (!this._focusTarget) {
+      return;
+    }
+    const { key, status } = this._focusTarget;
+    const moved = this.template.querySelector(
+      `c-board-card[data-key="${key}"][data-status="${status}"]`
+    );
+    if (moved) {
+      this._focusTarget = undefined;
+      moved.focusHeader();
     }
   }
 

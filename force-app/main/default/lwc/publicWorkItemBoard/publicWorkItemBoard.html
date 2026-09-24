@@ -92,12 +92,20 @@
                 </template>
                 <template for:each={col.cards} for:item="card">
                   <div class="stack" key={card.key}>
-                    <c-board-card card={card}></c-board-card>
+                    <c-board-card
+                      card={card}
+                      expanded-key={expandedKey}
+                      ontoggle={handleToggle}
+                    ></c-board-card>
                     <template lwc:if={card.hasChildren}>
                       <ul class="children">
                         <template for:each={card.children} for:item="child">
                           <li key={child.key}>
-                            <c-board-card card={child}></c-board-card>
+                            <c-board-card
+                              card={child}
+                              expanded-key={expandedKey}
+                              ontoggle={handleToggle}
+                            ></c-board-card>
                           </li>
                         </template>
                       </ul>
@@ -113,7 +121,12 @@
               <h2 class="other-head">Other</h2>
               <div class="other-cards">
                 <template for:each={otherCards} for:item="card">
-                  <c-board-card key={card.key} card={card}></c-board-card>
+                  <c-board-card
+                    key={card.key}
+                    card={card}
+                    expanded-key={expandedKey}
+                    ontoggle={handleToggle}
+                  ></c-board-card>
                 </template>
               </div>
             </section>
@@ -169,10 +182,18 @@
                   <template for:each={col.cards} for:item="entry">
                     <div class="stack" key={entry.key}>
                       <template lwc:if={entry.isEpic}>
-                        <c-board-epic-card epic={entry}></c-board-epic-card>
+                        <c-board-epic-card
+                          epic={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-epic-card>
                       </template>
                       <template lwc:else>
-                        <c-board-card card={entry}></c-board-card>
+                        <c-board-card
+                          card={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-card>
                       </template>
                     </div>
                   </template>
@@ -187,10 +208,18 @@
                   <template for:each={otherEpics} for:item="entry">
                     <div class="stack" key={entry.key}>
                       <template lwc:if={entry.isEpic}>
-                        <c-board-epic-card epic={entry}></c-board-epic-card>
+                        <c-board-epic-card
+                          epic={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-epic-card>
                       </template>
                       <template lwc:else>
-                        <c-board-card card={entry}></c-board-card>
+                        <c-board-card
+                          card={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-card>
                       </template>
                     </div>
                   </template>

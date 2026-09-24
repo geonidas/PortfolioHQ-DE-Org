@@ -122,6 +122,40 @@ const setView = (el, view) => choose(el, "view", view);
 const setSource = (el, source) => choose(el, "source", source);
 
 /**
+ * Names every control among the nodes: a filter by its name, Refresh by its action, a card's
+ * disclosure as "disclosure", and anything else by its tag - so an unexpected control shows up
+ * in the list by what it is.
+ *
+ * Compared with toStrictEqual. toEqual skips undefined entries in an array, and in step 6 that
+ * let a control with no data attribute map to undefined and vanish from the comparison: the
+ * guard below passed with a button in every card.
+ */
+function describeControls(nodes) {
+  return Array.from(nodes)
+    .filter((node) =>
+      node.matches(
+        "button, input, select, textarea, a[href], [tabindex], [contenteditable], [role='button']"
+      )
+    )
+    .map((node) => {
+      if (node.dataset.filter) {
+        return node.dataset.filter;
+      }
+      if (node.dataset.action) {
+        return node.dataset.action;
+      }
+      if (
+        node.hasAttribute("data-disclosure") &&
+        node.tagName === "BUTTON" &&
+        node.hasAttribute("aria-expanded")
+      ) {
+        return "disclosure";
+      }
+      return node.tagName.toLowerCase();
+    });
+}
+
+/**
  * Every element in the board, through every shadow root. The cards and the toolbar render in
  * their own shadow trees, so a query on the board's alone would miss a control inside them -
  * which is exactly where one would be added.
@@ -491,7 +525,7 @@ describe("c-public-work-item-board", () => {
     expect(untitled.className).toContain("is-fallback");
   });
 
-  it("keeps epic cards as inert as work item cards", async () => {
+  it("gives epic cards their disclosure and nothing else", async () => {
     const element = mount();
     getPublicBoardData.emit(board([card()], [epic()]));
     await flush();
@@ -501,7 +535,9 @@ describe("c-public-work-item-board", () => {
     const article = epicCards(element)[0].shadowRoot.querySelector("article");
     expect(article.getAttribute("role")).toBeNull();
     expect(article.getAttribute("tabindex")).toBeNull();
-    expect(epicCards(element)[0].shadowRoot.querySelector("button")).toBeNull();
+    expect(
+      describeControls(epicCards(element)[0].shadowRoot.querySelectorAll("*"))
+    ).toStrictEqual(["disclosure"]);
   });
 
   it("offers no control that could change anything", async () => {
@@ -509,20 +545,18 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()]));
     await flush();
 
-    // Build 06 added a view toggle, build 08 a Refresh button and then two filters, so "no
-    // controls at all" is no longer the right assertion - but the guarantee it protected still
-    // holds. The only controls are the two filters, which re-render data already in memory, and
-    // Refresh, which re-reads through the same parameterless method the page loaded with.
+    // Build 06 added a view toggle, build 08 a Refresh button, two filters and a disclosure on
+    // each card, so "no controls at all" is no longer the right assertion - but the guarantee
+    // it protected still holds. The filters and the disclosures re-render what is already in
+    // memory; Refresh re-reads through the same parameterless method the page loaded with.
     // Searched through every shadow root: a control added inside a card is still a control.
-    const controls = everything(element).filter((node) =>
-      node.matches(
-        "button, input, select, textarea, a[href], [tabindex], [contenteditable], [role='button']"
-      )
-    );
-    expect(
-      controls.map((node) => node.dataset.filter || node.dataset.action)
-    ).toEqual(["refresh", "view", "source"]);
-    controls
+    expect(describeControls(everything(element))).toStrictEqual([
+      "refresh",
+      "view",
+      "source",
+      "disclosure"
+    ]);
+    everything(element)
       .filter((node) => node.tagName === "BUTTON")
       .forEach((button) => expect(button.type).toBe("button"));
 
@@ -659,7 +693,7 @@ describe("c-public-work-item-board card freshness", () => {
     expect(getPublicBoardData.getLastConfig()).toEqual({});
   });
 
-  it("has no button but Refresh, in either view, anywhere in the tree", async () => {
+  it("has no button but Refresh and the disclosures, open or closed, in either view", async () => {
     const element = mount();
     getPublicBoardData.emit(
       board([flatCard({})], [epic({ title: "Guest board" })])
@@ -667,14 +701,150 @@ describe("c-public-work-item-board card freshness", () => {
     await flush();
 
     const buttons = () =>
-      everything(element).filter((node) => node.tagName === "BUTTON");
-    // Cards are inert. Anything else that gained a button would be a write path on a
-    // read-only board.
-    expect(buttons().map((b) => b.dataset.action)).toEqual(["refresh"]);
+      describeControls(
+        everything(element).filter((node) => node.tagName === "BUTTON")
+      );
+    // Anything else that gained a button would be a write path on a read-only board.
+    expect(buttons()).toStrictEqual(["refresh", "disclosure"]);
+
+    // Open, a card shows more and offers nothing more.
+    cards(element)[0].shadowRoot.querySelector("[data-disclosure]").click();
+    await flush();
+    expect(describeControls(everything(element))).toStrictEqual([
+      "refresh",
+      "view",
+      "source",
+      "disclosure"
+    ]);
 
     await setView(element, "epics");
 
-    expect(buttons().map((b) => b.dataset.action)).toEqual(["refresh"]);
+    expect(buttons()).toStrictEqual(["refresh", "disclosure", "disclosure"]);
+    epicCards(element)[0].shadowRoot.querySelector("[data-disclosure]").click();
+    await flush();
+    expect(buttons()).toStrictEqual(["refresh", "disclosure", "disclosure"]);
+  });
+
+  it("never passes its cards an ability", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(
+        [card({ recordNumber: "WI-0001" }), flatCard({})],
+        [epic({ title: "Guest board" })]
+      )
+    );
+    await flush();
+    cards(element)[0].shadowRoot.querySelector("[data-disclosure]").click();
+    await flush();
+
+    const check = () =>
+      [...cards(element), ...epicCards(element)].forEach((cardEl) => {
+        expect(cardEl.abilities).toBeUndefined();
+        expect(cardEl.recordLink).toBeUndefined();
+        expect(cardEl.feedback).toBeUndefined();
+      });
+    check();
+    await setView(element, "epics");
+    check();
+  });
+});
+
+// Build 08 step 7. Cards open in place, one at a time, and show only what the payload carries.
+describe("c-public-work-item-board open cards", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  const header = (cardEl) =>
+    cardEl.shadowRoot.querySelector("[data-disclosure]");
+  const expanded = (el) =>
+    cards(el).map((c) => header(c).getAttribute("aria-expanded"));
+
+  it("opens one card at a time", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([
+        card({ recordNumber: "WI-0001", status: "To Do" }),
+        card({ recordNumber: "WI-0002", status: "In Progress" })
+      ])
+    );
+    await flush();
+    expect(expanded(element)).toStrictEqual(["false", "false"]);
+
+    header(cards(element)[0]).click();
+    await flush();
+    expect(expanded(element)).toStrictEqual(["true", "false"]);
+
+    header(cards(element)[1]).click();
+    await flush();
+    expect(expanded(element)).toStrictEqual(["false", "true"]);
+
+    header(cards(element)[1]).click();
+    await flush();
+    expect(expanded(element)).toStrictEqual(["false", "false"]);
+  });
+
+  it("shows the public parent and the project, and no description", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([
+        card({ recordNumber: "WI-0002", status: "In Progress" }),
+        card({
+          recordNumber: "WI-0003",
+          status: "To Do",
+          parentNumber: "WI-0002",
+          projectLabel: "PHQ"
+        })
+      ])
+    );
+    await flush();
+    const child = cards(element).find(
+      (c) => c.shadowRoot.querySelector("article").dataset.key === "WI-0003"
+    );
+
+    header(child).click();
+    await flush();
+
+    expect(child.shadowRoot.querySelector("[data-parent]").textContent).toBe(
+      "WI-0002"
+    );
+    expect(child.shadowRoot.querySelector("[data-project]").textContent).toBe(
+      "PHQ"
+    );
+    // Not in the public payload, so not on the public card - and no sync explanation either.
+    expect(child.shadowRoot.querySelector("[data-description]")).toBeNull();
+    expect(child.shadowRoot.querySelector("[data-sync-note]")).toBeNull();
+  });
+
+  it("says nothing about a parent the visitor cannot see", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([card({ parentNumber: null })]));
+    await flush();
+
+    header(cards(element)[0]).click();
+    await flush();
+
+    expect(
+      cards(element)[0].shadowRoot.querySelector("[data-parent]")
+    ).toBeNull();
+  });
+
+  it("is accessible with a card open, in both views", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([card({ recordNumber: "WI-0001", projectLabel: "PHQ" })], [epic()])
+    );
+    await flush();
+    header(cards(element)[0]).click();
+    await flush();
+    await expect(element).toBeAccessible();
+
+    await setView(element, "epics");
+    header(epicCards(element)[0]).click();
+    await flush();
+    await expect(element).toBeAccessible();
   });
 });
 

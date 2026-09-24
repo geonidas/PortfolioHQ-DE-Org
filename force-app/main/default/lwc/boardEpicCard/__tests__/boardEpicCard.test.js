@@ -2,7 +2,7 @@ import { createElement } from "lwc";
 import BoardEpicCard from "c/boardEpicCard";
 import { epicModel } from "c/boardModel";
 
-function mount(overrides) {
+function mount(overrides, props) {
   const element = createElement("c-board-epic-card", { is: BoardEpicCard });
   element.epic = epicModel(
     Object.assign(
@@ -18,6 +18,7 @@ function mount(overrides) {
     ),
     { key: "epic-0" }
   );
+  Object.assign(element, props || {});
   document.body.appendChild(element);
   return element;
 }
@@ -63,14 +64,59 @@ describe("c-board-epic-card", () => {
     );
   });
 
-  it("is inert", () => {
-    const element = mount();
-    expect(element.shadowRoot.querySelector("button")).toBeNull();
+  it("has one control, its disclosure, unless the board grants the link", () => {
+    const element = mount({}, { expandedKey: "epic-0" });
+    const controls = Array.from(
+      element.shadowRoot.querySelectorAll("button, input, a[href], [tabindex]")
+    );
+    expect(controls.map((node) => node.dataset.disclosure)).toStrictEqual([""]);
     expect($(element, "article").getAttribute("role")).toBeNull();
-    expect($(element, "article").getAttribute("tabindex")).toBeNull();
   });
 
-  it("is accessible", async () => {
+  it("opens in place to show the whole title", () => {
+    const closed = mount();
+    const header = $(closed, "h3 button[data-disclosure]");
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(header.getAttribute("aria-controls")).toBe(
+      $(closed, "[data-details]").id
+    );
+    const handler = jest.fn();
+    closed.addEventListener("toggle", handler);
+    header.click();
+    expect(handler.mock.calls[0][0].detail).toEqual({ key: "epic-0" });
+
+    const open = mount({}, { expandedKey: "epic-0" });
+    expect($(open, "[data-disclosure]").getAttribute("aria-expanded")).toBe(
+      "true"
+    );
+    expect($(open, ".heading").className).toContain("is-open");
+  });
+
+  it("links to the epic's record on the internal board only", () => {
+    const element = mount(
+      { id: "a0E1", recordNumber: "WI-0000" },
+      {
+        expandedKey: "epic-0",
+        abilities: { openRecord: true },
+        recordLink: { key: "epic-0", url: "/r/a0E1" }
+      }
+    );
+    const link = $(element, "[data-record-link]");
+    expect(link.getAttribute("href")).toBe("/r/a0E1");
+    expect(link.getAttribute("aria-label")).toBe("Open record WI-0000");
+  });
+
+  it("is accessible, closed and open", async () => {
     await expect(mount({ title: null, totalChildren: 0 })).toBeAccessible();
+    await expect(
+      mount(
+        { recordNumber: "WI-0000" },
+        {
+          expandedKey: "epic-0",
+          abilities: { openRecord: true },
+          recordLink: { key: "epic-0", url: "/r/a0E1" }
+        }
+      )
+    ).toBeAccessible();
   });
 });

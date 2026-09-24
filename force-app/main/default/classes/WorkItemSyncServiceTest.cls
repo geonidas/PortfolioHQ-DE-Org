@@ -14,6 +14,8 @@ private class WorkItemSyncServiceTest {
     private final Boolean throwInstead;
     private final Boolean emitPoisonLog;
     public Integer calls = 0;
+    /** The fields each push was asked to send, in the order the pushes ran. */
+    public List<Set<SyncField>> sent = new List<Set<SyncField>>();
 
     private FakeAdapter(SyncResult.Outcome outcome) {
       this(outcome, false, false);
@@ -31,6 +33,7 @@ private class WorkItemSyncServiceTest {
 
     public SyncResult push(Work_Item__c item, Set<SyncField> changed) {
       calls++;
+      sent.add(new Set<SyncField>(changed));
       if (throwInstead) {
         throw new AdapterException('adapter exploded');
       }
@@ -743,6 +746,182 @@ private class WorkItemSyncServiceTest {
       'Pending',
       after.Sync_Status__c,
       'Synced is illegal beside Unspecified, and the status is unreconciled anyway.'
+    );
+  }
+
+  // ---------- one push per field, not per job (build 08 step 7) ----------
+
+  private static Set<SyncField> fields(String stored) {
+    return SyncFields.parse(stored);
+  }
+
+  @IsTest
+  static void aPushSendsOnlyTheFieldsItOwns() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'STATUS;DUE_DATE'
+    );
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(
+      reread(),
+      new Map<Id, Set<SyncField>>{ items[0].Id => fields('DUE_DATE') }
+    );
+    Test.stopTest();
+
+    Assert.areEqual(
+      new List<Set<SyncField>>{ fields('DUE_DATE') },
+      adapter.sent
+    );
+    Work_Item__c after = stored();
+    Assert.areEqual(
+      'STATUS',
+      after.Pending_Push_Fields__c,
+      'The status belongs to the job its own save queued, and stays pending for it.'
+    );
+    Assert.areEqual(
+      'Pending',
+      after.Sync_Status__c,
+      'Not Synced: the status is still on its way.'
+    );
+  }
+
+  @IsTest
+  static void aPushOwningNothingStillPendingSendsAndWritesNothing() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+
+    Test.startTest();
+    List<SyncResult> results = WorkItemSyncService.pushPending(
+      reread(),
+      new Map<Id, Set<SyncField>>{ items[0].Id => fields('TITLE') }
+    );
+    Test.stopTest();
+
+    Assert.areEqual(
+      0,
+      adapter.calls,
+      'Its title went out already; the status is another job\'s.'
+    );
+    Assert.areEqual(SyncResult.Outcome.NOTHING_TO_PUSH, results[0].outcome);
+    Assert.areEqual(
+      'STATUS',
+      stored().Pending_Push_Fields__c,
+      'Nothing written back.'
+    );
+  }
+
+  @IsTest
+  static void twoSavesSecondsApartSendEachFieldOnce() {
+    // WI-0015, build 08 step 7: a move, then a due date saved seven seconds later. Two jobs, and
+    // the second started before the first had written back. Both are queued here, so the first
+    // runs while the second is still queued - the real AsyncApexJob count, no stand-in.
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'STATUS;DUE_DATE'
+    );
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+
+    Test.startTest();
+    System.enqueueJob(
+      new WorkItemSyncQueueable(
+        new Map<Id, Set<SyncField>>{ items[0].Id => fields('STATUS') }
+      )
+    );
+    System.enqueueJob(
+      new WorkItemSyncQueueable(
+        new Map<Id, Set<SyncField>>{ items[0].Id => fields('DUE_DATE') }
+      )
+    );
+    Test.stopTest();
+
+    Assert.areEqual(
+      new List<Set<SyncField>>{ fields('STATUS'), fields('DUE_DATE') },
+      adapter.sent,
+      'Each field once. Before this, the second job sent the status again.'
+    );
+    Work_Item__c after = stored();
+    Assert.isNull(after.Pending_Push_Fields__c);
+    Assert.areEqual('Synced', after.Sync_Status__c);
+  }
+
+  @IsTest
+  static void aJobWithNoOtherPushInFlightSendsWhatADeadJobLeft() {
+    // The status was staged by a job that died after calling out - a lock timeout on its
+    // write-back, say - so it never cleared it. No other push is queued or running, so nothing
+    // can be holding it, and this job takes it.
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'STATUS;DUE_DATE'
+    );
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+    WorkItemSyncQueueable.assumeOtherPushesInFlight = false;
+
+    Test.startTest();
+    System.enqueueJob(
+      new WorkItemSyncQueueable(
+        new Map<Id, Set<SyncField>>{ items[0].Id => fields('DUE_DATE') }
+      )
+    );
+    Test.stopTest();
+
+    Assert.areEqual(
+      new List<Set<SyncField>>{ fields('STATUS;DUE_DATE') },
+      adapter.sent
+    );
+    Assert.areEqual('Synced', stored().Sync_Status__c);
+  }
+
+  @IsTest
+  static void aSaveOnAFailedRecordTakesOverWhatWasRefused() {
+    // Through the trigger. The refused status's job has finished, so no job holds it, and the
+    // next save's job takes it - even while other pushes are in flight.
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Sync_Status__c = 'Failed',
+      Sync_Error__c = 'Jira refused the transition.'
+    );
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+    WorkItemSyncQueueable.assumeOtherPushesInFlight = true;
+
+    Test.startTest();
+    update new Work_Item__c(Id = items[0].Id, Title__c = 'Retitled');
+    Test.stopTest();
+
+    Assert.areEqual(
+      new List<Set<SyncField>>{ fields('STATUS;TITLE') },
+      adapter.sent,
+      'The board says a failed change goes out with the next change saved. This is that.'
+    );
+  }
+
+  @IsTest
+  static void aSaveOnAPendingRecordLeavesTheInFlightFieldsToTheirJob() {
+    // Through the trigger. The status is Pending: its job is queued or running, and owns it.
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+    WorkItemSyncQueueable.assumeOtherPushesInFlight = true;
+
+    Test.startTest();
+    update new Work_Item__c(Id = items[0].Id, Title__c = 'Retitled');
+    Test.stopTest();
+
+    Assert.areEqual(new List<Set<SyncField>>{ fields('TITLE') }, adapter.sent);
+    Assert.areEqual(
+      'STATUS',
+      stored().Pending_Push_Fields__c,
+      'Still waiting for the job that owns it.'
     );
   }
 }

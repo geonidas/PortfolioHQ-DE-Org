@@ -2,6 +2,7 @@ import { createElement } from "lwc";
 import WorkItemBoard from "c/workItemBoard";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
+import saveDetails from "@salesforce/apex/WorkItemBoardController.saveDetails";
 import { refreshApex } from "@salesforce/apex";
 import { subscribe, unsubscribe } from "lightning/empApi";
 
@@ -18,6 +19,29 @@ jest.mock(
   () => ({ default: jest.fn() }),
   { virtual: true }
 );
+jest.mock(
+  "@salesforce/apex/WorkItemBoardController.saveDetails",
+  () => ({ default: jest.fn() }),
+  { virtual: true }
+);
+// The record link: GenerateUrl hands back a URL naming the record, Navigate is recorded.
+const mockNavigate = jest.fn();
+jest.mock("lightning/navigation", () => {
+  const Navigate = Symbol("Navigate");
+  const GenerateUrl = Symbol("GenerateUrl");
+  const NavigationMixin = (Base) =>
+    class extends Base {
+      [Navigate](pageReference) {
+        mockNavigate(pageReference);
+      }
+      [GenerateUrl](pageReference) {
+        return Promise.resolve(`/r/${pageReference.attributes.recordId}`);
+      }
+    };
+  NavigationMixin.Navigate = Navigate;
+  NavigationMixin.GenerateUrl = GenerateUrl;
+  return { NavigationMixin };
+});
 jest.mock(
   "@salesforce/apex",
   () => ({ refreshApex: jest.fn(() => Promise.resolve()) }),
@@ -66,7 +90,9 @@ function board(items) {
     epics: [],
     projectId: null,
     projectLabel: null,
-    lastSyncedAt: "2026-09-13T05:20:07.000Z"
+    lastSyncedAt: "2026-09-13T05:20:07.000Z",
+    canOpenRecord: false,
+    titleMaxLength: 255
   };
 }
 
@@ -89,6 +115,15 @@ function cards(element) {
 
 const toolbar = (element) =>
   element.shadowRoot.querySelector("c-board-toolbar");
+const cardFor = (element, key) =>
+  element.shadowRoot.querySelector(`c-board-card[data-key="${key}"]`);
+const inCard = (element, key, selector) =>
+  cardFor(element, key).shadowRoot.querySelector(selector);
+/** Opens a card the way a user does: its header. */
+async function openCard(element, key) {
+  inCard(element, key, "[data-disclosure]").click();
+  await flush();
+}
 async function choose(element, name, value) {
   const control = toolbar(element).shadowRoot.querySelector(
     `select[data-filter="${name}"]`
@@ -386,30 +421,51 @@ describe("c-work-item-board", () => {
     });
   });
 
-  describe("status change", () => {
-    async function openDetail(element) {
-      getBoardData.emit(board([item({ id: "w1", status: "To Do" })]));
-      await flush();
-      cards(element)[0].dispatchEvent(
-        new CustomEvent("select", { detail: { key: "w1" } })
+  // Build 08 step 7: the top panel is gone. A card opens in place, and the open card holds the
+  // Move to buttons, the editor and the record link - because this board grants them.
+  describe("the open card", () => {
+    const one = () => board([item({ id: "w1", status: "To Do" })]);
+
+    it("opens in place, one card at a time, and has no panel above the board", async () => {
+      const element = mount();
+      getBoardData.emit(
+        board([
+          item({ id: "w1", status: "To Do" }),
+          item({ id: "w2", status: "Done" })
+        ])
       );
       await flush();
-    }
+      const open = () =>
+        ["w1", "w2"].map((key) =>
+          inCard(element, key, "[data-disclosure]").getAttribute(
+            "aria-expanded"
+          )
+        );
+
+      await openCard(element, "w1");
+      expect(open()).toStrictEqual(["true", "false"]);
+      await openCard(element, "w2");
+      expect(open()).toStrictEqual(["false", "true"]);
+      expect(
+        element.shadowRoot.querySelector('[data-region="detail"]')
+      ).toBeNull();
+    });
 
     it("offers only configured statuses other than the current one", async () => {
       const element = mount();
-      await openDetail(element);
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
 
       const options = Array.from(
-        element.shadowRoot.querySelectorAll(".status-btn")
-      ).map((btn) => btn.dataset.status);
+        cardFor(element, "w1").shadowRoot.querySelectorAll("[data-move]")
+      ).map((btn) => btn.dataset.move);
       // Driven by the same configuration as the columns, so an unconfigured status such as
       // the unreachable In Review can never be offered.
-      expect(options).toEqual(["In Progress", "Done"]);
-      expect(options).not.toContain("To Do");
+      expect(options).toStrictEqual(["In Progress", "Done"]);
     });
 
-    it("sends the change to apex and refreshes the board", async () => {
+    it("sends a move to apex, refreshes, and says the source has not confirmed yet", async () => {
       changeStatus.mockResolvedValue({
         workItemId: "w1",
         status: "Done",
@@ -419,9 +475,11 @@ describe("c-work-item-board", () => {
           "Saved in Salesforce. The Jira update is running in the background."
       });
       const element = mount();
-      await openDetail(element);
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
 
-      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      inCard(element, "w1", '[data-move="Done"]').click();
       await flush();
       await flush();
 
@@ -430,43 +488,217 @@ describe("c-work-item-board", () => {
         newStatus: "Done"
       });
       expect(refreshApex).toHaveBeenCalled();
+      const note = inCard(element, "w1", "[data-feedback]").textContent;
+      expect(note).toContain("background");
+      expect(note).toContain("stays Pending until Jira confirms");
     });
 
-    it("says the push is asynchronous instead of claiming Jira agreed", async () => {
+    it("follows a moved card to its new column with focus", async () => {
       changeStatus.mockResolvedValue({
         workItemId: "w1",
         status: "Done",
         syncStatus: "Pending",
         pushQueued: true,
-        message:
-          "Saved in Salesforce. The Jira update is running in the background."
+        message: "Saved."
+      });
+      refreshApex.mockImplementationOnce(() => {
+        getBoardData.emit(board([item({ id: "w1", status: "Done" })]));
+        return Promise.resolve();
       });
       const element = mount();
-      await openDetail(element);
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
 
-      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      inCard(element, "w1", '[data-move="Done"]').click();
       await flush();
       await flush();
+      await flush();
 
-      const note = element.shadowRoot.querySelector('[data-note="ok"]');
-      expect(note.textContent).toContain("background");
-      expect(note.textContent).toContain("Pending");
+      const moved = cardFor(element, "w1");
+      expect(moved.closest("[data-column]").dataset.column).toBe("Done");
+      // Still open in its new place, with focus on its header.
+      const header = moved.shadowRoot.querySelector("[data-disclosure]");
+      expect(header.getAttribute("aria-expanded")).toBe("true");
+      expect(moved.shadowRoot.activeElement).toBe(header);
     });
 
-    it("reports a failed change instead of failing silently", async () => {
+    it("reports a failed move instead of failing silently", async () => {
       changeStatus.mockRejectedValue({
         body: { message: "That work item is not available to you." }
       });
       const element = mount();
-      await openDetail(element);
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
 
-      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      inCard(element, "w1", '[data-move="Done"]').click();
+      await flush();
+      await flush();
+
+      expect(inCard(element, "w1", "[data-feedback]").textContent).toContain(
+        "not available"
+      );
+    });
+
+    it("saves title and dates through saveDetails, and refreshes when it saved", async () => {
+      saveDetails.mockResolvedValue({
+        workItemId: "w1",
+        saved: true,
+        pushQueued: true,
+        syncStatus: "Pending",
+        message:
+          "Saved in Salesforce. The Jira update is running in the background.",
+        fieldErrors: {}
+      });
+      const element = mount();
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
+
+      const title = inCard(element, "w1", "[data-field='title']");
+      title.value = "Renamed";
+      title.dispatchEvent(new CustomEvent("input"));
+      const due = inCard(element, "w1", "[data-field='dueDate']");
+      due.value = "2026-10-02";
+      due.dispatchEvent(new CustomEvent("change"));
+      inCard(element, "w1", "form").dispatchEvent(
+        new CustomEvent("submit", { cancelable: true })
+      );
+      await flush();
+      await flush();
+
+      // Dates leave as the input's own YYYY-MM-DD strings; no Date is built on the way.
+      expect(saveDetails).toHaveBeenCalledWith({
+        workItemId: "w1",
+        title: "Renamed",
+        startDate: "",
+        dueDate: "2026-10-02"
+      });
+      expect(refreshApex).toHaveBeenCalled();
+      expect(inCard(element, "w1", "[data-feedback]").textContent).toContain(
+        "running in the background"
+      );
+    });
+
+    it("puts the server's field errors beside their fields and does not refresh", async () => {
+      saveDetails.mockResolvedValue({
+        workItemId: "w1",
+        saved: false,
+        syncStatus: "Synced",
+        message: "Nothing was saved. Fix the fields marked below.",
+        fieldErrors: {
+          dueDate:
+            "The due date is not a date. Pick one from the calendar, or clear it."
+        }
+      });
+      const element = mount();
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
+
+      inCard(element, "w1", "form").dispatchEvent(
+        new CustomEvent("submit", { cancelable: true })
+      );
       await flush();
       await flush();
 
       expect(
-        element.shadowRoot.querySelector('[data-note="error"]').textContent
-      ).toContain("not available");
+        inCard(element, "w1", "[data-error='dueDate']").textContent.trim()
+      ).toBe(
+        "The due date is not a date. Pick one from the calendar, or clear it."
+      );
+      expect(refreshApex).not.toHaveBeenCalled();
+    });
+
+    it("links to the record only for a user with the custom permission", async () => {
+      const element = mount();
+      getBoardData.emit(one());
+      await flush();
+      await openCard(element, "w1");
+      await flush();
+      expect(inCard(element, "w1", "[data-record-link]")).toBeNull();
+
+      const granted = one();
+      granted.canOpenRecord = true;
+      getBoardData.emit(granted);
+      await flush();
+      // Closed, then opened again: the link is made when a card opens.
+      await openCard(element, "w1");
+      await openCard(element, "w1");
+      await flush();
+
+      const link = inCard(element, "w1", "[data-record-link]");
+      expect(link.getAttribute("href")).toBe("/r/w1");
+      link.dispatchEvent(
+        new MouseEvent("click", { button: 0, bubbles: true, cancelable: true })
+      );
+      expect(mockNavigate).toHaveBeenCalledWith({
+        type: "standard__recordPage",
+        attributes: {
+          recordId: "w1",
+          objectApiName: "Work_Item__c",
+          actionName: "view"
+        }
+      });
+    });
+
+    it("explains the sync state with the source's label, and the canary says it sends nothing", async () => {
+      const element = mount();
+      getBoardData.emit(
+        board([
+          item({ id: "p1", syncStatus: "Pending" }),
+          item({ id: "c1", syncStatus: null, status: "In Progress" })
+        ])
+      );
+      await flush();
+
+      await openCard(element, "p1");
+      expect(inCard(element, "p1", "[data-sync-note]").textContent).toBe(
+        "Pending: saved in Salesforce, and the Jira update is running."
+      );
+
+      await openCard(element, "c1");
+      expect(inCard(element, "c1", "[data-sync]")).toBeNull();
+      expect(inCard(element, "c1", "[data-sync-note]").textContent).toBe(
+        "Not linked to a Jira record, so nothing is sent."
+      );
+    });
+
+    it("names the parent by number and title", async () => {
+      const element = mount();
+      getBoardData.emit(
+        board([
+          item({
+            id: "p1",
+            recordNumber: "WI-0002",
+            title: "Public board",
+            status: "Done"
+          }),
+          item({
+            id: "c1",
+            recordNumber: "WI-0003",
+            parentId: "p1",
+            status: "To Do"
+          }),
+          item({
+            id: "o1",
+            recordNumber: "WI-0004",
+            parentId: "gone",
+            status: "To Do"
+          })
+        ])
+      );
+      await flush();
+
+      await openCard(element, "c1");
+      expect(inCard(element, "c1", "[data-parent]").textContent).toBe(
+        "WI-0002 Public board"
+      );
+      await openCard(element, "o1");
+      expect(inCard(element, "o1", "[data-parent]").textContent).toBe(
+        "A work item that is not on this board"
+      );
     });
   });
 
@@ -503,13 +735,6 @@ describe("c-work-item-board", () => {
         })
       ]);
 
-    async function selectFirst(element) {
-      cards(element)[0].dispatchEvent(
-        new CustomEvent("select", { detail: { key: "p1" } })
-      );
-      await flush();
-    }
-
     it("is accessible while loading", async () => {
       await expect(mount()).toBeAccessible();
     });
@@ -521,15 +746,18 @@ describe("c-work-item-board", () => {
       await expect(element).toBeAccessible();
     });
 
-    it("is accessible with the detail panel open", async () => {
+    it("is accessible with a card open, editor and link included", async () => {
       const element = mount();
-      getBoardData.emit(busyBoard());
+      const data = busyBoard();
+      data.canOpenRecord = true;
+      getBoardData.emit(data);
       await flush();
-      await selectFirst(element);
+      await openCard(element, "p1");
+      await flush();
       await expect(element).toBeAccessible();
     });
 
-    it("is accessible after a status change is reported", async () => {
+    it("is accessible after a move is reported", async () => {
       changeStatus.mockResolvedValue({
         workItemId: "p1",
         status: "Done",
@@ -540,20 +768,27 @@ describe("c-work-item-board", () => {
       const element = mount();
       getBoardData.emit(busyBoard());
       await flush();
-      await selectFirst(element);
-      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      await openCard(element, "p1");
+      inCard(element, "p1", '[data-move="Done"]').click();
       await flush();
       await flush();
       await expect(element).toBeAccessible();
     });
 
-    it("is accessible when a status change fails", async () => {
-      changeStatus.mockRejectedValue({ body: { message: "Not available." } });
+    it("is accessible when a save is refused field by field", async () => {
+      saveDetails.mockResolvedValue({
+        workItemId: "p1",
+        saved: false,
+        message: "Nothing was saved. Fix the fields marked below.",
+        fieldErrors: { title: "A title is required. Type one before saving." }
+      });
       const element = mount();
       getBoardData.emit(busyBoard());
       await flush();
-      await selectFirst(element);
-      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      await openCard(element, "p1");
+      inCard(element, "p1", "form").dispatchEvent(
+        new CustomEvent("submit", { cancelable: true })
+      );
       await flush();
       await flush();
       await expect(element).toBeAccessible();
@@ -619,19 +854,6 @@ describe("c-work-item-board", () => {
     };
     const total = (el) => el.shadowRoot.querySelector(".total").textContent;
 
-    it("opens the detail panel from the button in a card's heading", async () => {
-      const element = mount();
-      getBoardData.emit(board([item({ id: "w1" })]));
-      await flush();
-
-      cards(element)[0].shadowRoot.querySelector("button[data-select]").click();
-      await flush();
-
-      expect(
-        element.shadowRoot.querySelector('[data-region="detail"]')
-      ).not.toBeNull();
-    });
-
     it("shows the Epics view from the payload's epics, with flat work passing through", async () => {
       const element = mount();
       getBoardData.emit(mixed());
@@ -684,22 +906,30 @@ describe("c-work-item-board", () => {
       ).not.toBeNull();
     });
 
-    it("gives a record with no remote record no sync chip, and says why in the panel", async () => {
+    it("opens an epic card in the Epics view, with its record link when granted", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ id: "c1", syncStatus: null })]));
+      const data = mixed();
+      data.canOpenRecord = true;
+      getBoardData.emit(data);
+      await flush();
+      await choose(element, "view", "epics");
+
+      const epicCard = element.shadowRoot.querySelector("c-board-epic-card");
+      epicCard.shadowRoot.querySelector("[data-disclosure]").click();
+      await flush();
       await flush();
 
       expect(
-        cards(element)[0].shadowRoot.querySelector("[data-sync]")
-      ).toBeNull();
-
-      cards(element)[0].dispatchEvent(
-        new CustomEvent("select", { detail: { key: "c1" } })
-      );
-      await flush();
+        epicCard.shadowRoot
+          .querySelector("[data-disclosure]")
+          .getAttribute("aria-expanded")
+      ).toBe("true");
+      // Keyed "epic-" and its id, and the link names the epic's own record.
       expect(
-        element.shadowRoot.querySelector('[data-region="detail"]').textContent
-      ).toContain("No remote record");
+        epicCard.shadowRoot
+          .querySelector("[data-record-link]")
+          .getAttribute("href")
+      ).toBe("/r/e1");
     });
 
     it("is accessible in the Epics view with a source chosen", async () => {

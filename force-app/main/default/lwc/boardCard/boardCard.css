@@ -28,36 +28,18 @@
   background: var(--card-accent);
 }
 
-.head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
 .title {
-  flex: 1 1 auto;
-  min-width: 0;
   margin: 0;
   font-size: 0.9375rem;
   font-weight: 600;
   line-height: 1.35;
 }
-/* Two lines, then an ellipsis. A column of cards has to stay comparable in height; the full
-   title is still in the DOM, so a screen reader hears all of it. */
-.heading {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  /* An unbroken token - a URL, a branch name - wraps instead of widening the column. */
-  overflow-wrap: anywhere;
-}
-/* No title synced: an identifier is standing in, and should not look like a name. */
-.is-fallback {
-  font-weight: 500;
-  color: var(--board-quiet);
-}
-.title-btn {
-  display: block;
+/* The header is one button: title, sync chip, chevron. It fills the card's width, so the whole
+   top line is the target. */
+.disclosure {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
   margin: 0;
   padding: 0;
@@ -68,13 +50,46 @@
   text-align: left;
   cursor: pointer;
 }
-.title-btn:hover .heading {
+.disclosure:hover .heading {
   text-decoration: underline;
 }
-.title-btn:focus-visible {
+.disclosure:focus-visible {
   outline: 2px solid var(--board-ink);
   outline-offset: 2px;
   border-radius: 2px;
+}
+/* Two lines, then an ellipsis. A column of cards has to stay comparable in height; the full
+   title is still in the DOM, so a screen reader hears all of it, and an open card shows it. */
+.heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* An unbroken token - a URL, a branch name - wraps instead of widening the column. */
+  overflow-wrap: anywhere;
+}
+.heading.is-open {
+  display: block;
+}
+/* No title synced: an identifier is standing in, and should not look like a name. */
+.is-fallback {
+  font-weight: 500;
+  color: var(--board-quiet);
+}
+.chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 6px 2px 0 4px;
+  border-right: 2px solid var(--board-quiet);
+  border-bottom: 2px solid var(--board-quiet);
+  transform: rotate(45deg);
+}
+.is-expanded .chevron {
+  margin-top: 9px;
+  transform: rotate(-135deg);
 }
 
 .meta {
@@ -122,6 +137,7 @@
 }
 .sync {
   margin-top: 1px;
+  font-size: 0.75rem;
 }
 .sync-pending {
   border-color: transparent;
@@ -141,4 +157,162 @@
   font-size: 0.75rem;
   line-height: 1.5;
   color: var(--board-quiet);
+}
+
+/* Open: the card lifts, its border darkens and its stripe widens, so an open card and a
+   focused closed one never look alike. */
+.card.is-expanded {
+  padding-left: 18px;
+  border-color: var(--board-quiet);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--board-ink) 14%, transparent);
+}
+.card.is-expanded::before {
+  width: 6px;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--board-line);
+}
+.details[hidden] {
+  display: none;
+}
+.description {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+/* Each pair is a row of the grid, so a long value wraps under itself, not under its term. */
+.fact {
+  display: contents;
+}
+.facts dt {
+  color: var(--board-quiet);
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.move,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.field-label {
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+}
+.btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--board-ink);
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--board-surface);
+}
+.btn-primary {
+  border-color: var(--board-ink);
+  background: var(--board-ink);
+  color: var(--board-paper);
+}
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--board-ink) 85%, var(--board-paper));
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.btn:focus-visible,
+.field-input:focus-visible,
+.record-link:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.field-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--board-ink);
+}
+.field-input[aria-invalid="true"] {
+  border-color: var(--board-danger);
+}
+/* Empty until there is something to say, and then beside the field it is about. */
+.field-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-danger);
+}
+.field-error:empty {
+  display: none;
+}
+.field-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+}
+.feedback {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.feedback:empty {
+  display: none;
+}
+.feedback-error {
+  color: var(--board-danger);
+}
+.record-row {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.record-link {
+  color: var(--board-link);
 }

@@ -18,9 +18,10 @@
  * stale and duplicate deliveries rather than loops.
  *
  * stageForPush is the other half of a push. It records WHICH fields changed in
- * Pending_Push_Fields__c - the queueable carries only ids, and the adapter must send exactly the
- * fields that changed and nothing else - and marks the record Pending so nothing claims the
- * source agrees before it does.
+ * Pending_Push_Fields__c - the adapter must send exactly the fields that changed and nothing
+ * else - and marks the record Pending so nothing claims the source agrees before it does.
+ * pushChanges hands the job the fields this save changed, so a second save's job does not send
+ * the first save's fields again.
  */
 public with sharing class WorkItemTriggerHandler {
   /**
@@ -90,7 +91,14 @@ public with sharing class WorkItemTriggerHandler {
     }
   }
 
-  /** Queue one push for every record whose pushable fields changed. */
+  /**
+   * Queue one push for every record whose pushable fields changed, owning the fields that
+   * changed. Another save's fields belong to that save's job - see WorkItemSyncQueueable.
+   *
+   * A record that was Failed has no push in flight: the job that was refused has finished, and
+   * what it left in Pending_Push_Fields__c belongs to no job. This save's job takes it over, which
+   * is what makes "it is sent again with the next change you save" true on the board.
+   */
   public static void pushChanges(
     List<Work_Item__c> updated,
     Map<Id, Work_Item__c> priorById
@@ -99,15 +107,20 @@ public with sharing class WorkItemTriggerHandler {
       return;
     }
 
-    List<Id> toPush = new List<Id>();
+    Map<Id, Set<SyncField>> staged = new Map<Id, Set<SyncField>>();
     for (Work_Item__c item : updated) {
       Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
-      if (!SyncFields.changedBetween(item, prior).isEmpty()) {
-        toPush.add(item.Id);
+      Set<SyncField> changed = SyncFields.changedBetween(item, prior);
+      if (changed.isEmpty()) {
+        continue;
       }
+      if (prior != null && prior.Sync_Status__c == SyncStatus.FAILED) {
+        changed.addAll(SyncFields.parse(prior.Pending_Push_Fields__c));
+      }
+      staged.put(item.Id, changed);
     }
-    if (!toPush.isEmpty()) {
-      WorkItemSyncService.enqueue(toPush);
+    if (!staged.isEmpty()) {
+      WorkItemSyncService.enqueueStaged(staged);
     }
   }
 
