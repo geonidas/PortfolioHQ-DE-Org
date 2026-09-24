@@ -665,3 +665,85 @@ describe("c-public-work-item-board card freshness", () => {
     );
   });
 });
+
+// Build 08 gate. Both views and every state are held to sa11y's rule set separately: the epic
+// view renders different cards from the task view, and a violation in one would pass a check
+// of the other.
+describe("c-public-work-item-board accessibility", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  const busyBoard = () =>
+    board(
+      [
+        card({ recordNumber: "WI-0001", status: "To Do" }),
+        card({
+          recordNumber: "WI-0002",
+          title: "A child",
+          status: "To Do",
+          parentNumber: "WI-0001"
+        }),
+        card({
+          recordNumber: "WI-0003",
+          title: null,
+          status: "In Progress",
+          syncStatus: "Pending",
+          lastSyncedAt: null
+        }),
+        card({ recordNumber: "WI-0004", status: "Blocked" }),
+        flatCard({ status: "Done", type: null })
+      ],
+      [
+        epic({ title: "Guest board", status: "In Progress" }),
+        epic({ title: null, status: "To Do", totalChildren: 0 }),
+        epic({ title: "Unmapped", status: "Blocked" })
+      ]
+    );
+
+  it("is accessible while loading", async () => {
+    await expect(mount()).toBeAccessible();
+  });
+
+  it("is accessible in the task view", async () => {
+    const element = mount();
+    getPublicBoardData.emit(busyBoard());
+    await flush();
+    await expect(element).toBeAccessible();
+  });
+
+  it("is accessible in the epic view", async () => {
+    const element = mount();
+    getPublicBoardData.emit(busyBoard());
+    await flush();
+    toggle(element, "epics").click();
+    await flush();
+    await expect(element).toBeAccessible();
+  });
+
+  it("is accessible when each view is empty on its own", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([], [epic({ status: "Done" })]));
+    await flush();
+    await expect(element).toBeAccessible();
+    toggle(element, "epics").click();
+    await flush();
+    await expect(element).toBeAccessible();
+  });
+
+  it("is accessible when the whole board is empty", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board([], []));
+    await flush();
+    await expect(element).toBeAccessible();
+  });
+
+  it("is accessible when the board fails to load", async () => {
+    const element = mount();
+    getPublicBoardData.error({ message: "Nope" }, 500, "Server Error");
+    await flush();
+    await expect(element).toBeAccessible();
+  });
+});

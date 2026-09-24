@@ -441,4 +441,111 @@ describe("c-work-item-board", () => {
       ).toContain("not available");
     });
   });
+
+  // Build 08 gate. Each rendered state is held to sa11y's rule set on its own: a violation that
+  // only exists while the detail panel is open, or only in the error state, would pass a check
+  // of the plain board.
+  describe("accessibility", () => {
+    // The one known violation, pinned exactly rather than waived. Every card on the board is an
+    // <article role="button">, which axe rejects (aria-allowed-role) and which also flattens
+    // the heading inside it for a screen reader. Not patched here: a <div role="button"> would
+    // satisfy the rule and keep the flattened heading. Build 08 step 7 replaces the clickable
+    // card with a disclosure button in the card header, and this list must then be empty.
+    const KNOWN = ["aria-allowed-role"];
+
+    const busyBoard = () =>
+      board([
+        item({ Id: "p1", External_Key__c: "DOPP-16", Status__c: "To Do" }),
+        item({
+          Id: "c1",
+          External_Key__c: "DOPP-17",
+          Status__c: "To Do",
+          Parent_Work_Item__c: "p1"
+        }),
+        item({
+          Id: "c2",
+          External_Key__c: "DOPP-18",
+          Status__c: "In Progress",
+          Parent_Work_Item__c: "p1",
+          Sync_Status__c: "Pending"
+        }),
+        item({
+          Id: "u1",
+          External_Key__c: "DOPP-9",
+          Status__c: "Unspecified",
+          Type__c: "Unspecified",
+          Description__c: "Has a description"
+        })
+      ]);
+
+    async function selectFirst(element) {
+      cards(element)[0].dispatchEvent(
+        new CustomEvent("select", { detail: { id: "p1" } })
+      );
+      await flush();
+    }
+
+    it("is accessible while loading", async () => {
+      await expect(mount()).toBeAccessible();
+    });
+
+    it("has no violation but the known one with cards, nesting, a sync flag and the outside region", async () => {
+      const element = mount();
+      getBoardData.emit(busyBoard());
+      await flush();
+      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+
+    it("has no violation but the known one with the detail panel open", async () => {
+      const element = mount();
+      getBoardData.emit(busyBoard());
+      await flush();
+      await selectFirst(element);
+      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+
+    it("has no violation but the known one after a status change is reported", async () => {
+      changeStatus.mockResolvedValue({
+        workItemId: "p1",
+        status: "Done",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message: "Saved in Salesforce."
+      });
+      const element = mount();
+      getBoardData.emit(busyBoard());
+      await flush();
+      await selectFirst(element);
+      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      await flush();
+      await flush();
+      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+
+    it("has no violation but the known one when a status change fails", async () => {
+      changeStatus.mockRejectedValue({ body: { message: "Not available." } });
+      const element = mount();
+      getBoardData.emit(busyBoard());
+      await flush();
+      await selectFirst(element);
+      element.shadowRoot.querySelector('[data-status="Done"]').click();
+      await flush();
+      await flush();
+      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+
+    it("is accessible when empty", async () => {
+      const element = mount();
+      getBoardData.emit(board([]));
+      await flush();
+      await expect(element).toBeAccessible();
+    });
+
+    it("is accessible when the board fails to load", async () => {
+      const element = mount();
+      getBoardData.error({ message: "Access denied" }, 400, "Bad Request");
+      await flush();
+      await expect(element).toBeAccessible();
+    });
+  });
 });

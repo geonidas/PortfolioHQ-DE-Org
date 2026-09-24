@@ -222,7 +222,7 @@ export default class WorkItemBoard extends LightningElement {
         sync === "Failed" ? "sync-flag sync-failed" : "sync-flag sync-pending",
       syncTitle: isSynced
         ? ""
-        : `Salesforce and Jira are not reconciled: ${sync}`,
+        : `Salesforce and the source system are not reconciled: ${sync}`,
       storyPoints: item.Story_Points__c,
       hasPoints,
       description: item.Description__c,
@@ -307,9 +307,10 @@ export default class WorkItemBoard extends LightningElement {
     this.actionError = undefined;
     try {
       const result = await changeStatus({ workItemId: card.id, newStatus });
-      // Report what actually happened locally, and do not imply Jira has agreed yet.
+      // Report what actually happened locally, and do not imply the source system has agreed
+      // yet. Generic until build 08 step 7, which names it from the card's source label.
       this.actionMessage = result.pushQueued
-        ? `${result.message} This card stays ${result.syncStatus} until Jira confirms.`
+        ? `${result.message} This card stays ${result.syncStatus} until the source system confirms.`
         : result.message;
       await refreshApex(this.boardResult);
     } catch (error) {

@@ -146,4 +146,55 @@ describe("c-work-item-card", () => {
       );
     expect(handler).toHaveBeenCalled();
   });
+
+  // Build 08 gate: every rendered variant is held to sa11y's rule set, not just the default,
+  // because a violation that only exists on a fallback heading or a sync flag would pass a
+  // check of the plain card.
+  describe("accessibility", () => {
+    // The one known violation, pinned exactly rather than waived. The whole card is an
+    // <article role="button">, which axe rejects (aria-allowed-role) and which also flattens
+    // the heading inside it for a screen reader. Not patched here: a <div role="button"> would
+    // satisfy the rule and keep the flattened heading. Build 08 step 7 replaces the clickable
+    // card with a disclosure button in the card header, and this list must then be empty.
+    const KNOWN = ["aria-allowed-role"];
+
+    it("has no violation but the known one in its default form", async () => {
+      await expect(mount(card())).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+
+    it("has no violation but the known one with a fallback heading, a sync flag and a parent note", async () => {
+      const element = mount(
+        card({
+          title: null,
+          hasTitle: false,
+          heading: "DOPP-1",
+          headingClass: "heading heading-fallback",
+          identLabel: "WI-0000",
+          syncStatus: "Pending",
+          showSyncFlag: true,
+          syncTitle: "Not reconciled: Pending",
+          showParentNote: true,
+          parentNote: "Child of DOPP-16"
+        })
+      );
+      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+
+    it("has no violation but the known one with a description, points and an unmapped status", async () => {
+      const element = mount(
+        card({
+          description: "Board cards grouped by status.",
+          hasDescription: true,
+          storyPoints: 3,
+          hasPoints: true,
+          isUnmappedStatus: true,
+          cssClass: "is-unmapped",
+          syncStatus: "Failed",
+          showSyncFlag: true,
+          syncClass: "sync-flag sync-failed"
+        })
+      );
+      await expect(element).toHaveOnlyKnownA11yViolations(KNOWN);
+    });
+  });
 });

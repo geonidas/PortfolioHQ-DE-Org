@@ -26,9 +26,7 @@
     <template lwc:elseif={isEmpty}>
       <div class="state state-empty" data-state="empty">
         <p class="state-title">No work items yet.</p>
-        <p class="state-detail">
-          Nothing has synced from Jira for this project.
-        </p>
+        <p class="state-detail">Nothing has synced into this project yet.</p>
       </div>
     </template>
 
@@ -80,9 +78,9 @@
             <!-- The push is asynchronous. Saying so up front is cheaper than a user
                              refreshing Jira and finding nothing there yet. -->
             <p class="detail-async">
-              Changing the status saves in Salesforce immediately. The Jira
-              update runs in the background, so this card shows Pending until
-              the two reconcile.
+              Changing the status saves in Salesforce immediately. The update to
+              the source system runs in the background, so this card shows
+              Pending until the two reconcile.
             </p>
           </template>
           <template lwc:else>
@@ -144,8 +142,9 @@
           <h2 class="outside-head">Outside the configured columns</h2>
           <p class="outside-note">
             These have a status that is not one of the board columns — either
-            Jira reported something with no Salesforce mapping, or the column is
-            not configured. They are not "to do" and are not counted as such.
+            the source system reported something with no Salesforce mapping, or
+            the column is not configured. They are not "to do" and are not
+            counted as such.
           </p>
           <div class="outside-cards">
             <template for:each={outsideCards} for:item="card">
