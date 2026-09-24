@@ -8,6 +8,21 @@
     data-status={card.status}
     onkeydown={handleKeydown}
   >
+    <!-- The left edge: the accent stripe and the gutter beside it, the full height of a closed
+         card. The first place a hand reaches for a drag, and left of the header button, so a
+         drag still never starts from a control. Not focusable and hidden from screen readers:
+         Move to is the way to move a card without dragging. -->
+    <div
+      class="drag-edge"
+      draggable={dragValue}
+      aria-hidden="true"
+      data-drag-edge
+      ondragstart={handleDragStart}
+      ondragend={handleDragEnd}
+    >
+      <span class="grip">⠿</span>
+    </div>
+
     <!-- The header is the disclosure: one button, named by the title and the sync state. -->
     <h3 class="title">
       <button
@@ -29,45 +44,55 @@
       </button>
     </h3>
 
-    <p class="meta" data-meta>
-      <span class="assistive">{card.metaSpoken}</span>
-      <span class="line" aria-hidden="true">
-        <template lwc:if={card.hasSourceLabel}>
-          <span class="source" data-source>{card.sourceLabel}</span>
-        </template>
-        <span class="ids" data-ids>
-          <template for:each={card.ids} for:item="id">
-            <span key={id.key} class="id"
-              ><template lwc:if={id.showSep}
-                ><span class="sep">·</span></template
-              >{id.text}</span
-            >
+    <!-- The other drag surface: the lines under the header. Not the header, which is a button,
+         and nothing in the open card, which holds inputs. Draggable only when the board says so. -->
+    <div
+      class="drag-surface"
+      draggable={dragValue}
+      data-drag-surface
+      ondragstart={handleDragStart}
+      ondragend={handleDragEnd}
+    >
+      <p class="meta" data-meta>
+        <span class="assistive">{card.metaSpoken}</span>
+        <span class="line" aria-hidden="true">
+          <template lwc:if={card.hasSourceLabel}>
+            <span class="source" data-source>{card.sourceLabel}</span>
           </template>
-        </span>
-        <template lwc:if={card.hasType}>
-          <span class="chip type" data-type>{card.type}</span>
-        </template>
-      </span>
-    </p>
-
-    <template lwc:if={card.hasDates}>
-      <p class="meta" data-dates>
-        <span class="assistive">{datesSpoken}</span>
-        <span class="line dates" aria-hidden="true">
-          <template for:each={dateLine} for:item="part">
-            <span key={part.key} class={part.cssClass} data-date={part.key}
-              ><template lwc:if={part.showSep}
-                ><span class="sep">·</span></template
-              >{part.text}</span
-            >
+          <span class="ids" data-ids>
+            <template for:each={card.ids} for:item="id">
+              <span key={id.key} class="id"
+                ><template lwc:if={id.showSep}
+                  ><span class="sep">·</span></template
+                >{id.text}</span
+              >
+            </template>
+          </span>
+          <template lwc:if={card.hasType}>
+            <span class="chip type" data-type>{card.type}</span>
           </template>
         </span>
       </p>
-    </template>
 
-    <template lwc:if={showParentNote}>
-      <p class="parent-note">{card.parentNote}</p>
-    </template>
+      <template lwc:if={card.hasDates}>
+        <p class="meta" data-dates>
+          <span class="assistive">{datesSpoken}</span>
+          <span class="line dates" aria-hidden="true">
+            <template for:each={dateLine} for:item="part">
+              <span key={part.key} class={part.cssClass} data-date={part.key}
+                ><template lwc:if={part.showSep}
+                  ><span class="sep">·</span></template
+                >{part.text}</span
+              >
+            </template>
+          </span>
+        </p>
+      </template>
+
+      <template lwc:if={showParentNote}>
+        <p class="parent-note">{card.parentNote}</p>
+      </template>
+    </div>
 
     <!-- Always present, so aria-controls always names something; filled only while open. -->
     <div id="details" class="details" hidden={isCollapsed} data-details>
@@ -93,7 +118,20 @@
             <template lwc:if={card.syncNote}>
               <div class="fact">
                 <dt>Sync</dt>
-                <dd data-sync-note>{card.syncNote}</dd>
+                <dd>
+                  <span data-sync-note>{card.syncNote}</span>
+                  <template lwc:if={showRetry}>
+                    <button
+                      type="button"
+                      class="btn retry"
+                      data-action="retry"
+                      aria-disabled={busyText}
+                      onclick={handleRetry}
+                    >
+                      Retry
+                    </button>
+                  </template>
+                </dd>
               </div>
             </template>
           </dl>

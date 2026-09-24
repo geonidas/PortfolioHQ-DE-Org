@@ -5,11 +5,14 @@ import { NavigationMixin } from "lightning/navigation";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
 import saveDetails from "@salesforce/apex/WorkItemBoardController.saveDetails";
+import retryPush from "@salesforce/apex/WorkItemBoardController.retryPush";
 import {
   DEFAULT_COLUMNS,
   columnsFrom,
   layoutColumns,
-  nestByParent
+  nestByParent,
+  PORTRAIT_QUERY,
+  FINE_POINTER_QUERY
 } from "c/boardLayout";
 import {
   VIEW_TASKS,
@@ -80,6 +83,15 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
   abilities;
   _focusTarget;
 
+  // Drag-and-drop. Only with a fine pointer and outside the portrait layout; the Move to buttons
+  // are the alternative everywhere else, and for anyone who does not drag (WCAG 2.5.7).
+  canDrag = false;
+  boardMessage = "";
+  boardMessageTone = "ok";
+  _drag;
+  _media = [];
+  _onMediaChange;
+
   // Live updates. The subscription is the container's alone: the shared components never import
   // lightning/empApi, which LWR sites do not support, and the public board polls instead.
   isLive = false;
@@ -89,6 +101,7 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
 
   connectedCallback() {
     this._connected = true;
+    this.watchPointer();
     onError((error) => {
       // The stream dropped - a network blip or an expired session. Say so rather than
       // implying the board is still live; a page reload re-subscribes.
@@ -112,6 +125,10 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
 
   disconnectedCallback() {
     this._connected = false;
+    this._media.forEach((query) =>
+      query.removeEventListener("change", this._onMediaChange)
+    );
+    this._media = [];
     clearTimeout(this._refreshTimer);
     this._refreshTimer = undefined;
     if (this._subscription) {
@@ -267,6 +284,8 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
       ? {
           moveTo: this.configuredColumns,
           edit: true,
+          retry: true,
+          drag: this.canDrag,
           openRecord: !!this.board.canOpenRecord,
           titleMax: this.board.titleMaxLength
         }
@@ -432,33 +451,181 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
     this[NavigationMixin.Navigate](this.recordPage(event.detail.key));
   }
 
-  /**
-   * The Move to buttons. changeStatus writes Status__c and the trigger queues the push; this
-   * reports what Salesforce did and that the source has not confirmed yet. The card changes
-   * column on the refresh, so focus follows it to its new place.
-   */
-  async handleMove(event) {
+  /** The Move to buttons. */
+  handleMove(event) {
     const { key, status } = event.detail;
+    return this.moveCard(key, status, false);
+  }
+
+  /**
+   * Moves a card, from Move to or from a drop. changeStatus writes Status__c and the trigger
+   * queues the push; this reports what Salesforce did and that the source has not confirmed yet.
+   *
+   * The card does not move until Salesforce has committed: it stays in its column, dimmed, while
+   * the save runs, and the refresh that follows puts it in the new one. A save that fails leaves
+   * it where it was - the snap back is simply never having left. After Move to, focus follows the
+   * card to its new column; after a drop, the board says what happened in a status line, because
+   * a closed card has nowhere to say it.
+   */
+  async moveCard(key, status, dragged) {
+    const number = this.recordNumberFor(key);
     this.feedback = { key, busy: true };
+    if (dragged) {
+      this.announce(`Moving ${number} to ${status}…`, "ok");
+    }
     try {
       const result = await changeStatus({ workItemId: key, newStatus: status });
+      const message = result.pushQueued
+        ? `${result.message} This card stays ${result.syncStatus} until ${sourceName(
+            this.sourceLabelFor(key)
+          )} confirms.`
+        : result.message;
       // Focus follows the card once it has rendered in its new column - not before, when the
       // first render after this one still shows it in the old one.
-      this._focusTarget = { key, status: result.status };
-      this.feedback = {
-        key,
-        tone: "ok",
-        message: result.pushQueued
-          ? `${result.message} This card stays ${result.syncStatus} until ${sourceName(
-              this.sourceLabelFor(key)
-            )} confirms.`
-          : result.message
-      };
+      this._focusTarget = dragged ? undefined : { key, status: result.status };
+      this.feedback = { key, tone: "ok", message };
+      if (dragged) {
+        this.announce(`${number} moved to ${result.status}. ${message}`, "ok");
+      }
       await refreshApex(this.boardResult);
     } catch (error) {
       this._focusTarget = undefined;
+      const reason = this.readError(error);
+      this.feedback = { key, tone: "error", message: reason };
+      if (dragged) {
+        this.announce(`${number} was not moved. ${reason}`, "error");
+      }
+    }
+  }
+
+  /**
+   * Retry: sends a refused change again. retryPush moves Sync_Status__c from Failed to Pending and
+   * the trigger queues the push, as for any save; nothing here calls the sync service.
+   */
+  async handleRetry(event) {
+    const key = event.detail.key;
+    this.feedback = { key, busy: true };
+    try {
+      const result = await retryPush({ workItemId: key });
+      this.feedback = { key, tone: "ok", message: result.message };
+      if (result.pushQueued) {
+        await refreshApex(this.boardResult);
+      }
+    } catch (error) {
       this.feedback = { key, tone: "error", message: this.readError(error) };
     }
+  }
+
+  announce(message, tone) {
+    this.boardMessage = message;
+    this.boardMessageTone = tone;
+  }
+
+  get boardMessageClass() {
+    return this.boardMessageTone === "error"
+      ? "board-message board-message-error"
+      : "board-message";
+  }
+
+  recordNumberFor(key) {
+    const item = this._itemsById && this._itemsById.get(this.recordIdFor(key));
+    return item ? item.recordNumber : "The card";
+  }
+
+  // ---------- drag-and-drop ----------
+
+  /**
+   * Drag needs a mouse or trackpad and the landscape layout, and both can change while the page
+   * is open - a window resized into portrait, a tablet with a keyboard attached. The abilities
+   * are updated when either does, so a card never offers a drag the layout cannot take.
+   */
+  watchPointer() {
+    if (typeof window.matchMedia !== "function") {
+      this.canDrag = false;
+      return;
+    }
+    this._media = [
+      window.matchMedia(FINE_POINTER_QUERY),
+      window.matchMedia(PORTRAIT_QUERY)
+    ];
+    this._onMediaChange = () => this.updateDrag();
+    this._media.forEach((query) =>
+      query.addEventListener("change", this._onMediaChange)
+    );
+    this.updateDrag();
+  }
+
+  updateDrag() {
+    const [fine, portrait] = this._media;
+    const can = !!fine && fine.matches && !(portrait && portrait.matches);
+    if (can === this.canDrag) {
+      return;
+    }
+    this.canDrag = can;
+    if (this.abilities) {
+      this.abilities = { ...this.abilities, drag: can };
+    }
+  }
+
+  handleCardDragStart(event) {
+    this._drag = { key: event.detail.key, status: event.detail.status };
+  }
+
+  handleCardDragEnd() {
+    this._drag = undefined;
+    this.clearDropTargets();
+  }
+
+  columnStatus(element) {
+    return element.dataset.column || element.dataset.epicColumn;
+  }
+
+  /**
+   * A column accepts a card from another column. Its own column is not a drop target, so the
+   * browser shows no drop there and dropping does nothing.
+   */
+  handleDragOver(event) {
+    if (!this._drag) {
+      return;
+    }
+    const column = event.currentTarget;
+    if (this.columnStatus(column) === this._drag.status) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+    if (!column.hasAttribute("data-drop-target")) {
+      this.clearDropTargets();
+      column.setAttribute("data-drop-target", "");
+    }
+  }
+
+  handleDragLeave(event) {
+    const column = event.currentTarget;
+    if (!event.relatedTarget || !column.contains(event.relatedTarget)) {
+      column.removeAttribute("data-drop-target");
+    }
+  }
+
+  /** The dragged record alone changes status - never its children, which keep their own. */
+  handleDrop(event) {
+    event.preventDefault();
+    const drag = this._drag;
+    this._drag = undefined;
+    this.clearDropTargets();
+    const status = this.columnStatus(event.currentTarget);
+    if (!drag || !status || status === drag.status) {
+      return undefined;
+    }
+    return this.moveCard(drag.key, status, true);
+  }
+
+  clearDropTargets() {
+    this.template
+      .querySelectorAll("[data-drop-target]")
+      .forEach((column) => column.removeAttribute("data-drop-target"));
   }
 
   /**

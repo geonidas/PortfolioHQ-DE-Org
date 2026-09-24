@@ -216,6 +216,7 @@ export function cardModel(
     // at all - renders neutral.
     accent: item.accentToken || "none",
     syncStatus: item.syncStatus || null,
+    isFailed: item.syncStatus === FAILED,
     showSync: sync.show,
     syncClass: sync.cssClass,
     dates,
@@ -273,8 +274,8 @@ export function syncNote({ syncStatus, syncError, sourceLabel }) {
   if (syncStatus === FAILED) {
     const reason = syncError ? ` ${syncError}` : "";
     // Not "save again": a save with nothing changed saves nothing. The failed fields stay
-    // queued on the record and go out with the next change that is saved.
-    return `Failed: ${name} did not accept the last change.${reason} It is sent again with the next change you save.`;
+    // queued on the record; Retry sends them, and so does the next change that is saved.
+    return `Failed: ${name} did not accept the last change.${reason} Retry sends it again, and so does the next change you save.`;
   }
   if (syncStatus === "Synced") {
     return `In step with ${name}.`;

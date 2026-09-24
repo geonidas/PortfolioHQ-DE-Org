@@ -3,6 +3,7 @@ import WorkItemBoard from "c/workItemBoard";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
 import saveDetails from "@salesforce/apex/WorkItemBoardController.saveDetails";
+import retryPush from "@salesforce/apex/WorkItemBoardController.retryPush";
 import { refreshApex } from "@salesforce/apex";
 import { subscribe, unsubscribe } from "lightning/empApi";
 
@@ -21,6 +22,11 @@ jest.mock(
 );
 jest.mock(
   "@salesforce/apex/WorkItemBoardController.saveDetails",
+  () => ({ default: jest.fn() }),
+  { virtual: true }
+);
+jest.mock(
+  "@salesforce/apex/WorkItemBoardController.retryPush",
   () => ({ default: jest.fn() }),
   { virtual: true }
 );
@@ -938,6 +944,263 @@ describe("c-work-item-board", () => {
       await flush();
       await choose(element, "view", "epics");
       await choose(element, "source", "Jira");
+      await expect(element).toBeAccessible();
+    });
+  });
+
+  // Build 08 step 8. Drag-and-drop with a fine pointer in the landscape layout, and Retry.
+  describe("drag-and-drop and retry", () => {
+    const FINE = "(pointer: fine)";
+    const PORTRAIT = "(orientation: portrait) and (max-width: 700px)";
+    let media;
+
+    /** A stand-in for window.matchMedia whose answers a test can change, firing listeners. */
+    function mockMedia({ fine, portrait }) {
+      media = { [FINE]: fine, [PORTRAIT]: portrait, listeners: [] };
+      window.matchMedia = jest.fn((query) => ({
+        get matches() {
+          return !!media[query];
+        },
+        addEventListener: (type, listener) => media.listeners.push(listener),
+        removeEventListener: (type, listener) => {
+          media.listeners = media.listeners.filter((l) => l !== listener);
+        }
+      }));
+    }
+    function changeMedia(values) {
+      Object.assign(media, values);
+      media.listeners.forEach((listener) => listener());
+    }
+    function dragEvent(type) {
+      const event = new CustomEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", {
+        value: {
+          setData() {},
+          setDragImage() {},
+          effectAllowed: "",
+          dropEffect: ""
+        }
+      });
+      return event;
+    }
+    const surface = (element, key) =>
+      inCard(element, key, "[data-drag-surface]");
+    const column = (element, status) =>
+      element.shadowRoot.querySelector(`[data-column="${status}"]`);
+    async function dragTo(element, key, status) {
+      surface(element, key).dispatchEvent(dragEvent("dragstart"));
+      await flush();
+      const over = dragEvent("dragover");
+      column(element, status).dispatchEvent(over);
+      const drop = dragEvent("drop");
+      column(element, status).dispatchEvent(drop);
+      surface(element, key).dispatchEvent(dragEvent("dragend"));
+      await flush();
+      await flush();
+      return over;
+    }
+    const twoColumns = () =>
+      board([
+        item({ id: "w1", recordNumber: "WI-0001", status: "To Do" }),
+        item({ id: "w2", recordNumber: "WI-0002", status: "Done" })
+      ]);
+
+    afterEach(() => {
+      delete window.matchMedia;
+    });
+
+    it("lets cards be dragged with a fine pointer in the landscape layout", async () => {
+      mockMedia({ fine: true, portrait: false });
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+
+      expect(surface(element, "w1").getAttribute("draggable")).toBe("true");
+    });
+
+    it("offers no drag with a coarse pointer, or in the portrait layout", async () => {
+      mockMedia({ fine: false, portrait: false });
+      const coarse = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+      expect(surface(coarse, "w1").getAttribute("draggable")).toBeNull();
+      document.body.removeChild(coarse);
+
+      mockMedia({ fine: true, portrait: true });
+      const portrait = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+      expect(surface(portrait, "w1").getAttribute("draggable")).toBeNull();
+      // The Move to buttons are still there: the alternative to dragging, always.
+      await openCard(portrait, "w1");
+      expect(inCard(portrait, "w1", '[data-move="Done"]')).not.toBeNull();
+    });
+
+    it("follows the layout as it changes", async () => {
+      mockMedia({ fine: true, portrait: false });
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+
+      changeMedia({ [PORTRAIT]: true });
+      await flush();
+      expect(surface(element, "w1").getAttribute("draggable")).toBeNull();
+
+      changeMedia({ [PORTRAIT]: false });
+      await flush();
+      expect(surface(element, "w1").getAttribute("draggable")).toBe("true");
+    });
+
+    it("moves a card dropped in another column through changeStatus, and says so", async () => {
+      mockMedia({ fine: true, portrait: false });
+      changeStatus.mockResolvedValue({
+        workItemId: "w1",
+        status: "Done",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message:
+          "Saved in Salesforce. The Jira update is running in the background."
+      });
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+
+      const over = await dragTo(element, "w1", "Done");
+
+      expect(over.defaultPrevented).toBe(true);
+      expect(changeStatus).toHaveBeenCalledWith({
+        workItemId: "w1",
+        newStatus: "Done"
+      });
+      expect(refreshApex).toHaveBeenCalled();
+      expect(
+        element.shadowRoot.querySelector("[data-board-message]").textContent
+      ).toContain("WI-0001 moved to Done.");
+      expect(element.shadowRoot.querySelector("[data-drop-target]")).toBeNull();
+    });
+
+    it("does nothing when a card is dropped in its own column", async () => {
+      mockMedia({ fine: true, portrait: false });
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+
+      const over = await dragTo(element, "w1", "To Do");
+
+      // Not a drop target, so the browser shows no drop there at all.
+      expect(over.defaultPrevented).toBe(false);
+      expect(changeStatus).not.toHaveBeenCalled();
+    });
+
+    it("leaves the card where it was, and says why, when the save fails", async () => {
+      mockMedia({ fine: true, portrait: false });
+      changeStatus.mockRejectedValue({
+        body: { message: "That work item is not available to you." }
+      });
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+
+      await dragTo(element, "w1", "Done");
+
+      expect(
+        cardFor(element, "w1").closest("[data-column]").dataset.column
+      ).toBe("To Do");
+      expect(refreshApex).not.toHaveBeenCalled();
+      const message = element.shadowRoot.querySelector("[data-board-message]");
+      expect(message.textContent).toContain("WI-0001 was not moved.");
+      expect(message.className).toContain("board-message-error");
+    });
+
+    it("moves the dragged record only, never its children", async () => {
+      mockMedia({ fine: true, portrait: false });
+      changeStatus.mockResolvedValue({
+        workItemId: "p1",
+        status: "Done",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message: "Saved."
+      });
+      const element = mount();
+      getBoardData.emit(
+        board([
+          item({ id: "p1", recordNumber: "WI-0001", status: "To Do" }),
+          item({
+            id: "c1",
+            recordNumber: "WI-0002",
+            status: "To Do",
+            parentId: "p1"
+          })
+        ])
+      );
+      await flush();
+
+      await dragTo(element, "p1", "Done");
+
+      expect(changeStatus).toHaveBeenCalledTimes(1);
+      expect(changeStatus).toHaveBeenCalledWith({
+        workItemId: "p1",
+        newStatus: "Done"
+      });
+    });
+
+    it("sends a failed change again from the open card's Retry", async () => {
+      retryPush.mockResolvedValue({
+        workItemId: "w1",
+        status: "To Do",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message:
+          "Sending it to Jira again. The update is running in the background."
+      });
+      const element = mount();
+      getBoardData.emit(
+        board([
+          item({
+            id: "w1",
+            syncStatus: "Failed",
+            syncError: "Jira returned 503."
+          })
+        ])
+      );
+      await flush();
+      await openCard(element, "w1");
+
+      inCard(element, "w1", "[data-action='retry']").click();
+      await flush();
+      await flush();
+
+      expect(retryPush).toHaveBeenCalledWith({ workItemId: "w1" });
+      expect(refreshApex).toHaveBeenCalled();
+      expect(inCard(element, "w1", "[data-feedback]").textContent).toContain(
+        "again"
+      );
+    });
+
+    it("stops listening to the layout when it disconnects", async () => {
+      mockMedia({ fine: true, portrait: false });
+      const element = mount();
+      await flush();
+      expect(media.listeners.length).toBe(2);
+
+      document.body.removeChild(element);
+
+      expect(media.listeners.length).toBe(0);
+    });
+
+    it("is accessible with drag on and a drop reported", async () => {
+      mockMedia({ fine: true, portrait: false });
+      changeStatus.mockResolvedValue({
+        workItemId: "w1",
+        status: "Done",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message: "Saved."
+      });
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+      await dragTo(element, "w1", "Done");
       await expect(element).toBeAccessible();
     });
   });

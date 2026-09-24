@@ -237,7 +237,7 @@ describe("boardModel open card", () => {
     expect(at("Synced")).toBe("In step with Source A.");
     expect(at("Failed", "Refused: no such transition.")).toBe(
       "Failed: Source A did not accept the last change. Refused: no such transition. " +
-        "It is sent again with the next change you save."
+        "Retry sends it again, and so does the next change you save."
     );
     // No sync state: the record has no remote record, and says so rather than "Pending".
     expect(at(null)).toBe(

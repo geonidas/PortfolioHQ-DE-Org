@@ -12,6 +12,15 @@
 export const DEFAULT_COLUMNS = "To Do,In Progress,Done";
 
 /**
+ * The portrait layout's condition: one column at a time. A tall, narrow desktop window matches it
+ * too, which is intended. Drag-and-drop runs only when it does not match.
+ */
+export const PORTRAIT_QUERY = "(orientation: portrait) and (max-width: 700px)";
+
+/** A mouse or trackpad. Drag-and-drop needs one; touch drag is out of scope for build 08. */
+export const FINE_POINTER_QUERY = "(pointer: fine)";
+
+/**
  * The configured column list: an ordered, comma separated string of Status__c values, as a page
  * property provides it. Blank falls back to the default rather than to no columns at all.
  */

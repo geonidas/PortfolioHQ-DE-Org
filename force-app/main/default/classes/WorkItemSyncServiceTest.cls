@@ -924,4 +924,82 @@ private class WorkItemSyncServiceTest {
       'Still waiting for the job that owns it.'
     );
   }
+
+  // ---------- retry (build 08 step 8) ----------
+
+  @IsTest
+  static void failedToPendingResendsWhatWasRefusedAndClearsTheReason() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Sync_Status__c = 'Failed',
+      Sync_Error__c = 'Jira returned 503.'
+    );
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+
+    Test.startTest();
+    Integer before = Limits.getQueueableJobs();
+    update new Work_Item__c(Id = items[0].Id, Sync_Status__c = 'Pending');
+    Integer queued = Limits.getQueueableJobs() - before;
+    Work_Item__c during = stored();
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      queued,
+      'A retry is a save, and the trigger queues its push.'
+    );
+    Assert.isNull(
+      during.Sync_Error__c,
+      'The last failure\'s reason does not describe an attempt that has not happened yet.'
+    );
+    Assert.areEqual(new List<Set<SyncField>>{ fields('STATUS') }, adapter.sent);
+    Assert.areEqual('Synced', stored().Sync_Status__c);
+  }
+
+  @IsTest
+  static void aRetryWithNothingWaitingSendsNothing() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Sync_Status__c = 'Failed',
+      Pending_Push_Fields__c = null
+    );
+    FakeAdapter adapter = new FakeAdapter(SyncResult.Outcome.SUCCESS);
+    WorkItemAdapterFactory.injected = adapter;
+
+    Test.startTest();
+    Integer before = Limits.getQueueableJobs();
+    update new Work_Item__c(Id = items[0].Id, Sync_Status__c = 'Pending');
+    Integer queued = Limits.getQueueableJobs() - before;
+    Test.stopTest();
+
+    Assert.areEqual(
+      0,
+      queued,
+      'Nothing is waiting, so there is nothing to send again.'
+    );
+    Assert.areEqual(0, adapter.calls);
+  }
+
+  @IsTest
+  static void theSyncsOwnFailedToPendingIsNotARetry() {
+    // The write-back and inbound both set Sync_Status__c, suppressed. Neither may queue a push.
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(Id = items[0].Id, Sync_Status__c = 'Failed');
+
+    Test.startTest();
+    Integer before = Limits.getQueueableJobs();
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(Id = items[0].Id, Sync_Status__c = 'Pending');
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    Integer queued = Limits.getQueueableJobs() - before;
+    Test.stopTest();
+
+    Assert.areEqual(0, queued);
+  }
 }

@@ -59,6 +59,22 @@ public with sharing class WorkItemTriggerHandler {
   }
 
   /**
+   * A request to send a refused change again: a save that moves Sync_Status__c from Failed to
+   * Pending on a record that has a remote record and something still waiting. Nothing else asks
+   * for a retry - the board's Retry, the record page and an API client all do it this way - and
+   * no controller calls the sync service. The sync's own write-backs never qualify: they run
+   * suppressed.
+   */
+  @TestVisible
+  private static Boolean isRetry(Work_Item__c item, Work_Item__c prior) {
+    return prior != null &&
+      prior.Sync_Status__c == SyncStatus.FAILED &&
+      item.Sync_Status__c == SyncStatus.PENDING &&
+      String.isNotBlank(item.External_Id__c) &&
+      !SyncFields.parse(item.Pending_Push_Fields__c).isEmpty();
+  }
+
+  /**
    * Record which pushable fields changed, and mark the record as no longer in agreement with the
    * source. Runs in before update, so it costs no extra DML.
    */
@@ -74,6 +90,11 @@ public with sharing class WorkItemTriggerHandler {
       Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
       Set<SyncField> changed = SyncFields.changedBetween(item, prior);
       if (changed.isEmpty()) {
+        if (isRetry(item, prior)) {
+          // What is pending stays as it is; the reason it failed last time no longer applies
+          // to an attempt that has not happened yet.
+          item.Sync_Error__c = null;
+        }
         continue;
       }
       // Added to, never replaced: a second edit before the first push lands must not erase the
@@ -97,7 +118,8 @@ public with sharing class WorkItemTriggerHandler {
    *
    * A record that was Failed has no push in flight: the job that was refused has finished, and
    * what it left in Pending_Push_Fields__c belongs to no job. This save's job takes it over, which
-   * is what makes "it is sent again with the next change you save" true on the board.
+   * is what makes "it is sent again with the next change you save" true on the board - and a
+   * retry is exactly such a save, with nothing else changed.
    */
   public static void pushChanges(
     List<Work_Item__c> updated,
@@ -111,7 +133,7 @@ public with sharing class WorkItemTriggerHandler {
     for (Work_Item__c item : updated) {
       Work_Item__c prior = priorById == null ? null : priorById.get(item.Id);
       Set<SyncField> changed = SyncFields.changedBetween(item, prior);
-      if (changed.isEmpty()) {
+      if (changed.isEmpty() && !isRetry(item, prior)) {
         continue;
       }
       if (prior != null && prior.Sync_Status__c == SyncStatus.FAILED) {

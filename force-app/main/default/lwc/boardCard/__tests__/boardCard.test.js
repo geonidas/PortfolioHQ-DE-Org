@@ -482,6 +482,205 @@ describe("c-board-card", () => {
     });
   });
 
+  // Build 08 step 8.
+  describe("drag and retry, internal board only", () => {
+    const DRAG = { moveTo: ["To Do", "Done"], edit: true, drag: true };
+    /** jsdom has no DataTransfer; this records what the card puts on one. */
+    function dragEvent(type) {
+      const transfer = {
+        effectAllowed: "",
+        dropEffect: "",
+        data: {},
+        setData(kind, value) {
+          this.data[kind] = value;
+        },
+        setDragImage: jest.fn()
+      };
+      const event = new CustomEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: transfer });
+      Object.defineProperty(event, "clientX", { value: 40 });
+      Object.defineProperty(event, "clientY", { value: 20 });
+      return event;
+    }
+    const surface = (element) => $(element, "[data-drag-surface]");
+
+    it("drags by its left edge and its detail lines, only when allowed and closed", () => {
+      const draggables = (element) =>
+        Array.from(
+          element.shadowRoot.querySelectorAll("[draggable='true']")
+        ).map((node) => {
+          return node.hasAttribute("data-drag-edge") ? "edge" : "lines";
+        });
+      expect(draggables(mount(model()))).toStrictEqual([]);
+      expect(
+        draggables(mount(model(), { abilities: { ...DRAG, drag: false } }))
+      ).toStrictEqual([]);
+      expect(draggables(mount(model(), { abilities: DRAG }))).toStrictEqual([
+        "edge",
+        "lines"
+      ]);
+      // Open, it holds inputs; a drag never starts there.
+      expect(
+        draggables(mount(model(), { abilities: DRAG, expandedKey: "WI-0003" }))
+      ).toStrictEqual([]);
+    });
+
+    it("never starts a drag from a button, an input or a link", () => {
+      const element = mount(model(), { abilities: DRAG });
+      const header = $(element, "[data-disclosure]");
+      element.shadowRoot
+        .querySelectorAll("[draggable='true']")
+        .forEach((handle) => {
+          expect(
+            handle.querySelectorAll("button, input, select, textarea, a")
+          ).toHaveLength(0);
+          // The header - the disclosure - is outside everything that drags.
+          expect(handle.contains(header)).toBe(false);
+        });
+      // The edge is for a pointer only: no focus, nothing to announce.
+      const edge = $(element, "[data-drag-edge]");
+      expect(edge.getAttribute("aria-hidden")).toBe("true");
+      expect(edge.getAttribute("tabindex")).toBeNull();
+    });
+
+    it("starts the same drag from the edge as from the lines", () => {
+      const element = mount(model(), { abilities: DRAG });
+      const started = jest.fn();
+      element.addEventListener("carddragstart", started);
+      const event = dragEvent("dragstart");
+
+      $(element, "[data-drag-edge]").dispatchEvent(event);
+
+      expect(event.dataTransfer.data["application/x-work-item-key"]).toBe(
+        "WI-0003"
+      );
+      expect(started.mock.calls[0][0].detail).toEqual({
+        key: "WI-0003",
+        status: "In Progress"
+      });
+    });
+
+    it("carries its key, shows the whole card as the image, and tells the board", () => {
+      const element = mount(model(), { abilities: DRAG });
+      const started = jest.fn();
+      element.addEventListener("carddragstart", started);
+      const event = dragEvent("dragstart");
+
+      surface(element).dispatchEvent(event);
+
+      expect(event.dataTransfer.data["application/x-work-item-key"]).toBe(
+        "WI-0003"
+      );
+      expect(event.dataTransfer.effectAllowed).toBe("move");
+      expect(event.dataTransfer.setDragImage.mock.calls[0][0]).toBe(
+        $(element, "article")
+      );
+      expect(started.mock.calls[0][0].detail).toEqual({
+        key: "WI-0003",
+        status: "In Progress"
+      });
+    });
+
+    it("does not open or close when a drag ends", async () => {
+      const element = mount(model(), { abilities: DRAG });
+      const toggled = jest.fn();
+      const ended = jest.fn();
+      element.addEventListener("toggle", toggled);
+      element.addEventListener("carddragend", ended);
+
+      surface(element).dispatchEvent(dragEvent("dragstart"));
+      await Promise.resolve();
+      expect($(element, "article").className).toContain("is-dragging");
+      surface(element).dispatchEvent(dragEvent("dragend"));
+      surface(element).click();
+      await Promise.resolve();
+
+      expect(ended).toHaveBeenCalledTimes(1);
+      expect(toggled).not.toHaveBeenCalled();
+      expect($(element, "article").className).not.toContain("is-dragging");
+      expect(
+        $(element, "[data-disclosure]").getAttribute("aria-expanded")
+      ).toBe("false");
+    });
+
+    it("refuses a drag it was not given", () => {
+      const element = mount(model());
+      const started = jest.fn();
+      element.addEventListener("carddragstart", started);
+      const event = dragEvent("dragstart");
+      surface(element).dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(started).not.toHaveBeenCalled();
+    });
+
+    it("offers Retry on a Failed card when the board grants it, and asks the board", () => {
+      const failed = Object.assign(model({ syncStatus: "Failed" }), {
+        key: "a0B1",
+        syncNote: "Failed: it was refused."
+      });
+      const element = mount(failed, {
+        expandedKey: "a0B1",
+        abilities: { ...DRAG, retry: true }
+      });
+      const handler = jest.fn();
+      element.addEventListener("retry", handler);
+
+      $(element, "[data-action='retry']").click();
+
+      expect(handler.mock.calls[0][0].detail).toEqual({ key: "a0B1" });
+      // No Retry without the ability, or on a card that did not fail.
+      expect(
+        $(
+          mount(failed, { expandedKey: "a0B1", abilities: DRAG }),
+          "[data-action='retry']"
+        )
+      ).toBeNull();
+      const pending = Object.assign(model({ syncStatus: "Pending" }), {
+        key: "a0B2",
+        syncNote: "Pending."
+      });
+      expect(
+        $(
+          mount(pending, {
+            expandedKey: "a0B2",
+            abilities: { ...DRAG, retry: true }
+          }),
+          "[data-action='retry']"
+        )
+      ).toBeNull();
+    });
+
+    it("dims while its move or retry is saving, and will not retry twice", async () => {
+      const failed = Object.assign(model({ syncStatus: "Failed" }), {
+        key: "a0B1",
+        syncNote: "Failed."
+      });
+      const element = mount(failed, {
+        expandedKey: "a0B1",
+        abilities: { ...DRAG, retry: true },
+        feedback: { key: "a0B1", busy: true }
+      });
+      const handler = jest.fn();
+      element.addEventListener("retry", handler);
+      $(element, "[data-action='retry']").click();
+      expect(handler).not.toHaveBeenCalled();
+      expect($(element, "article").className).toContain("is-busy");
+    });
+
+    it("is accessible draggable, and open with Retry", async () => {
+      await expect(mount(model(), { abilities: DRAG })).toBeAccessible();
+      await expect(
+        mount(
+          Object.assign(model({ syncStatus: "Failed" }), {
+            key: "a0B1",
+            syncNote: "Failed: it was refused."
+          }),
+          { expandedKey: "a0B1", abilities: { ...DRAG, retry: true } }
+        )
+      ).toBeAccessible();
+    });
+  });
+
   describe("accessibility", () => {
     // The step 1 pin was aria-allowed-role, for the old <article role="button">. The header is
     // a real button in the heading now, so there is nothing to pin.

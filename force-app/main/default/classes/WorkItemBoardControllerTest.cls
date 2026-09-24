@@ -322,6 +322,89 @@ private class WorkItemBoardControllerTest {
     Assert.areEqual(WorkItemBoardController.TITLE_MAX, board.titleMaxLength);
   }
 
+  // ---------- retry (build 08 step 8) ----------
+
+  private static Work_Item__c failedItem(String shortName) {
+    Project__c project = seedProject(shortName);
+    Work_Item__c item = seedItems(1, project.Id, 'To Do')[0];
+    update new Work_Item__c(
+      Id = item.Id,
+      Sync_Status__c = 'Failed',
+      Sync_Error__c = 'Jira returned 503.',
+      Pending_Push_Fields__c = 'STATUS'
+    );
+    return item;
+  }
+
+  @IsTest
+  static void retryQueuesOnePushThroughTheTrigger() {
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+    Work_Item__c item = failedItem('RETRY');
+
+    Test.startTest();
+    Integer jobsBefore = Limits.getQueueableJobs();
+    WorkItemBoardController.StatusChangeResult result = WorkItemBoardController.retryPush(
+      item.Id
+    );
+    Integer queued = Limits.getQueueableJobs() - jobsBefore;
+    Test.stopTest();
+
+    Assert.isTrue(result.pushQueued);
+    Assert.areEqual(
+      1,
+      queued,
+      'One push, queued by the trigger. The controller calls no sync service.'
+    );
+    Assert.areEqual(
+      'Pending',
+      result.syncStatus,
+      'Pending until the source confirms, as for any save.'
+    );
+    Assert.isTrue(
+      result.message.contains('Jira') && result.message.contains('again'),
+      result.message
+    );
+  }
+
+  @IsTest
+  static void retryOnARecordThatIsNotFailedWritesNothing() {
+    Project__c project = seedProject('NOFAIL');
+    Work_Item__c item = seedItems(1, project.Id, 'To Do')[0];
+
+    Test.startTest();
+    Integer jobsBefore = Limits.getQueueableJobs();
+    WorkItemBoardController.StatusChangeResult result = WorkItemBoardController.retryPush(
+      item.Id
+    );
+    Integer queued = Limits.getQueueableJobs() - jobsBefore;
+    Test.stopTest();
+
+    Assert.isFalse(result.pushQueued);
+    Assert.areEqual(0, queued);
+    Assert.isTrue(
+      result.message.startsWith('Nothing to retry'),
+      result.message
+    );
+  }
+
+  @IsTest
+  static void retryOnARecordWithNoRemoteRecordSaysSo() {
+    Work_Item__c item = failedItem('LOCALRETRY');
+    update new Work_Item__c(Id = item.Id, External_Id__c = null);
+
+    Test.startTest();
+    WorkItemBoardController.StatusChangeResult result = WorkItemBoardController.retryPush(
+      item.Id
+    );
+    Test.stopTest();
+
+    Assert.isFalse(result.pushQueued);
+    Assert.isTrue(result.message.contains('nothing to send'), result.message);
+  }
+
   // ---------- status change ----------
 
   @IsTest

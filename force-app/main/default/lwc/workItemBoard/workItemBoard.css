@@ -45,11 +45,13 @@
   margin-bottom: 16px;
 }
 
+/* Every column as tall as the tallest, so a column is a drop target wherever the board has been
+   scrolled to - not only as far down as its own last card. */
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 .column {
   display: flex;
@@ -145,5 +147,25 @@
   border-color: var(--board-danger);
 }
 .state-error .state-title {
+  color: var(--board-danger);
+}
+
+/* A column that will take the card being dragged. Outlined, not coloured: the accent belongs to
+   sources, and red and amber already mean something. */
+.column[data-drop-target] {
+  outline: 2px dashed var(--board-ink);
+  outline-offset: -2px;
+  background: var(--board-paper);
+}
+.board-message {
+  margin: -8px 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-ink);
+}
+.board-message:empty {
+  display: none;
+}
+.board-message-error {
   color: var(--board-danger);
 }

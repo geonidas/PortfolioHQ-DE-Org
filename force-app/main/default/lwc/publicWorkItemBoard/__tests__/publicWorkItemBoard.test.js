@@ -134,7 +134,7 @@ function describeControls(nodes) {
   return Array.from(nodes)
     .filter((node) =>
       node.matches(
-        "button, input, select, textarea, a[href], [tabindex], [contenteditable], [role='button']"
+        "button, input, select, textarea, a[href], [tabindex], [contenteditable], [role='button'], [draggable='true']"
       )
     )
     .map((node) => {
@@ -150,6 +150,9 @@ function describeControls(nodes) {
         node.hasAttribute("aria-expanded")
       ) {
         return "disclosure";
+      }
+      if (node.getAttribute("draggable") === "true") {
+        return "draggable";
       }
       return node.tagName.toLowerCase();
     });

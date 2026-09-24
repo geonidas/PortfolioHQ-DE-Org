@@ -188,6 +188,87 @@ public with sharing class WorkItemBoardController {
   }
 
   /**
+   * Send a refused change again: the open card's Retry.
+   *
+   * Writes Sync_Status__c from Failed to Pending and nothing else. WorkItemTrigger reads that as a
+   * retry and queues a push of what is still waiting; this method never calls the sync service,
+   * for the same reasons changeStatus does not. Anything that is not a Failed record with a remote
+   * record and something waiting is answered in words, not written.
+   *
+   * @param workItemId the record whose push to send again
+   */
+  @AuraEnabled
+  public static StatusChangeResult retryPush(Id workItemId) {
+    if (workItemId == null) {
+      throw new AuraHandledException('No work item was supplied.');
+    }
+    try {
+      List<Work_Item__c> found = WorkItemSelector.byIds(
+        new Set<Id>{ workItemId }
+      );
+      if (found.isEmpty()) {
+        throw new AuraHandledException(
+          'That work item is not available to you.'
+        );
+      }
+      Work_Item__c current = found[0];
+      String sourceName = sourceNameFor(current);
+
+      StatusChangeResult result = new StatusChangeResult();
+      result.workItemId = workItemId;
+      result.status = current.Status__c;
+      result.syncStatus = current.Sync_Status__c;
+      result.pushQueued = false;
+      if (String.isBlank(current.External_Id__c)) {
+        result.message =
+          'This item has no ' +
+          sourceName +
+          ' record, so there is nothing to send.';
+        return result;
+      }
+      if (current.Sync_Status__c != SyncStatus.FAILED) {
+        result.message =
+          'Nothing to retry: this item is ' +
+          current.Sync_Status__c +
+          '.';
+        return result;
+      }
+      if (SyncFields.parse(current.Pending_Push_Fields__c).isEmpty()) {
+        result.message = 'Nothing is waiting to be sent to ' + sourceName + '.';
+        return result;
+      }
+
+      Integer jobsBefore = Limits.getQueueableJobs();
+      Database.update(
+        new Work_Item__c(Id = workItemId, Sync_Status__c = SyncStatus.PENDING),
+        AccessLevel.USER_MODE
+      );
+      result.pushQueued = Limits.getQueueableJobs() > jobsBefore;
+
+      Work_Item__c saved = WorkItemSelector.byIds(new Set<Id>{ workItemId })[0];
+      result.syncStatus = saved.Sync_Status__c;
+      result.message = result.pushQueued
+        ? 'Sending it to ' +
+          sourceName +
+          ' again. The update is running in the background.'
+        : 'No ' + sourceName + ' push was queued for this record.';
+      return result;
+    } catch (AuraHandledException e) {
+      throw e;
+    } catch (DmlException e) {
+      throw new AuraHandledException('Could not retry: ' + e.getDmlMessage(0));
+    } catch (Exception e) {
+      throw new AuraHandledException('Could not retry: ' + e.getMessage());
+    }
+  }
+
+  /** A record's source by its label, for a sentence. */
+  private static String sourceNameFor(Work_Item__c item) {
+    String label = BoardSourceRules.forSystem(item.External_System__c).label;
+    return String.isBlank(label) ? 'source system' : label;
+  }
+
+  /**
    * Save title, start date and due date from the expanded card.
    *
    * Writes the fields that actually changed and nothing else, in USER_MODE, and leaves the push

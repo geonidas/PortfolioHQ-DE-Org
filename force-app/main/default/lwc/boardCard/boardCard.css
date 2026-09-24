@@ -316,3 +316,52 @@
 .record-link {
   color: var(--board-link);
 }
+
+/* Where a drag starts, on a fine pointer in the landscape layout: the left edge, the full height
+   of the card, and the lines under the header. Both take a grab cursor; hovering the card shows a
+   grip in the edge. Otherwise the edge is not there and the lines are two lines of text. */
+.drag-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.drag-surface[draggable="true"] {
+  cursor: grab;
+}
+.drag-edge {
+  display: none;
+}
+.drag-edge[draggable="true"] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* The stripe and the gutter up to the text, which starts at 16px. */
+  width: 14px;
+  cursor: grab;
+}
+.grip {
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--board-quiet);
+  visibility: hidden;
+}
+.card:hover .drag-edge[draggable="true"] .grip {
+  visibility: visible;
+}
+.card.is-dragging {
+  opacity: 0.45;
+}
+.card.is-busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.retry {
+  margin-left: 8px;
+  min-height: 28px;
+  padding: 2px 10px;
+}

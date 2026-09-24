@@ -116,3 +116,37 @@ The card still calls no Apex. It raises `toggle`, `move`, `save` and `openrecord
 board calls `changeStatus` and `saveDetails`, generates the record URL with `NavigationMixin`, and
 hands the outcome back as `feedback`. `lightning/navigation` is imported by the internal board
 alone, so the guest-bundle rule that shared modules import nothing from `lightning/*` still holds.
+
+---
+
+## 3. A drop is Move to by another route, and Retry is a save
+
+**Context.** Step 8 adds drag-and-drop on the internal board and a Retry for a push the source
+refused. Both are new ways to cause a push, and the outbound path already has one rule that must
+not bend: pushes are queued by `WorkItemTrigger` and nothing else.
+
+**Decision - drag.** A drop calls the same `changeStatus` the Move to buttons call, through the
+same board method. No optimistic move: the card stays in its column, dimmed, until Salesforce has
+committed, and the refresh puts it in the new one. A failed save therefore needs no snap-back
+animation - the card never left - and the board says what happened in a status line under the
+toolbar, because a closed card has nowhere to show a message. Drag is an ability the internal
+board grants only while the pointer is fine and the layout is not portrait, re-evaluated when
+either changes; the Move to buttons stay for everyone else (WCAG 2.2, 2.5.7). The drag starts from
+the card's left edge - the accent stripe and its gutter, the card's full height - or from its
+detail lines, and never from its header, which is a button, or from an open card, which holds
+inputs. The edge was added at the user's request after the first live try: the stripe is where a
+hand goes. On the internal board every column is as tall as the tallest, so a column is a drop
+target however far down the board has been scrolled. Only the dragged record moves: its children keep their own status.
+
+**Decision - Retry.** Retry is a save that moves `Sync_Status__c` from Failed to Pending, which
+the trigger reads as a request to push what is still waiting. `retryPush` makes that save and
+nothing else. So the rule lives in the trigger, where every client meets it - the record page, an
+API call and a data load retry the same way the board does - and the invariant that no controller
+calls the sync service holds.
+
+**Consequences.** Setting Pending by hand on a Failed record now sends it again; the handoff says
+so. A transient failure is still not retried automatically - someone presses Retry or saves a
+change - which keeps the number of pushes a record can cause bounded by what people do.
+
+**Revisit when** transient failures are common enough that waiting for a person is the problem.
+A scheduled retry would be the same save, made by a job instead of a button.

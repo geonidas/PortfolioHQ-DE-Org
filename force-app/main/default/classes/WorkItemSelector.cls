@@ -22,7 +22,9 @@ public with sharing class WorkItemSelector {
     // save path's rules and messages; the dates it edits; and why the last push failed.
     'External_Id__c, External_System__c, Source_Created__c, Start_Date__c, Due_Date__c, ' +
     // LastModifiedDate orders the completed epics EpicRollup keeps, as on the public board.
-    'Sync_Error__c, LastModifiedDate';
+    'Sync_Error__c, LastModifiedDate, ' +
+    // Build 08 step 8: whether a Failed record has anything left to send again.
+    'Pending_Push_Fields__c';
 
   /**
    * One query, whether or not a project was supplied.
