@@ -638,4 +638,156 @@ private class WorkItemBoardControllerTest {
       Assert.isNotNull(e.getMessage());
     }
   }
+
+  // ---------- the card payload (build 08 step 5) ----------
+
+  private static WorkItemBoardController.BoardCard cardNamed(
+    WorkItemBoardController.BoardData board,
+    Id itemId
+  ) {
+    for (WorkItemBoardController.BoardCard card : board.items) {
+      if (card.id == itemId) {
+        return card;
+      }
+    }
+    return null;
+  }
+
+  @IsTest
+  static void cardsCarryTheSameFactsAsThePublicBoardPlusTheirOwn() {
+    Work_Item__c jira = jiraItem();
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(
+        Id = jira.Id,
+        Source_Created__c = Datetime.newInstanceGmt(2026, 9, 8, 12, 0, 0),
+        Start_Date__c = Date.newInstance(2026, 9, 21),
+        Due_Date__c = Date.newInstance(2026, 10, 1),
+        Sync_Status__c = 'Failed',
+        Sync_Error__c = 'Jira returned 401.',
+        Type__c = 'Unspecified'
+      );
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    Work_Item__c asana = asanaItem();
+
+    Test.startTest();
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      null
+    );
+    Test.stopTest();
+
+    WorkItemBoardController.BoardCard j = cardNamed(board, jira.Id);
+    Assert.areEqual('Jira', j.sourceLabel);
+    Assert.areEqual('accent-1', j.accentToken);
+    Assert.isTrue(j.supportsStartDate);
+    Assert.isTrue(j.condensesIntoEpic);
+    Assert.areEqual('2026-09-21', j.startDate);
+    Assert.areEqual('2026-10-01', j.dueDate);
+    Assert.areEqual(Datetime.newInstanceGmt(2026, 9, 8, 12, 0, 0), j.createdAt);
+    Assert.areEqual('Failed', j.syncStatus);
+    Assert.areEqual(
+      'Jira returned 401.',
+      j.syncError,
+      'The reason travels with the card, internal board only.'
+    );
+    Assert.isNull(
+      j.type,
+      'An unmapped type is null here, as on the public board.'
+    );
+
+    WorkItemBoardController.BoardCard a = cardNamed(board, asana.Id);
+    Assert.areEqual('Asana', a.sourceLabel);
+    Assert.areEqual('accent-2', a.accentToken);
+    Assert.isFalse(
+      a.supportsStartDate,
+      'So the card offers no start date editor.'
+    );
+    Assert.isFalse(a.condensesIntoEpic);
+  }
+
+  @IsTest
+  static void aRecordThatCanNeverPushShowsNoSyncState() {
+    // The seed canary WI-0011: no External_Id__c, so nothing can ever push it, and it showed
+    // Pending from the day it was seeded. Pending means "waiting for the source", and nothing
+    // was waiting.
+    Project__c project = seedProject('LOCAL');
+    Work_Item__c local = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    local.External_Id__c = null;
+    local.Status__c = 'In Progress';
+    local.Sync_Status__c = 'Pending';
+    insert local;
+
+    Test.startTest();
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    Test.stopTest();
+
+    Assert.isNull(board.items[0].syncStatus);
+  }
+
+  @IsTest
+  static void theEpicViewUsesTheSameRulesAsThePublicBoard() {
+    Project__c project = seedProject('EPICS');
+    project.Is_Public__c = true;
+    update project;
+    Work_Item__c epic = TestDataFactory.createWorkItems(
+      1,
+      project.Id,
+      false
+    )[0];
+    epic.Type__c = 'Epic';
+    epic.Status__c = 'In Progress';
+    epic.Is_Public__c = true;
+    insert epic;
+    List<Work_Item__c> children = TestDataFactory.createWorkItems(
+      3,
+      project.Id,
+      false
+    );
+    for (Integer i = 0; i < children.size(); i++) {
+      children[i].Type__c = 'Story';
+      children[i].Status__c = i == 0 ? 'Done' : 'To Do';
+      children[i].Parent_Work_Item__c = epic.Id;
+      children[i].Is_Public__c = true;
+    }
+    insert children;
+
+    Test.startTest();
+    WorkItemBoardController.BoardData internal = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    PublicBoardController.PublicBoardData guest = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.areEqual(1, internal.epics.size());
+    Assert.areEqual(1, guest.epics.size());
+    Assert.areEqual(
+      guest.epics[0].totalChildren,
+      internal.epics[0].totalChildren,
+      'One rule, one piece of code: the two boards cannot disagree about an epic.'
+    );
+    Assert.areEqual(
+      guest.epics[0].completedChildren,
+      internal.epics[0].completedChildren
+    );
+    Assert.areEqual(3, internal.epics[0].totalChildren);
+    Assert.areEqual(1, internal.epics[0].completedChildren);
+    Assert.areEqual(
+      epic.Id,
+      internal.epics[0].id,
+      'Internal epics keep their id.'
+    );
+    Assert.areEqual(
+      4,
+      internal.items.size(),
+      'The internal task view keeps every card, the epic included.'
+    );
+  }
 }

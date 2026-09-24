@@ -1,7 +1,13 @@
 import { createElement } from "lwc";
 import PublicWorkItemBoard from "c/publicWorkItemBoard";
 import getPublicBoardData from "@salesforce/apex/PublicBoardController.getPublicBoardData";
+import { refreshApex } from "@salesforce/apex";
 
+jest.mock(
+  "@salesforce/apex",
+  () => ({ refreshApex: jest.fn(() => Promise.resolve()) }),
+  { virtual: true }
+);
 jest.mock(
   "@salesforce/apex/PublicBoardController.getPublicBoardData",
   () => {
@@ -28,10 +34,15 @@ function card(overrides) {
       projectLabel: "PHQ",
       parentNumber: null,
       syncStatus: "Synced",
-      lastSyncedAt: "2026-09-13T05:20:07.000Z",
-      // The server decides this from BoardSourceRules and publishes the answer, not the
-      // vendor's name. Jira-sourced work condenses; work from a system with no epics does not.
-      condensesIntoEpic: true
+      // The server decides this from BoardSourceRules and publishes the answer. Work from a
+      // source with epics condenses; work from a flat source does not.
+      condensesIntoEpic: true,
+      // Build 08 step 5. A label to render and a token to paint, never a vendor to branch on.
+      sourceLabel: "Jira",
+      accentToken: "accent-1",
+      createdAt: "2026-09-08T21:59:09.000Z",
+      startDate: null,
+      dueDate: null
     },
     overrides
   );
@@ -46,7 +57,9 @@ function flatCard(overrides) {
         title: "Superbadge: Apex Specialist",
         externalKey: null,
         type: "Task",
-        condensesIntoEpic: false
+        condensesIntoEpic: false,
+        sourceLabel: "Asana",
+        accentToken: "accent-2"
       },
       overrides
     )
@@ -59,7 +72,9 @@ function epic(overrides) {
       title: "Guest board",
       status: "In Progress",
       totalChildren: 4,
-      completedChildren: 1
+      completedChildren: 1,
+      sourceLabel: "Jira",
+      accentToken: "accent-1"
     },
     overrides
   );
@@ -477,14 +492,17 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()]));
     await flush();
 
-    // Build 06 added a view toggle, so "no buttons at all" is no longer the right
-    // assertion - but the guarantee it protected still holds and still needs stating.
-    // Every button on this board must be a view toggle: a control that re-renders data
-    // already in memory. Anything else appearing here is a control that could act.
+    // Build 06 added a view toggle and build 08 a Refresh button, so "no buttons at all" is no
+    // longer the right assertion - but the guarantee it protected still holds. Every button is
+    // either a view toggle, which re-renders data already in memory, or Refresh, which re-reads
+    // through the same parameterless method the page loaded with. Anything else appearing
+    // here is a control that could act.
     const buttons = Array.from(element.shadowRoot.querySelectorAll("button"));
     expect(buttons.length).toBeGreaterThan(0);
     buttons.forEach((button) => {
-      expect(button.dataset.view).toBeDefined();
+      expect(
+        button.dataset.view !== undefined || button.dataset.action === "refresh"
+      ).toBe(true);
       expect(button.type).toBe("button");
     });
 
@@ -502,26 +520,17 @@ describe("c-public-work-item-board card freshness", () => {
     }
   });
 
-  it("renders when each card last agreed with its source", async () => {
+  it("shows no per-card Updated line", async () => {
+    // Build 08 step 5 removed it and its field. The board-level "Last updated" stays.
     const element = mount();
-    getPublicBoardData.emit(
-      board([card({ lastSyncedAt: "2026-09-13T05:20:07.000Z" })])
-    );
+    getPublicBoardData.emit(board([card()]));
     await flush();
 
-    const stamp = cards(element)[0].shadowRoot.querySelector("[data-synced]");
-    expect(stamp).not.toBeNull();
-    expect(stamp.textContent).toMatch(/^Updated /);
-  });
-
-  it("says nothing on a card that has never synced rather than showing a blank stamp", async () => {
-    const element = mount();
-    getPublicBoardData.emit(board([card({ lastSyncedAt: null })]));
-    await flush();
-
+    const text = cards(element)[0].shadowRoot.textContent;
+    expect(text).not.toContain("Updated");
     expect(
-      cards(element)[0].shadowRoot.querySelector("[data-synced]")
-    ).toBeNull();
+      element.shadowRoot.querySelector(".freshness").textContent
+    ).toContain("Last updated");
   });
 
   // ---------- a second source on one board (build 07 step 9) ----------
@@ -640,29 +649,30 @@ describe("c-public-work-item-board card freshness", () => {
     expect(getPublicBoardData.getLastConfig()).toEqual({});
   });
 
-  it("carries data-view on every button on the board", async () => {
+  it("has no button but the view toggle and Refresh, in either view", async () => {
     const element = mount();
     getPublicBoardData.emit(
       board([flatCard({})], [epic({ title: "Guest board" })])
     );
     await flush();
 
+    const allowed = (button) =>
+      !!button.dataset.view || button.dataset.action === "refresh";
     const buttons = Array.from(element.shadowRoot.querySelectorAll("button"));
     expect(buttons.length).toBeGreaterThan(0);
-    buttons.forEach((button) => {
-      // Cards are inert. The view toggle is the only control on this page, and anything else
-      // that gained a button would be a write path on a read-only board.
-      expect(button.dataset.view).toBeTruthy();
-    });
+    // Cards are inert. Anything else that gained a button would be a write path on a
+    // read-only board.
+    expect(buttons.every(allowed)).toBe(true);
+    expect(buttons.filter((b) => b.dataset.action === "refresh")).toHaveLength(
+      1
+    );
 
     toggle(element, "epics").click();
     await flush();
 
-    Array.from(element.shadowRoot.querySelectorAll("button")).forEach(
-      (button) => {
-        expect(button.dataset.view).toBeTruthy();
-      }
-    );
+    expect(
+      Array.from(element.shadowRoot.querySelectorAll("button")).every(allowed)
+    ).toBe(true);
   });
 });
 
@@ -745,5 +755,106 @@ describe("c-public-work-item-board accessibility", () => {
     getPublicBoardData.error({ message: "Nope" }, 500, "Server Error");
     await flush();
     await expect(element).toBeAccessible();
+  });
+});
+
+// Build 08 step 5. LWR sites do not support lightning/empApi, so the public board re-reads: every
+// 30 seconds while the page is visible and the visitor is active, and not otherwise.
+describe("c-public-work-item-board staying current", () => {
+  const setVisibility = (state) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state
+    });
+    document.dispatchEvent(new CustomEvent("visibilitychange"));
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    setVisibility("visible");
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  async function loaded() {
+    const element = mount();
+    getPublicBoardData.emit(board([card()]));
+    await flush();
+    return element;
+  }
+
+  it("re-reads every 30 seconds while the page is visible", async () => {
+    await loaded();
+
+    jest.advanceTimersByTime(30000);
+    expect(refreshApex).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(30000);
+    expect(refreshApex).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads through the same parameterless call, never a narrower one", async () => {
+    await loaded();
+
+    jest.advanceTimersByTime(30000);
+
+    expect(getPublicBoardData.getLastConfig()).toEqual({});
+  });
+
+  it("stops while the page is hidden and catches up when it returns", async () => {
+    await loaded();
+
+    setVisibility("hidden");
+    jest.advanceTimersByTime(120000);
+    expect(refreshApex).not.toHaveBeenCalled();
+
+    setVisibility("visible");
+    expect(refreshApex).toHaveBeenCalledTimes(1);
+  });
+
+  it("pauses after five idle minutes, says so, and resumes on activity", async () => {
+    const element = await loaded();
+
+    jest.advanceTimersByTime(330000);
+    const callsWhileActive = refreshApex.mock.calls.length;
+    jest.advanceTimersByTime(120000);
+    await flush();
+
+    expect(refreshApex.mock.calls.length).toBe(callsWhileActive);
+    expect(element.shadowRoot.querySelector("[data-checked]").textContent).toBe(
+      "Paused"
+    );
+
+    window.dispatchEvent(new CustomEvent("pointerdown"));
+    await flush();
+
+    expect(refreshApex.mock.calls.length).toBe(callsWhileActive + 1);
+    expect(
+      element.shadowRoot.querySelector("[data-checked]").textContent
+    ).not.toBe("Paused");
+  });
+
+  it("refreshes on demand, paused or not", async () => {
+    const element = await loaded();
+
+    element.shadowRoot.querySelector('[data-action="refresh"]').click();
+
+    expect(refreshApex).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops polling and listening when it disconnects", async () => {
+    const element = await loaded();
+
+    document.body.removeChild(element);
+    jest.advanceTimersByTime(120000);
+    window.dispatchEvent(new CustomEvent("pointerdown"));
+    setVisibility("visible");
+
+    expect(refreshApex).not.toHaveBeenCalled();
   });
 });

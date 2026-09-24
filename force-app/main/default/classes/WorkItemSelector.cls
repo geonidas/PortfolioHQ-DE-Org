@@ -21,7 +21,8 @@ public with sharing class WorkItemSelector {
     // Build 08: which source the item belongs to and whether it has a remote record, for the
     // save path's rules and messages; the dates it edits; and why the last push failed.
     'External_Id__c, External_System__c, Source_Created__c, Start_Date__c, Due_Date__c, ' +
-    'Sync_Error__c';
+    // LastModifiedDate orders the completed epics EpicRollup keeps, as on the public board.
+    'Sync_Error__c, LastModifiedDate';
 
   /**
    * One query, whether or not a project was supplied.

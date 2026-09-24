@@ -3,6 +3,7 @@ import WorkItemBoard from "c/workItemBoard";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
 import { refreshApex } from "@salesforce/apex";
+import { subscribe, unsubscribe } from "lightning/empApi";
 
 jest.mock(
   "@salesforce/apex/WorkItemBoardController.getBoardData",
@@ -27,20 +28,32 @@ jest.mock(
 
 const flush = () => Promise.resolve();
 
+/**
+ * The controller's card payload - WorkItemBoardController.BoardCard - not an SObject. Since build
+ * 08 step 5 both boards receive cards with the same property names for the same facts.
+ */
 function item(overrides) {
   return Object.assign(
     {
-      Id: "",
-      Name: "WI-0000",
-      Title__c: "Reconcile the nightly Jira pull",
-      External_Key__c: "DOPP-0",
-      Status__c: "To Do",
-      Type__c: "Story",
-      Sync_Status__c: "Synced",
-      Story_Points__c: null,
-      Description__c: null,
-      Parent_Work_Item__c: null,
-      Project__r: { Name: "Portfolio HQ", Short_Name__c: null }
+      id: "",
+      recordNumber: "WI-0000",
+      title: "Reconcile the nightly Jira pull",
+      externalKey: "DOPP-0",
+      status: "To Do",
+      type: "Story",
+      syncStatus: "Synced",
+      syncError: null,
+      storyPoints: null,
+      description: null,
+      parentId: null,
+      projectLabel: "Portfolio HQ",
+      sourceLabel: "Jira",
+      accentToken: "accent-1",
+      condensesIntoEpic: true,
+      supportsStartDate: true,
+      createdAt: "2026-09-08T21:59:09.000Z",
+      startDate: null,
+      dueDate: null
     },
     overrides
   );
@@ -50,6 +63,7 @@ function board(items) {
   return {
     items,
     itemCount: items.length,
+    epics: [],
     projectId: null,
     projectLabel: null,
     lastSyncedAt: "2026-09-13T05:20:07.000Z"
@@ -84,7 +98,7 @@ describe("c-work-item-board", () => {
   describe("columns come from configuration", () => {
     it("renders exactly the configured columns and nothing else", async () => {
       const element = mount({ columns: "Backlog,Doing" });
-      getBoardData.emit(board([item({ Id: "1", Status__c: "Backlog" })]));
+      getBoardData.emit(board([item({ id: "1", status: "Backlog" })]));
       await flush();
 
       // The point of the configuration: no status string is baked into the markup, so a
@@ -95,7 +109,7 @@ describe("c-work-item-board", () => {
 
     it("falls back to the default three when nothing is configured", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1" })]));
+      getBoardData.emit(board([item({ id: "1" })]));
       await flush();
 
       expect(columnNames(element)).toEqual(["To Do", "In Progress", "Done"]);
@@ -105,7 +119,7 @@ describe("c-work-item-board", () => {
       // In Review is unreachable in the live Jira board, which is exactly why it must be
       // addable later without touching this component.
       const element = mount({ columns: "To Do,In Progress,In Review,Done" });
-      getBoardData.emit(board([item({ Id: "1" })]));
+      getBoardData.emit(board([item({ id: "1" })]));
       await flush();
 
       expect(columnNames(element)).toEqual([
@@ -118,7 +132,7 @@ describe("c-work-item-board", () => {
 
     it("keeps a configured column visible when it has no records", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1", Status__c: "To Do" })]));
+      getBoardData.emit(board([item({ id: "1", status: "To Do" })]));
       await flush();
 
       const done = element.shadowRoot.querySelector('[data-column="Done"]');
@@ -132,8 +146,8 @@ describe("c-work-item-board", () => {
       const element = mount();
       getBoardData.emit(
         board([
-          item({ Id: "1", Status__c: "To Do" }),
-          item({ Id: "2", External_Key__c: "DOPP-9", Status__c: "Unspecified" })
+          item({ id: "1", status: "To Do" }),
+          item({ id: "2", externalKey: "DOPP-9", status: "Unspecified" })
         ])
       );
       await flush();
@@ -151,7 +165,7 @@ describe("c-work-item-board", () => {
 
     it("surfaces a status that is simply not configured rather than dropping it", async () => {
       const element = mount({ columns: "To Do,Done" });
-      getBoardData.emit(board([item({ Id: "1", Status__c: "In Progress" })]));
+      getBoardData.emit(board([item({ id: "1", status: "In Progress" })]));
       await flush();
 
       // Silently losing records when a column is removed would be worse than an odd region.
@@ -166,7 +180,8 @@ describe("c-work-item-board", () => {
   describe("card rendering", () => {
     it("renders an Unspecified type with no badge at all", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1", Type__c: "Unspecified" })]));
+      // The controller sends null for a type with no mapping, never the sentinel itself.
+      getBoardData.emit(board([item({ id: "1", type: null })]));
       await flush();
 
       const card = cards(element)[0];
@@ -179,7 +194,7 @@ describe("c-work-item-board", () => {
 
     it("heads the card with the title and demotes the key beside the number", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1" })]));
+      getBoardData.emit(board([item({ id: "1" })]));
       await flush();
 
       const card = cards(element)[0];
@@ -193,7 +208,7 @@ describe("c-work-item-board", () => {
 
     it("stands the key in as the heading when no title has synced", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1", Title__c: null })]));
+      getBoardData.emit(board([item({ id: "1", title: null })]));
       await flush();
 
       const heading = cards(element)[0].shadowRoot.querySelector("h3.heading");
@@ -207,7 +222,7 @@ describe("c-work-item-board", () => {
 
     it("renders a known type with a badge", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1", Type__c: "Bug" })]));
+      getBoardData.emit(board([item({ id: "1", type: "Bug" })]));
       await flush();
 
       expect(
@@ -217,7 +232,7 @@ describe("c-work-item-board", () => {
 
     it("flags a record that is not reconciled with Jira", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1", Sync_Status__c: "Pending" })]));
+      getBoardData.emit(board([item({ id: "1", syncStatus: "Pending" })]));
       await flush();
 
       const flag = cards(element)[0].shadowRoot.querySelector(".sync-flag");
@@ -227,7 +242,7 @@ describe("c-work-item-board", () => {
 
     it("shows no sync flag on a reconciled record", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1", Sync_Status__c: "Synced" })]));
+      getBoardData.emit(board([item({ id: "1", syncStatus: "Synced" })]));
       await flush();
 
       expect(
@@ -241,12 +256,12 @@ describe("c-work-item-board", () => {
       const element = mount();
       getBoardData.emit(
         board([
-          item({ Id: "p1", External_Key__c: "DOPP-16", Status__c: "To Do" }),
+          item({ id: "p1", externalKey: "DOPP-16", status: "To Do" }),
           item({
-            Id: "c1",
-            External_Key__c: "DOPP-17",
-            Status__c: "To Do",
-            Parent_Work_Item__c: "p1"
+            id: "c1",
+            externalKey: "DOPP-17",
+            status: "To Do",
+            parentId: "p1"
           })
         ])
       );
@@ -264,12 +279,12 @@ describe("c-work-item-board", () => {
       const element = mount();
       getBoardData.emit(
         board([
-          item({ Id: "p1", External_Key__c: "DOPP-16", Status__c: "To Do" }),
+          item({ id: "p1", externalKey: "DOPP-16", status: "To Do" }),
           item({
-            Id: "c1",
-            External_Key__c: "DOPP-17",
-            Status__c: "In Progress",
-            Parent_Work_Item__c: "p1"
+            id: "c1",
+            externalKey: "DOPP-17",
+            status: "In Progress",
+            parentId: "p1"
           })
         ])
       );
@@ -290,10 +305,10 @@ describe("c-work-item-board", () => {
       getBoardData.emit(
         board([
           item({
-            Id: "c1",
-            External_Key__c: "DOPP-17",
-            Status__c: "To Do",
-            Parent_Work_Item__c: "missing-parent"
+            id: "c1",
+            externalKey: "DOPP-17",
+            status: "To Do",
+            parentId: "missing-parent"
           })
         ])
       );
@@ -349,7 +364,7 @@ describe("c-work-item-board", () => {
 
     it("shows how fresh the data is", async () => {
       const element = mount();
-      getBoardData.emit(board([item({ Id: "1" })]));
+      getBoardData.emit(board([item({ id: "1" })]));
       await flush();
 
       expect(
@@ -360,7 +375,7 @@ describe("c-work-item-board", () => {
 
   describe("status change", () => {
     async function openDetail(element) {
-      getBoardData.emit(board([item({ Id: "w1", Status__c: "To Do" })]));
+      getBoardData.emit(board([item({ id: "w1", status: "To Do" })]));
       await flush();
       cards(element)[0].dispatchEvent(
         new CustomEvent("select", { detail: { id: "w1" } })
@@ -455,26 +470,26 @@ describe("c-work-item-board", () => {
 
     const busyBoard = () =>
       board([
-        item({ Id: "p1", External_Key__c: "DOPP-16", Status__c: "To Do" }),
+        item({ id: "p1", externalKey: "DOPP-16", status: "To Do" }),
         item({
-          Id: "c1",
-          External_Key__c: "DOPP-17",
-          Status__c: "To Do",
-          Parent_Work_Item__c: "p1"
+          id: "c1",
+          externalKey: "DOPP-17",
+          status: "To Do",
+          parentId: "p1"
         }),
         item({
-          Id: "c2",
-          External_Key__c: "DOPP-18",
-          Status__c: "In Progress",
-          Parent_Work_Item__c: "p1",
-          Sync_Status__c: "Pending"
+          id: "c2",
+          externalKey: "DOPP-18",
+          status: "In Progress",
+          parentId: "p1",
+          syncStatus: "Pending"
         }),
         item({
-          Id: "u1",
-          External_Key__c: "DOPP-9",
-          Status__c: "Unspecified",
-          Type__c: "Unspecified",
-          Description__c: "Has a description"
+          id: "u1",
+          externalKey: "DOPP-9",
+          status: "Unspecified",
+          type: null,
+          description: "Has a description"
         })
       ]);
 
@@ -546,6 +561,76 @@ describe("c-work-item-board", () => {
       getBoardData.error({ message: "Access denied" }, 400, "Bad Request");
       await flush();
       await expect(element).toBeAccessible();
+    });
+  });
+
+  // Build 08 step 5. Change Data Capture on Work_Item__c, subscribed by this container alone.
+  describe("live updates", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("subscribes to the work item change channel when it connects", async () => {
+      mount();
+      await flush();
+
+      expect(subscribe).toHaveBeenCalledTimes(1);
+      expect(subscribe.mock.calls[0][0]).toBe("/data/Work_Item__ChangeEvent");
+      // -1: new events only. Replaying history would refresh for changes already on screen.
+      expect(subscribe.mock.calls[0][1]).toBe(-1);
+    });
+
+    it("says it is live once subscribed", async () => {
+      const element = mount();
+      getBoardData.emit(board([item({ id: "1" })]));
+      await flush();
+      await flush();
+
+      expect(
+        element.shadowRoot.querySelector("[data-live]").textContent
+      ).toContain("Live");
+    });
+
+    it("refreshes once after a burst of changes settles", async () => {
+      jest.useFakeTimers();
+      mount();
+      getBoardData.emit(board([item({ id: "1" })]));
+      await flush();
+      const onMessage = subscribe.mock.calls[0][2];
+
+      // An edit, then the sync's own write-back moments later: two events, one refresh.
+      onMessage({ data: { payload: {} } });
+      jest.advanceTimersByTime(500);
+      onMessage({ data: { payload: {} } });
+      expect(refreshApex).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1500);
+      expect(refreshApex).toHaveBeenCalledTimes(1);
+    });
+
+    it("unsubscribes when it disconnects", async () => {
+      const subscription = { channel: "/data/Work_Item__ChangeEvent", id: 7 };
+      subscribe.mockResolvedValueOnce(subscription);
+      const element = mount();
+      await flush();
+
+      document.body.removeChild(element);
+
+      expect(unsubscribe).toHaveBeenCalledWith(subscription);
+    });
+
+    it("does not refresh after it has disconnected", async () => {
+      jest.useFakeTimers();
+      const element = mount();
+      getBoardData.emit(board([item({ id: "1" })]));
+      await flush();
+      const onMessage = subscribe.mock.calls[0][2];
+
+      onMessage({ data: { payload: {} } });
+      document.body.removeChild(element);
+      jest.advanceTimersByTime(5000);
+
+      expect(refreshApex).not.toHaveBeenCalled();
     });
   });
 });

@@ -75,6 +75,71 @@ private class GuestAccessTest {
     );
   }
 
+  /**
+   * Every field an anonymous visitor's board can read, asserted exactly.
+   *
+   * Until build 08 this suite only forbade four named fields, so granting the guest a new one
+   * failed nothing. Now the whole list is pinned: adding a field to Portfolio_HQ_Guest fails this
+   * test until the field is added here too, which makes publishing something new to a visitor a
+   * deliberate act in two places - this list, and PublicBoardControllerTest's DTO key sets.
+   */
+  @IsTest
+  static void theBoardGuestReadsExactlyTheseFields() {
+    Set<String> expected = new Set<String>{
+      'Project__c.Is_Public__c',
+      'Project__c.Short_Name__c',
+      'Work_Item__c.External_Key__c',
+      'Work_Item__c.External_System__c',
+      'Work_Item__c.Is_Public__c',
+      'Work_Item__c.Last_Synced__c',
+      'Work_Item__c.Parent_Work_Item__c',
+      'Work_Item__c.Project__c',
+      'Work_Item__c.Status__c',
+      'Work_Item__c.Sync_Status__c',
+      'Work_Item__c.Title__c',
+      'Work_Item__c.Type__c',
+      // Build 08 step 5, added after this assertion failed and named all three. The dates a
+      // public card shows: when the source created the work, when it starts, when it is due.
+      'Work_Item__c.Source_Created__c',
+      'Work_Item__c.Start_Date__c',
+      'Work_Item__c.Due_Date__c'
+    };
+
+    Set<String> granted = new Set<String>();
+    Set<String> editable = new Set<String>();
+    for (FieldPermissions grant : [
+      SELECT Field, PermissionsRead, PermissionsEdit
+      FROM FieldPermissions
+      WHERE
+        ParentId IN (
+          SELECT Id
+          FROM PermissionSet
+          WHERE Name = 'Portfolio_HQ_Guest'
+        )
+    ]) {
+      if (grant.PermissionsRead) {
+        granted.add(grant.Field);
+      }
+      if (grant.PermissionsEdit) {
+        editable.add(grant.Field);
+      }
+    }
+
+    Set<String> added = granted.clone();
+    added.removeAll(expected);
+    Set<String> removed = expected.clone();
+    removed.removeAll(granted);
+    Assert.isTrue(
+      added.isEmpty() && removed.isEmpty(),
+      'The guest\'s readable fields changed. Newly granted: ' +
+        added +
+        '. No longer granted: ' +
+        removed +
+        '. Update this list only on purpose.'
+    );
+    Assert.isTrue(editable.isEmpty(), 'The guest edits nothing: ' + editable);
+  }
+
   @IsTest
   static void guestGrantsNoAccessToRestrictedObjects() {
     List<ObjectPermissions> grants = guestObjectGrants();

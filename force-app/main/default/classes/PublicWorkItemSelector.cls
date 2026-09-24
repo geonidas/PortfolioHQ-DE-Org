@@ -31,13 +31,17 @@ public with sharing class PublicWorkItemSelector {
         Last_Synced__c,
         Parent_Work_Item__c,
         Project__r.Short_Name__c,
-        // Read, never published. The board asks BoardSourceRules whether this system's work
-        // condenses into epics and sends the ANSWER - a boolean - so no vendor name reaches
-        // an anonymous visitor. Same shape as LastModifiedDate below: queried for a decision,
-        // absent from every DTO.
+        // Build 08: the created, start and due dates a card shows. Each is on the guest
+        // permission set by name, and GuestAccessTest asserts that list exactly.
+        Source_Created__c,
+        Start_Date__c,
+        Due_Date__c,
+        // Read, never published as it is. The board asks BoardSourceRules about this system
+        // and sends the answers - a label from Board_Source__mdt, an accent token, whether its
+        // work condenses into epics - rather than the picklist value.
         External_System__c,
-        // Ordering key only, for capping the completed epics on the epic view. Never
-        // published - it is absent from every DTO. LastModifiedDate rather than
+        // Ordering key only, for capping the completed epics on the epic view (EpicRollup).
+        // Never published - it is absent from every DTO. LastModifiedDate rather than
         // Remote_Last_Modified__c because it is a standard field needing no field-level
         // grant, and widening Portfolio_HQ_Guest for something the visitor never sees
         // would be a real cost for no benefit.

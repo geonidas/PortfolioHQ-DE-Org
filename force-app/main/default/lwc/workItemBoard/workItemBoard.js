@@ -1,5 +1,6 @@
 import { LightningElement, api, wire } from "lwc";
 import { refreshApex } from "@salesforce/apex";
+import { subscribe, unsubscribe, onError } from "lightning/empApi";
 import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData";
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
 import {
@@ -11,6 +12,15 @@ import {
 
 const UNMAPPED = "Unspecified";
 const SYNCED = "Synced";
+
+/** Change Data Capture for Work_Item__c, enabled by its PlatformEventChannelMember. */
+export const CHANGE_CHANNEL = "/data/Work_Item__ChangeEvent";
+/**
+ * How long to wait after a change event before refreshing. A single save produces several events
+ * in quick succession - the edit, then the sync's own write-back a second or two later - and one
+ * refresh after they settle is enough for all of them.
+ */
+export const REFRESH_DEBOUNCE_MS = 1500;
 
 /**
  * Work item board.
@@ -40,6 +50,67 @@ export default class WorkItemBoard extends LightningElement {
   isSaving = false;
   actionMessage;
   actionError;
+
+  // Live updates. The subscription is the container's alone: the shared components never import
+  // lightning/empApi, which LWR sites do not support, and the public board polls instead.
+  isLive = false;
+  _subscription;
+  _refreshTimer;
+  _connected = false;
+
+  connectedCallback() {
+    this._connected = true;
+    onError((error) => {
+      // The stream dropped - a network blip or an expired session. Say so rather than
+      // implying the board is still live; a page reload re-subscribes.
+      this.isLive = false;
+      console.warn("Work item change stream error", JSON.stringify(error));
+    });
+    subscribe(CHANGE_CHANNEL, -1, () => this.scheduleRefresh())
+      .then((subscription) => {
+        if (!this._connected) {
+          // Disconnected while the handshake was in flight: do not leave a subscription behind.
+          unsubscribe(subscription);
+          return;
+        }
+        this._subscription = subscription;
+        this.isLive = true;
+      })
+      .catch(() => {
+        this.isLive = false;
+      });
+  }
+
+  disconnectedCallback() {
+    this._connected = false;
+    clearTimeout(this._refreshTimer);
+    this._refreshTimer = undefined;
+    if (this._subscription) {
+      unsubscribe(this._subscription);
+      this._subscription = undefined;
+    }
+    this.isLive = false;
+  }
+
+  /**
+   * A change arrived: refresh once the burst has settled. Nothing is read from the event itself
+   * - it only says "something changed" - so what renders always comes from the controller, in
+   * the running user's mode, never from an event payload.
+   */
+  scheduleRefresh() {
+    clearTimeout(this._refreshTimer);
+    // eslint-disable-next-line @lwc/lwc/no-async-operation
+    this._refreshTimer = setTimeout(() => {
+      this._refreshTimer = undefined;
+      if (this.boardResult) {
+        refreshApex(this.boardResult);
+      }
+    }, REFRESH_DEBOUNCE_MS);
+  }
+
+  get liveLabel() {
+    return this.isLive ? "Live" : "";
+  }
 
   /** Blank means every work item the user can see, not "items with no project". */
   @api
@@ -184,23 +255,27 @@ export default class WorkItemBoard extends LightningElement {
     card.showParentNote = !!card.parentNote;
   }
 
+  /**
+   * One card's view model, from the controller's card payload. The property names match the
+   * public board's, so the shared functions coming in step 6 read either.
+   */
   toCard(item) {
-    const type = item.Type__c;
-    const title = item.Title__c;
+    const type = item.type;
+    const title = item.title;
     const hasTitle = !!title;
-    const externalKey = item.External_Key__c || item.Name;
-    const hasType = !!type && type !== UNMAPPED;
-    const sync = item.Sync_Status__c;
-    const isSynced = sync === SYNCED;
-    const project = item.Project__r || {};
-    const projectLabel = project.Short_Name__c || project.Name || null;
-    const isUnmappedStatus = item.Status__c === UNMAPPED;
+    const externalKey = item.externalKey || item.recordNumber;
+    const hasType = !!type;
+    const sync = item.syncStatus;
+    // No sync state at all means the record has no remote record and will never push.
+    const showSyncFlag = !!sync && sync !== SYNCED;
+    const projectLabel = item.projectLabel || null;
+    const isUnmappedStatus = item.status === UNMAPPED;
     const hasPoints =
-      item.Story_Points__c !== null && item.Story_Points__c !== undefined;
+      item.storyPoints !== null && item.storyPoints !== undefined;
 
     const card = {
-      id: item.Id,
-      name: item.Name,
+      id: item.id,
+      name: item.recordNumber,
       // The heading is what the work is called. With no title synced the key is the only
       // name we have, so it stands in - marked as a fallback so it does not pose as one.
       heading: hasTitle ? title : externalKey,
@@ -209,30 +284,32 @@ export default class WorkItemBoard extends LightningElement {
       headingClass: hasTitle ? "heading" : "heading heading-fallback",
       // Identity, not headline: the auto number, and the remote key beside it. When the key
       // is already doing duty as the heading, repeating it here would say nothing twice.
-      identLabel: hasTitle ? `${item.Name} · ${externalKey}` : item.Name,
+      identLabel: hasTitle
+        ? `${item.recordNumber} · ${externalKey}`
+        : item.recordNumber,
       title,
       externalKey,
-      status: item.Status__c,
+      status: item.status,
       isUnmappedStatus,
       type,
       hasType,
       syncStatus: sync,
-      showSyncFlag: !isSynced,
+      showSyncFlag,
       syncClass:
         sync === "Failed" ? "sync-flag sync-failed" : "sync-flag sync-pending",
-      syncTitle: isSynced
-        ? ""
-        : `Salesforce and the source system are not reconciled: ${sync}`,
-      storyPoints: item.Story_Points__c,
+      syncTitle: showSyncFlag
+        ? `Salesforce and the source system are not reconciled: ${sync}`
+        : "",
+      storyPoints: item.storyPoints,
       hasPoints,
-      description: item.Description__c,
-      hasDescription: !!item.Description__c,
+      description: item.description,
+      hasDescription: !!item.description,
       projectLabel,
       hasProjectLabel: !!projectLabel,
       // The row is skipped rather than rendered empty; an empty flex row is invisible but
       // still spends the card's gap, which shows up as a card that looks mis-padded.
       hasMeta: hasPoints || !!projectLabel,
-      parentId: item.Parent_Work_Item__c || null,
+      parentId: item.parentId || null,
       parentKey: null,
       isOrphan: false,
       showParentNote: false,

@@ -1,4 +1,5 @@
 import { LightningElement, api, wire } from "lwc";
+import { refreshApex } from "@salesforce/apex";
 import getPublicBoardData from "@salesforce/apex/PublicBoardController.getPublicBoardData";
 import {
   DEFAULT_COLUMNS,
@@ -10,6 +11,24 @@ import {
 const VIEW_TASKS = "tasks";
 const VIEW_EPICS = "epics";
 const DONE = "Done";
+
+/** How often a visible, active page re-reads the board. */
+export const POLL_MS = 30000;
+/**
+ * How long without a visitor doing anything before polling stops and the page says Paused.
+ * The site's Developer Edition allowance is ten minutes of server time a day; a tab left open
+ * and unattended would otherwise spend it all by itself. Build 08 step 1 decision.
+ */
+export const IDLE_MS = 300000;
+/** What counts as a visitor still being there. Each only records a timestamp. */
+const ACTIVITY_EVENTS = [
+  "pointerdown",
+  "pointermove",
+  "keydown",
+  "wheel",
+  "scroll",
+  "touchstart"
+];
 
 /**
  * Read-only board for unauthenticated site visitors.
@@ -38,6 +57,100 @@ export default class PublicWorkItemBoard extends LightningElement {
   // Which view is on screen. Display state only - see handleView.
   view = VIEW_TASKS;
 
+  // Staying current. LWR sites do not support lightning/empApi, so this board re-reads instead
+  // of subscribing: every POLL_MS while the page is visible and the visitor has done something
+  // in the last IDLE_MS, and on demand from the Refresh button. Each read is the same call the
+  // page loaded with - no parameters, one SOQL query - so polling widens nothing.
+  wiredResult;
+  lastCheckedAt;
+  isPaused = false;
+  _lastActivity = 0;
+  _pollTimer;
+  _onActivity;
+  _onVisibility;
+
+  connectedCallback() {
+    this._lastActivity = Date.now();
+    this._onActivity = () => this.noteActivity();
+    this._onVisibility = () => this.handleVisibility();
+    ACTIVITY_EVENTS.forEach((name) =>
+      window.addEventListener(name, this._onActivity, { passive: true })
+    );
+    document.addEventListener("visibilitychange", this._onVisibility);
+    // eslint-disable-next-line @lwc/lwc/no-async-operation
+    this._pollTimer = setInterval(() => this.tick(), POLL_MS);
+  }
+
+  disconnectedCallback() {
+    clearInterval(this._pollTimer);
+    this._pollTimer = undefined;
+    ACTIVITY_EVENTS.forEach((name) =>
+      window.removeEventListener(name, this._onActivity)
+    );
+    document.removeEventListener("visibilitychange", this._onVisibility);
+  }
+
+  /** One polling beat: re-read only when somebody could be looking. */
+  tick() {
+    if (document.visibilityState !== "visible" || this.isPaused) {
+      return;
+    }
+    if (Date.now() - this._lastActivity >= IDLE_MS) {
+      this.isPaused = true;
+      return;
+    }
+    this.refresh();
+  }
+
+  noteActivity() {
+    this._lastActivity = Date.now();
+    if (this.isPaused) {
+      this.isPaused = false;
+      this.refresh();
+    }
+  }
+
+  /** Coming back to the tab counts as activity, and the board catches up at once. */
+  handleVisibility() {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+    const wasPaused = this.isPaused;
+    this.noteActivity();
+    if (!wasPaused) {
+      this.refresh();
+    }
+  }
+
+  handleRefresh() {
+    this._lastActivity = Date.now();
+    this.isPaused = false;
+    this.refresh();
+  }
+
+  refresh() {
+    if (!this.wiredResult) {
+      return;
+    }
+    refreshApex(this.wiredResult).then(() => {
+      this.lastCheckedAt = new Date();
+    });
+  }
+
+  /** When this page last asked, not when the data last changed - that is the freshness line. */
+  get checkedLabel() {
+    if (this.isPaused) {
+      return "Paused";
+    }
+    if (!this.lastCheckedAt) {
+      return "";
+    }
+    return `Checked ${this.lastCheckedAt.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    })}`;
+  }
+
   /** Ordered, comma separated Status__c values. */
   @api
   get columns() {
@@ -53,10 +166,12 @@ export default class PublicWorkItemBoard extends LightningElement {
   // widen what comes back.
   @wire(getPublicBoardData)
   wiredBoard(result) {
+    this.wiredResult = result;
     if (result.data) {
       this.board = result.data;
       this.errorMessage = undefined;
       this.isLoading = false;
+      this.lastCheckedAt = new Date();
       this.rebuild();
     } else if (result.error) {
       this.board = undefined;
@@ -292,15 +407,8 @@ export default class PublicWorkItemBoard extends LightningElement {
       ? `${item.recordNumber} · ${item.externalKey}`
       : item.recordNumber;
     const isSynced = item.syncStatus === "Synced";
-    // The DTO has always carried lastSyncedAt per card; until the refactor pass after build 06
-    // nothing rendered it, so a visitor could not tell a fresh card from a stale one.
-    const lastSyncedLabel = item.lastSyncedAt
-      ? `Updated ${new Date(item.lastSyncedAt).toLocaleDateString()}`
-      : null;
     return {
       recordNumber: item.recordNumber,
-      lastSyncedLabel,
-      hasLastSynced: !!lastSyncedLabel,
       heading,
       headingClass: hasTitle ? "has-title" : "is-fallback",
       identLabel: ident,

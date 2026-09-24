@@ -1,10 +1,9 @@
 /**
- * Read side of the work item board.
+ * The internal work item board: reads, the status change and the detail save.
  *
- * Built for two audiences from the start. Today it sits on an internal Lightning page; in build 05
- * the same method is called by a site guest user. That is why every query runs in USER_MODE and
- * why nothing here assumes an authenticated context - retrofitting either would be worse than
- * starting correct.
+ * Internal only. A site guest must never be granted this class - class access is per class, not
+ * per method, and this one writes - which is why PublicBoardController exists beside it. Every
+ * query still runs in USER_MODE, so a user without a field grant is refused rather than served.
  *
  * Columns are not this class's business. The component decides which statuses to show and in what
  * order; the controller returns every record the user can see and lets the view bucket them. That
@@ -12,7 +11,14 @@
  */
 public with sharing class WorkItemBoardController {
   /**
-   * Everything the board needs, in one round trip.
+   * Everything the board needs, in one round trip: every card, and the epic view built by the
+   * same rules the public board uses.
+   *
+   * Cards, not records. Since build 08 the internal board receives the same shape as the public
+   * one - the same property names for the same facts - so the ID line, the dates and the filters
+   * are one function each on the client rather than two. The internal card adds what only this
+   * board shows: ids for nesting and the record link, the description, the reason a push failed,
+   * and whether its source can hold a start date.
    *
    * @param projectId scope to one project, or blank for every work item the user can see
    */
@@ -23,7 +29,14 @@ public with sharing class WorkItemBoardController {
       Project__c project = ProjectSelector.byId(projectId);
 
       BoardData board = new BoardData();
-      board.items = items;
+      board.items = new List<BoardCard>();
+      for (Work_Item__c item : items) {
+        board.items.add(toCard(item));
+      }
+      board.epics = new List<BoardEpic>();
+      for (EpicRollup.Epic epic : new EpicRollup(items).epics()) {
+        board.epics.add(toEpic(epic));
+      }
       board.itemCount = items.size();
       board.projectId = projectId;
       board.projectLabel = ProjectSelector.labelFor(project);
@@ -36,6 +49,59 @@ public with sharing class WorkItemBoardController {
         'Could not load the board: ' + e.getMessage()
       );
     }
+  }
+
+  private static BoardCard toCard(Work_Item__c item) {
+    BoardCard card = new BoardCard();
+    card.id = item.Id;
+    card.recordNumber = item.Name;
+    card.title = item.Title__c;
+    card.externalKey = item.External_Key__c;
+    card.status = item.Status__c;
+    card.type = item.Type__c == WorkItemType.UNSPECIFIED ? null : item.Type__c;
+    card.projectLabel = item.Project__r == null
+      ? null
+      : (String.isNotBlank(item.Project__r.Short_Name__c)
+          ? item.Project__r.Short_Name__c
+          : item.Project__r.Name);
+    card.parentId = item.Parent_Work_Item__c;
+    // A record with no remote record will never push, so it has no sync state to show - not a
+    // permanent Pending, which is what the seed canary WI-0011 displayed from build 06 to 08.
+    card.syncStatus = String.isBlank(item.External_Id__c)
+      ? null
+      : item.Sync_Status__c;
+    card.syncError = card.syncStatus == null ? null : item.Sync_Error__c;
+    card.description = item.Description__c;
+    card.storyPoints = item.Story_Points__c;
+
+    BoardSourceRules.Source rules = BoardSourceRules.forSystem(
+      item.External_System__c
+    );
+    card.sourceLabel = rules.label;
+    card.accentToken = rules.accentToken;
+    card.condensesIntoEpic = rules.condensesIntoEpics;
+    card.supportsStartDate = rules.supportsStartDate;
+
+    card.createdAt = item.Source_Created__c;
+    card.startDate = IsoDate.format(item.Start_Date__c);
+    card.dueDate = IsoDate.format(item.Due_Date__c);
+    return card;
+  }
+
+  private static BoardEpic toEpic(EpicRollup.Epic source) {
+    BoardEpic epic = new BoardEpic();
+    epic.id = source.record.Id;
+    epic.recordNumber = source.record.Name;
+    epic.title = source.record.Title__c;
+    epic.status = source.record.Status__c;
+    epic.totalChildren = source.totalChildren;
+    epic.completedChildren = source.completedChildren;
+    BoardSourceRules.Source rules = BoardSourceRules.forSystem(
+      source.record.External_System__c
+    );
+    epic.sourceLabel = rules.label;
+    epic.accentToken = rules.accentToken;
+    return epic;
   }
 
   /**
@@ -338,7 +404,10 @@ public with sharing class WorkItemBoardController {
    */
   public class BoardData {
     @AuraEnabled
-    public List<Work_Item__c> items { get; set; }
+    public List<BoardCard> items { get; set; }
+    /** The epic view, from EpicRollup - the same rules and code as the public board's. */
+    @AuraEnabled
+    public List<BoardEpic> epics { get; set; }
     @AuraEnabled
     public Integer itemCount { get; set; }
     @AuraEnabled
@@ -348,6 +417,79 @@ public with sharing class WorkItemBoardController {
     public String projectLabel { get; set; }
     @AuraEnabled
     public Datetime lastSyncedAt { get; set; }
+  }
+
+  /**
+   * One card on the internal board. The first block of properties matches PublicCard name for
+   * name, so both boards run the same client code over them; the second block is internal only.
+   */
+  public class BoardCard {
+    @AuraEnabled
+    public String recordNumber { get; set; }
+    @AuraEnabled
+    public String title { get; set; }
+    @AuraEnabled
+    public String externalKey { get; set; }
+    @AuraEnabled
+    public String status { get; set; }
+    /** Null when the source's type has no mapping, as on the public board. */
+    @AuraEnabled
+    public String type { get; set; }
+    @AuraEnabled
+    public String projectLabel { get; set; }
+    /** Null when the record has no remote record: it will never push. */
+    @AuraEnabled
+    public String syncStatus { get; set; }
+    @AuraEnabled
+    public Boolean condensesIntoEpic { get; set; }
+    @AuraEnabled
+    public String sourceLabel { get; set; }
+    @AuraEnabled
+    public String accentToken { get; set; }
+    @AuraEnabled
+    public Datetime createdAt { get; set; }
+    /** YYYY-MM-DD, or null. */
+    @AuraEnabled
+    public String startDate { get; set; }
+    /** YYYY-MM-DD, or null. */
+    @AuraEnabled
+    public String dueDate { get; set; }
+
+    // Internal only.
+    @AuraEnabled
+    public Id id { get; set; }
+    @AuraEnabled
+    public Id parentId { get; set; }
+    @AuraEnabled
+    public String description { get; set; }
+    @AuraEnabled
+    public Decimal storyPoints { get; set; }
+    /** Why the last push failed, when it did. */
+    @AuraEnabled
+    public String syncError { get; set; }
+    /** Whether the card offers a start date editor. Apex refuses one either way. */
+    @AuraEnabled
+    public Boolean supportsStartDate { get; set; }
+  }
+
+  /** One epic on the internal board's Epics view: PublicEpic's fields, plus its id and number. */
+  public class BoardEpic {
+    @AuraEnabled
+    public Id id { get; set; }
+    @AuraEnabled
+    public String recordNumber { get; set; }
+    @AuraEnabled
+    public String title { get; set; }
+    @AuraEnabled
+    public String status { get; set; }
+    @AuraEnabled
+    public Integer totalChildren { get; set; }
+    @AuraEnabled
+    public Integer completedChildren { get; set; }
+    @AuraEnabled
+    public String sourceLabel { get; set; }
+    @AuraEnabled
+    public String accentToken { get; set; }
   }
 
   /**

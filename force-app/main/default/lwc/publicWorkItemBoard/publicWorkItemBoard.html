@@ -7,7 +7,22 @@
           <p class="freshness">{freshnessLabel}</p>
         </template>
       </div>
-      <span class="total">{countLabel}</span>
+      <div class="head-side">
+        <span class="total">{countLabel}</span>
+        <!-- Re-reads through the same parameterless method the page loaded with. It can ask
+             for nothing narrower or wider, and there is no write path behind it. -->
+        <span class="refresh">
+          <span class="checked" data-checked>{checkedLabel}</span>
+          <button
+            type="button"
+            class="view-btn"
+            data-action="refresh"
+            onclick={handleRefresh}
+          >
+            Refresh
+          </button>
+        </span>
+      </div>
     </header>
 
     <template lwc:if={isLoading}>

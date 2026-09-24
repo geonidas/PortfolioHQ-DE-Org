@@ -230,7 +230,7 @@ private class PublicBoardControllerTest {
   }
 
   @IsTest
-  static void theEpicDtoCarriesExactlyFourKeys() {
+  static void theEpicDtoCarriesExactlyItsAgreedKeys() {
     Project__c open = project(true, 'OPEN');
     epic(open.Id, true, 'In Progress');
 
@@ -247,7 +247,12 @@ private class PublicBoardControllerTest {
       'title',
       'status',
       'totalChildren',
-      'completedChildren'
+      'completedChildren',
+      // Build 08 step 5, both added deliberately - this assertion failed first, naming them.
+      // Without them the source filter cannot place an epic and it would be the one card
+      // with no accent. A label to render and a token name, never a colour.
+      'sourceLabel',
+      'accentToken'
     };
     Assert.areEqual(
       expected,
@@ -471,11 +476,22 @@ private class PublicBoardControllerTest {
       'projectLabel',
       'parentNumber',
       'syncStatus',
-      'lastSyncedAt',
-      // Build 07 step 9. A boolean, not the source system's name: the client needs to know
-      // what the epic toggle does to this card, and does not need to know which vendor the
-      // work came from. Adding it here was the deliberate act - this assertion failed first.
-      'condensesIntoEpic'
+      // Build 07 step 9. A boolean: the client needs to know what the epic toggle does to
+      // this card. Adding it here was the deliberate act - this assertion failed first.
+      'condensesIntoEpic',
+      // Build 08 step 5, each added deliberately; this assertion failed first and named them.
+      // sourceLabel publishes the vendor's name to an anonymous visitor, reversing build 07 -
+      // docs/adr/build-08-board-redesign.md, decision 1. accentToken is a token name, never a
+      // colour. createdAt is when the source created the work; startDate and dueDate are
+      // YYYY-MM-DD strings, never dates a browser would shift.
+      'sourceLabel',
+      'accentToken',
+      'createdAt',
+      'startDate',
+      'dueDate'
+      // And one removed in the same step: lastSyncedAt, read only by the card's "Updated"
+      // line, which the redesign drops. A narrowing is recorded here as deliberately as a
+      // widening; the board-level lastSyncedAt stays.
     };
     Assert.areEqual(
       expected,
@@ -958,5 +974,58 @@ private class PublicBoardControllerTest {
         'governor limit.'
     );
     Assert.areEqual(8, board.items.size(), 'And every public card is there.');
+  }
+
+  // ---------- source and dates (build 08) ----------
+
+  @IsTest
+  static void aCardCarriesItsSourceLabelAccentAndDates() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c jira = TestDataFactory.createWorkItems(1, open.Id, false)[0];
+    jira.Is_Public__c = true;
+    jira.Status__c = 'In Progress';
+    jira.Title__c = 'A Jira story';
+    jira.Source_Created__c = Datetime.newInstanceGmt(2026, 9, 8, 21, 59, 9);
+    jira.Start_Date__c = Date.newInstance(2026, 9, 21);
+    jira.Due_Date__c = Date.newInstance(2026, 10, 1);
+    insert jira;
+    flatItem(open.Id, 'To Do', 'An Asana task');
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    PublicBoardController.PublicCard j = cardTitled(board, 'A Jira story');
+    Assert.areEqual(
+      'Jira',
+      j.sourceLabel,
+      'From Board_Source__mdt, not the picklist.'
+    );
+    Assert.areEqual('accent-1', j.accentToken, 'A token name, not a colour.');
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 8, 21, 59, 9),
+      j.createdAt
+    );
+    Assert.areEqual('2026-09-21', j.startDate, 'A calendar day, as a string.');
+    Assert.areEqual('2026-10-01', j.dueDate);
+
+    PublicBoardController.PublicCard a = cardTitled(board, 'An Asana task');
+    Assert.areEqual('Asana', a.sourceLabel);
+    Assert.areEqual('accent-2', a.accentToken);
+    Assert.isNull(a.startDate, 'Asana items never have one.');
+    Assert.isNull(a.dueDate, 'And no due date was set.');
+  }
+
+  @IsTest
+  static void anEpicCarriesItsSourceLabelAndAccent() {
+    Project__c open = project(true, 'OPEN');
+    epic(open.Id, true, 'In Progress');
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.areEqual('Jira', board.epics[0].sourceLabel);
+    Assert.areEqual('accent-1', board.epics[0].accentToken);
   }
 }

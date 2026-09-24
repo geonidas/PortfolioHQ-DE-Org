@@ -5,7 +5,12 @@
         <h1 class="title">{headingLabel}</h1>
         <p class="freshness">{freshnessLabel}</p>
       </div>
-      <span class="total">{countLabel}</span>
+      <span class="total"
+        >{countLabel}
+        <template lwc:if={isLive}>
+          <span class="live" data-live> · {liveLabel}</span>
+        </template>
+      </span>
     </header>
 
     <template lwc:if={isLoading}>

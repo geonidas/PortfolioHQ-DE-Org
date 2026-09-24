@@ -39,6 +39,21 @@
 .total {
   white-space: nowrap;
 }
+.head-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+.refresh {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.checked {
+  font-size: 0.75rem;
+  color: var(--pwb-text-soft);
+}
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

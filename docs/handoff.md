@@ -299,6 +299,31 @@ endpoint runs as the guest. So secrets live in two places on purpose:
   could not deploy it anyway. Until it is run, deliveries are rejected 401 and the vendor
   retries; Asana tolerates 24 hours of failures. **Delete the staged row once promoted.**
 
+**The internal board is live only for a user with View All Records on `Work_Item__c`.** Build 08
+subscribes to `/data/Work_Item__ChangeEvent` (Change Data Capture, enabled by the
+`platformEventChannelMembers/` file in source). On a single-object channel Salesforce checks the
+subscriber's permission when it subscribes and refuses the subscription without View All Records on
+the object, or View All Data - CDC ignores sharing, so it asks for more than read access. The admin
+has View All Data; `Portfolio_HQ_Developer` deliberately does not grant View All (see "Sharing
+models" above). Such a user's board still loads and still refreshes after their own saves; it just
+does not say "Live" and does not update when someone else changes a record. Widening the
+permission set would fix that and would also widen what the user can see, so it is a decision, not
+a fix.
+
+**The public board polls, and stops when nobody is looking.** LWR sites do not support
+`lightning/empApi`, so `publicWorkItemBoard` re-reads every 30 seconds while the tab is visible and
+the visitor has done something in the last five minutes, then shows "Paused" until they do. Each
+read is the same parameterless `getPublicBoardData`, one SOQL query. The idle cap exists because a
+Developer Edition site is allowed ten minutes of server time a day, and an unattended tab polling
+every 30 seconds would spend a real share of it on its own. The method is `cacheable=true` without
+`scope='global'`, so it is not cached on the CDN and every poll reaches the server - that is what
+makes the 30 seconds true, and why the idle cap matters.
+
+**The guest's readable fields are asserted exactly.** `GuestAccessTest.theBoardGuestReadsExactlyTheseFields`
+lists every field `Portfolio_HQ_Guest` grants; before build 08 the suite only forbade four named
+fields, so a new grant failed nothing. Granting the guest a field now fails that test and
+`PublicBoardControllerTest`'s DTO key sets together, which is the point.
+
 **`In Review` is unreachable.** It exists in the picklist; the Jira board offers only
 To Do, In Progress and Done. Board columns are configurable so it can be added later
 without a code change.
