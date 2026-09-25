@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Maps_To_Blank__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>True when this external value means &quot;no value&quot;: inbound leaves the Work_Item__c field blank, and a blank field pushes out as this value. Normalized Value must then be empty; a row with both is contradictory and maps nothing. Explicit because an empty Normalized Value on its own marks a half-filled row, which also maps nothing - the checkbox is what tells the two apart. Build 09: Jira&apos;s en dash priority (id 10000), which exists because a Jira issue cannot be without a priority. Asana needs no such row: an empty enum field is Asana&apos;s own &quot;none&quot;, and its adapter knows that.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Maps To Blank</label>
+    <type>Checkbox</type>
+</CustomField>

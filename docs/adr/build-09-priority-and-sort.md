@@ -46,7 +46,17 @@ model, and Asana would then need a value it has no way to hold. Blank is the nat
 both boards: no badge, "No priority" in the editor.
 
 **Consequence.** `–` is the only Jira id whose mapping is blank, so the mapping has to be able to
-say "blank" as an answer, distinct from "no mapping" (decision 4).
+say "blank" as an answer, distinct from "no mapping" (decision 4). Step 1 found it could not:
+`Normalized_Value__c` was required, and the loader already treated an empty one as a half-filled
+row that maps nothing - a guard with its own test. So `Field_Mapping__mdt` gained **Maps To
+Blank**, a checkbox: a row maps to blank only when it says so, with an empty normalized value. An
+empty value without the box is still a half-filled row, and a row with both is a contradiction;
+each maps nothing. `Normalized_Value__c` is no longer required, for that row alone.
+`FieldMappingService.normalizedFor` still answers null for both blank and unknown, as it always
+has; the new `isMapped` is the question that tells them apart. Outbound, a blank looks up the
+blank row - Jira `10000` - and a source with none answers null, which the Asana adapter sends as
+an empty field. The Asana `Priority` field's own gid is a `Field` row, as Jira's start-date field
+id is.
 
 ---
 

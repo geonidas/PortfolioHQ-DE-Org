@@ -34,17 +34,20 @@ public with sharing class BoardSourceRules {
     /** A token name such as 'accent-1', or null, which renders neutral. Never a colour. */
     public String accentToken { get; private set; }
     public Boolean supportsStartDate { get; private set; }
+    public Boolean supportsPriority { get; private set; }
     public Boolean condensesIntoEpics { get; private set; }
 
     private Source(
       String label,
       String accentToken,
       Boolean supportsStartDate,
+      Boolean supportsPriority,
       Boolean condensesIntoEpics
     ) {
       this.label = label;
       this.accentToken = accentToken;
       this.supportsStartDate = supportsStartDate == true;
+      this.supportsPriority = supportsPriority == true;
       this.condensesIntoEpics = condensesIntoEpics == true;
     }
   }
@@ -53,7 +56,7 @@ public with sharing class BoardSourceRules {
    * The rules for one source system.
    *
    * A system with no record is not an error. It gets the safe answer to every question: its own
-   * picklist value as a label, no accent, no start dates, and flat. Flat is never wrong - a card
+   * picklist value as a label, no accent, no start dates, no priority, and flat. Flat is never wrong - a card
    * that does not condense is shown as itself - where wrongly condensing one would hide it behind
    * an epic it does not belong to. A new source therefore inherits nothing by accident.
    *
@@ -73,6 +76,7 @@ public with sharing class BoardSourceRules {
       sourceSystem == null ? '' : sourceSystem.trim(),
       null,
       false,
+      false,
       false
     );
   }
@@ -88,6 +92,14 @@ public with sharing class BoardSourceRules {
    */
   public static Boolean supportsStartDate(String sourceSystem) {
     return forSystem(sourceSystem).supportsStartDate;
+  }
+
+  /**
+   * True when this system holds a priority that syncs with Priority__c. The internal board offers
+   * the priority editor on this answer, never on the source's name.
+   */
+  public static Boolean supportsPriority(String sourceSystem) {
+    return forSystem(sourceSystem).supportsPriority;
   }
 
   /** Reset between tests that inject different tables. */
@@ -119,6 +131,7 @@ public with sharing class BoardSourceRules {
             ? null
             : row.Accent_Token__c.trim(),
           row.Supports_Start_Date__c,
+          row.Supports_Priority__c,
           row.Condenses_Into_Epics__c
         )
       );

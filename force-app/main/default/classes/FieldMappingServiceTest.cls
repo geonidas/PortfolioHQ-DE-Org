@@ -154,6 +154,15 @@ private class FieldMappingServiceTest {
       fromHalfFilled,
       'And a row with no normalized value maps nothing.'
     );
+    Assert.isFalse(
+      FieldMappingService.isMapped(
+        ExternalSystem.ASANA,
+        FieldMappingService.STATUS,
+        '1209977777777777'
+      ),
+      'Not even to blank: without Maps_To_Blank__c an empty value is a row somebody forgot to ' +
+      'finish.'
+    );
   }
 
   @IsTest
@@ -193,6 +202,327 @@ private class FieldMappingServiceTest {
       unknown,
       'Null, not Unspecified. What an unmapped value should become differs by field, and that ' +
       'is a decision for the caller filling it.'
+    );
+  }
+
+  // ---------- priority (build 09) ----------
+
+  private static Field_Mapping__mdt priorityRow(
+    String sourceSystem,
+    String externalValue,
+    String normalized,
+    Boolean mapsToBlank
+  ) {
+    return new Field_Mapping__mdt(
+      External_System__c = sourceSystem,
+      Mapping_Type__c = FieldMappingService.PRIORITY,
+      External_Value__c = externalValue,
+      External_Label__c = externalValue,
+      Normalized_Value__c = normalized,
+      Maps_To_Blank__c = mapsToBlank,
+      Is_Active__c = true
+    );
+  }
+
+  /** The shape of the deployed Jira rows: three values and the en dash, which means none. */
+  private static List<Field_Mapping__mdt> jiraPriorities() {
+    return new List<Field_Mapping__mdt>{
+      priorityRow(ExternalSystem.JIRA, '2', 'High', false),
+      priorityRow(ExternalSystem.JIRA, '3', 'Medium', false),
+      priorityRow(ExternalSystem.JIRA, '4', 'Low', false),
+      priorityRow(ExternalSystem.JIRA, '10000', null, true)
+    };
+  }
+
+  @IsTest
+  static void aPriorityIdResolvesInBothDirections() {
+    inject(jiraPriorities());
+
+    Test.startTest();
+    String inbound = FieldMappingService.normalizedFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '2'
+    );
+    String outbound = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      'Low'
+    );
+    Test.stopTest();
+
+    Assert.areEqual('High', inbound);
+    Assert.areEqual('4', outbound, 'By id, never by name (decision 2).');
+  }
+
+  @IsTest
+  static void theIdThatMeansNoPriorityIsMappedAndReadsAsBlank() {
+    inject(jiraPriorities());
+
+    Test.startTest();
+    Boolean mapped = FieldMappingService.isMapped(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '10000'
+    );
+    String normalized = FieldMappingService.normalizedFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '10000'
+    );
+    Test.stopTest();
+
+    Assert.isTrue(
+      mapped,
+      'The en dash is a known value. It must not read as unknown, which would leave a stale ' +
+      'priority in place instead of clearing it.'
+    );
+    Assert.isNull(
+      normalized,
+      'And what it means is no priority: blank, not a sentinel (decision 1).'
+    );
+  }
+
+  @IsTest
+  static void aBlankPriorityPushesAsTheIdThatMeansNone() {
+    inject(jiraPriorities());
+
+    Test.startTest();
+    String fromNull = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      null
+    );
+    String fromEmpty = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      ''
+    );
+    String fromSpaces = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '  '
+    );
+    Test.stopTest();
+
+    Assert.areEqual(
+      '10000',
+      fromNull,
+      'A cleared priority goes out as the en dash.'
+    );
+    Assert.areEqual('10000', fromEmpty);
+    Assert.areEqual('10000', fromSpaces);
+  }
+
+  @IsTest
+  static void anUnknownPriorityIsNotMappedAtAll() {
+    inject(jiraPriorities());
+
+    Test.startTest();
+    // Highest: gone from DOPP's scheme, still on the Jira site.
+    Boolean mapped = FieldMappingService.isMapped(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '1'
+    );
+    String normalized = FieldMappingService.normalizedFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '1'
+    );
+    Test.stopTest();
+
+    Assert.isFalse(
+      mapped,
+      'Unknown and none both normalize to null; isMapped is what tells the adapter to leave the ' +
+      'field alone rather than clear it (decision 4).'
+    );
+    Assert.isNull(normalized);
+  }
+
+  @IsTest
+  static void aSourceWithNoBlankRowHasNoValueForBlank() {
+    inject(
+      new List<Field_Mapping__mdt>{
+        priorityRow(ExternalSystem.ASANA, '1209900000000001', 'High', false),
+        priorityRow(ExternalSystem.ASANA, '1209900000000002', 'Medium', false),
+        priorityRow(ExternalSystem.ASANA, '1209900000000003', 'Low', false)
+      }
+    );
+
+    Test.startTest();
+    String forBlank = FieldMappingService.externalValueFor(
+      ExternalSystem.ASANA,
+      FieldMappingService.PRIORITY,
+      null
+    );
+    String forMedium = FieldMappingService.externalValueFor(
+      ExternalSystem.ASANA,
+      FieldMappingService.PRIORITY,
+      'Medium'
+    );
+    Test.stopTest();
+
+    Assert.isNull(
+      forBlank,
+      'Asana has no option meaning none - an empty field is its none. Null here, and the ' +
+      'adapter, which knows that, sends an empty value.'
+    );
+    Assert.areEqual('1209900000000002', forMedium);
+  }
+
+  @IsTest
+  static void aRowThatBothMapsToBlankAndNamesAValueMapsNothing() {
+    List<Field_Mapping__mdt> rows = new List<Field_Mapping__mdt>{
+      priorityRow(ExternalSystem.JIRA, '10000', 'Low', true)
+    };
+    inject(rows);
+
+    Test.startTest();
+    Boolean mapped = FieldMappingService.isMapped(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '10000'
+    );
+    String forLow = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      'Low'
+    );
+    String forBlank = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      null
+    );
+    Test.stopTest();
+
+    Assert.isFalse(
+      mapped,
+      'Blank or Low - the row cannot mean both, and guessing which half was meant would push ' +
+      'the wrong one.'
+    );
+    Assert.isNull(forLow);
+    Assert.isNull(forBlank);
+  }
+
+  @IsTest
+  static void twoIdsThatMeanNoneReadAsBlankButGiveNothingToPush() {
+    List<Field_Mapping__mdt> rows = jiraPriorities();
+    rows.add(priorityRow(ExternalSystem.JIRA, '10001', null, true));
+    inject(rows);
+
+    Test.startTest();
+    String inbound = FieldMappingService.normalizedFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '10001'
+    );
+    Boolean mapped = FieldMappingService.isMapped(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      '10001'
+    );
+    String outbound = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      null
+    );
+    Test.stopTest();
+
+    Assert.isTrue(mapped, 'Both still mean none on the way in.');
+    Assert.isNull(inbound);
+    Assert.isNull(
+      outbound,
+      'The same ambiguity rule as statuses: two candidates on the way out is no answer.'
+    );
+  }
+
+  @IsTest
+  static void theDeployedPriorityRowsCoverEveryValueBothWays() {
+    // Reads the committed records on purpose: injection proves the code, this proves the
+    // configuration it runs against. Every value either source can hold must survive a round trip,
+    // or a priority set on one side quietly never reaches the other.
+    FieldMappingService.reset();
+    FieldMappingService.injected = null;
+
+    List<String> values = new List<String>();
+    for (
+      Schema.PicklistEntry entry : Work_Item__c.Priority__c.getDescribe()
+        .getPicklistValues()
+    ) {
+      values.add(entry.getValue());
+    }
+    Assert.areEqual(
+      new List<String>{ 'High', 'Medium', 'Low' },
+      values,
+      'Three values, in priority order: the boards sort by this order (decision 6).'
+    );
+
+    for (
+      String sourceSystem : new List<String>{
+        ExternalSystem.JIRA,
+        ExternalSystem.ASANA
+      }
+    ) {
+      Assert.isTrue(
+        BoardSourceRules.supportsPriority(sourceSystem),
+        sourceSystem + ' should say it supports priority.'
+      );
+      for (String value : values) {
+        String external = FieldMappingService.externalValueFor(
+          sourceSystem,
+          FieldMappingService.PRIORITY,
+          value
+        );
+        Assert.isNotNull(external, sourceSystem + ' has no id for ' + value);
+        Assert.areEqual(
+          value,
+          FieldMappingService.normalizedFor(
+            sourceSystem,
+            FieldMappingService.PRIORITY,
+            external
+          ),
+          sourceSystem + ' ' + external + ' does not read back as ' + value
+        );
+      }
+    }
+
+    String jiraNone = FieldMappingService.externalValueFor(
+      ExternalSystem.JIRA,
+      FieldMappingService.PRIORITY,
+      null
+    );
+    Assert.isNotNull(jiraNone, 'Jira needs an id for no priority.');
+    Assert.isTrue(
+      FieldMappingService.isMapped(
+        ExternalSystem.JIRA,
+        FieldMappingService.PRIORITY,
+        jiraNone
+      )
+    );
+    Assert.isNull(
+      FieldMappingService.normalizedFor(
+        ExternalSystem.JIRA,
+        FieldMappingService.PRIORITY,
+        jiraNone
+      ),
+      'And it reads back as blank.'
+    );
+    Assert.isNull(
+      FieldMappingService.externalValueFor(
+        ExternalSystem.ASANA,
+        FieldMappingService.PRIORITY,
+        null
+      ),
+      'Asana has no row for none: an empty field is its none.'
+    );
+    Assert.isNotNull(
+      FieldMappingService.externalValueFor(
+        ExternalSystem.ASANA,
+        FieldMappingService.FIELD,
+        'Priority__c'
+      ),
+      'The adapter finds the Priority field by its gid, which is configuration.'
     );
   }
 

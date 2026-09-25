@@ -586,6 +586,21 @@ changes: `Admin.profile` gaining `PublicBoardControllerTest` class access, and t
 `pageAccess` going `UseParent` → `Public` — the latter being build 05's site-public-access
 click, which the repo had never captured.
 
+**Jira's `editmeta` does not say what the API will take in DOPP.** DOPP is a team-managed
+project, and there `editmeta` describes each issue type's layout: it lists `priority` on Story
+alone. Build 09 step 0 reported that as Jira refusing a priority on Epic, Subtask, Bug and Task,
+and asked for a Jira settings change - wrongly. A real change, Medium to High and back, returned
+204 and landed on all four. Two details make the check easy to get wrong the same way twice: a
+write of the value an issue already holds also answers 204 without validating anything (its
+`updated` does not move), so only a real change and revert proves a field writable; and
+`overrideScreenSecurity=true` answers 403 for an API token (Connect and Forge apps only).
+
+**`sf org display` can hand out a stale access token.** The CLI refreshes its session inside its
+own commands and does not always write the fresh token back, so a token copied from `org display`
+into another client fails - REST with 401, CometD with `403::Handshake denied` and
+`401::Request requires authentication`. `scripts/listen-work-item-changes.mjs` gets its session
+from the CLI's bundled `@salesforce/core` and calls `refreshAuth()` first. Found in build 09 step 1.
+
 **Salesforce API gotchas found the hard way:**
 
 - Long Text Area fields are not filterable in SOQL.
@@ -751,6 +766,11 @@ node scripts/capture-public-board.mjs docs/build-08/screenshots <label> [WI-0005
 # which the Jest gate cannot check), and a keyboard walkthrough at both sizes. Exits 1 on a
 # problem in the board; the site template's own "Skip to Main" link is reported, not failed
 node scripts/audit-public-board.mjs [focus-screenshot.png]
+
+# What the internal board receives live: Change Data Capture events on Work_Item__c, printed
+# from the command line (needs View All Records or View All Data, like the board). Make the
+# change in another terminal once it says "subscribed"
+node scripts/listen-work-item-changes.mjs [seconds] [events]
 ```
 
 To try Retry without a real failure, make a record look refused. Sync fields only, suppressed, so

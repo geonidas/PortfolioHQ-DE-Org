@@ -60,6 +60,27 @@ private class BoardSourceRulesTest {
   }
 
   @IsTest
+  static void priorityIsReadFromTheRecordAndDefaultsToNo() {
+    Board_Source__mdt jira = row('Jira', 'Jira', 'accent-1', true, true);
+    jira.Supports_Priority__c = true;
+    // Asana's row leaves the checkbox unset, which is how a record created before build 09 - or
+    // by somebody who forgot the box - reads: no.
+    inject(
+      new List<Board_Source__mdt>{
+        jira,
+        row('Asana', 'Asana', 'accent-2', false, false)
+      }
+    );
+
+    Assert.isTrue(BoardSourceRules.forSystem('Jira').supportsPriority);
+    Assert.isTrue(BoardSourceRules.supportsPriority('Jira'));
+    Assert.isFalse(
+      BoardSourceRules.supportsPriority('Asana'),
+      'The editor is offered on the record\'s word, and an unset box is not a yes.'
+    );
+  }
+
+  @IsTest
   static void aRecordIsFoundWhateverTheCaseOrSpacing() {
     inject(
       new List<Board_Source__mdt>{ row('Jira', 'Jira', 'accent-1', true, true) }
@@ -89,6 +110,7 @@ private class BoardSourceRulesTest {
       unknown.supportsStartDate,
       'A new source never inherits a capability by accident.'
     );
+    Assert.isFalse(unknown.supportsPriority, 'Priority included.');
     Assert.isFalse(
       unknown.condensesIntoEpics,
       'Flat is never wrong: a card that does not condense is shown as itself.'
@@ -102,6 +124,7 @@ private class BoardSourceRulesTest {
     BoardSourceRules.Source none = BoardSourceRules.forSystem(null);
     Assert.areEqual('', none.label);
     Assert.isFalse(none.supportsStartDate);
+    Assert.isFalse(none.supportsPriority);
     Assert.isFalse(BoardSourceRules.condensesIntoEpics(''));
   }
 
@@ -140,6 +163,7 @@ private class BoardSourceRulesTest {
     Assert.areEqual('Jira', jira.label);
     Assert.areEqual('accent-1', jira.accentToken);
     Assert.isTrue(jira.supportsStartDate, 'Jira has a start date field.');
+    Assert.isTrue(jira.supportsPriority, 'Jira priority syncs (build 09).');
     Assert.isTrue(jira.condensesIntoEpics, 'Jira work rolls up into epics.');
 
     BoardSourceRules.Source asana = BoardSourceRules.forSystem('Asana');
@@ -148,6 +172,10 @@ private class BoardSourceRulesTest {
     Assert.isFalse(
       asana.supportsStartDate,
       'Start dates are a paid Asana feature this workspace does not have.'
+    );
+    Assert.isTrue(
+      asana.supportsPriority,
+      'Asana priority syncs through the project\'s Priority field (build 09).'
     );
     Assert.isFalse(asana.condensesIntoEpics, 'Asana work is flat.');
   }

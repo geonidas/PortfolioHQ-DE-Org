@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Priority__c</fullName>
+    <description>How urgent the work is, synced with the source in both directions. Blank means no priority: Salesforce stores no sentinel, so Jira&apos;s en dash priority and an empty Asana Priority field both arrive as blank and a blank pushes back as each one. Which vendor value means which of these is Field_Mapping__mdt rows of type Priority, keyed on ids, never names. Restricted, so an inbound value nobody mapped cannot become a fourth priority by accident: it leaves the field unchanged and is logged. No default, so a record created by hand never gets a priority its source did not have. The order of the values is the priority order the boards sort by.</description>
+    <inlineHelpText>How urgent this is. Leave blank for no priority. Changes here are sent to Jira or Asana, and changes there arrive here.</inlineHelpText>
+    <label>Priority</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>High</fullName>
+                <default>false</default>
+                <label>High</label>
+            </value>
+            <value>
+                <fullName>Medium</fullName>
+                <default>false</default>
+                <label>Medium</label>
+            </value>
+            <value>
+                <fullName>Low</fullName>
+                <default>false</default>
+                <label>Low</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

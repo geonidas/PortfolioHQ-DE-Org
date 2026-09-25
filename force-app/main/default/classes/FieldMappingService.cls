@@ -24,6 +24,12 @@ public with sharing class FieldMappingService {
    * asks which key to read, then reads it.
    */
   public static final String FIELD = 'Field';
+  /**
+   * A vendor's priority id or option gid to a Priority__c value (build 09). Jira's en dash is a
+   * Maps_To_Blank__c row: it means "no priority", so it reads inbound as blank and is what a blank
+   * pushes as. Asana has no such row - an empty enum field is Asana's own "none".
+   */
+  public static final String PRIORITY = 'Priority';
 
   // Custom metadata records cannot be inserted, so this is the only way a test can exercise a
   // populated table. Test context only.
@@ -42,6 +48,9 @@ public with sharing class FieldMappingService {
    * Null rather than a fallback, deliberately. What an unmapped value should become differs by
    * field - an unmapped status is Unspecified, an unmapped type may be left alone entirely - and
    * that is a decision for the caller who knows which field it is filling.
+   *
+   * Also null for a value that maps to blank (Maps_To_Blank__c). A caller for whom "means blank"
+   * and "means nothing we know" lead to different writes asks isMapped first.
    */
   public static String normalizedFor(
     String sourceSystem,
@@ -49,7 +58,26 @@ public with sharing class FieldMappingService {
     String externalValue
   ) {
     load();
-    return normalizedByExternal.get(
+    String normalized = normalizedByExternal.get(
+      key(sourceSystem, mappingType, externalValue)
+    );
+    return String.isBlank(normalized) ? null : normalized;
+  }
+
+  /**
+   * True when a row maps this external value, including a row that maps it to blank.
+   *
+   * normalizedFor answers null both for "means no value" and for "means nothing we know", and for
+   * a priority those are opposite writes: the first clears the field, the second must leave it
+   * alone (ADR build-09, decision 4). This is the question that tells them apart.
+   */
+  public static Boolean isMapped(
+    String sourceSystem,
+    String mappingType,
+    String externalValue
+  ) {
+    load();
+    return normalizedByExternal.containsKey(
       key(sourceSystem, mappingType, externalValue)
     );
   }
@@ -61,6 +89,10 @@ public with sharing class FieldMappingService {
    * Ambiguity resolves to nothing. Several external values may legitimately normalize onto one
    * Salesforce value (two Asana sections could both mean Done), and picking one of them to push
    * to would be a guess that silently moves work to the wrong column.
+   *
+   * A null or blank normalizedValue finds the row that maps to blank, if the system has one - so a
+   * cleared Jira priority pushes as the en dash. No such row answers null, and whether that means
+   * "send the vendor's empty value" or "cannot push" is the adapter's to decide.
    */
   public static String externalValueFor(
     String sourceSystem,
@@ -108,6 +140,7 @@ public with sharing class FieldMappingService {
             External_Value__c,
             External_Label__c,
             Normalized_Value__c,
+            Maps_To_Blank__c,
             Is_Active__c
           FROM Field_Mapping__mdt
           WHERE Is_Active__c = TRUE
@@ -115,25 +148,31 @@ public with sharing class FieldMappingService {
 
     Set<String> ambiguousReverse = new Set<String>();
     for (Field_Mapping__mdt row : rows) {
+      // A row maps blank or it names a value, never both and never neither. Neither is a
+      // half-filled row; both is a contradiction. Either way it maps nothing rather than
+      // guessing which half was meant.
+      Boolean mapsToBlank = row.Maps_To_Blank__c == true;
       if (
         row.Is_Active__c != true ||
         String.isBlank(row.External_Value__c) ||
-        String.isBlank(row.Normalized_Value__c)
+        mapsToBlank == String.isNotBlank(row.Normalized_Value__c)
       ) {
         continue;
       }
+      // Blank is held as '' so the forward map can say "mapped, to nothing" - see isMapped.
+      String normalized = mapsToBlank ? '' : row.Normalized_Value__c.trim();
       String forwardKey = key(
         row.External_System__c,
         row.Mapping_Type__c,
         row.External_Value__c
       );
-      normalizedByExternal.put(forwardKey, row.Normalized_Value__c.trim());
+      normalizedByExternal.put(forwardKey, normalized);
       labelByExternal.put(forwardKey, row.External_Label__c);
 
       String reverseKey = key(
         row.External_System__c,
         row.Mapping_Type__c,
-        row.Normalized_Value__c
+        normalized
       );
       if (externalByNormalized.containsKey(reverseKey)) {
         // Two external values claiming one Salesforce value. Legal on the way in, unusable on
