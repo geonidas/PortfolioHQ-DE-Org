@@ -10,7 +10,8 @@ boards filter by view and source; cards open in place; the internal board edits 
 due date and pushes each edit to Jira or Asana, drags cards between columns, retries a refused
 push, links admins to the record page and updates live through Change Data Capture; the public
 board polls every 30 seconds while someone is looking; portrait windows show one column at a time.
-Builds 01-08 are deployed to the scratch org and verified against live Jira and Asana, and
+Builds 01-08 are deployed to the scratch org and verified against live Jira and Asana - build 08's
+owner checks, Lighthouse accessibility 100 included, passed on 2026-09-25 - and
 `feature/first-branch` has not been merged to `main` (the development org) - see section 3,
 "Deleting an LWC from source", for the one thing that merge must also run.
 
@@ -707,7 +708,7 @@ SyncFields`. The one-line form of the same call compiles. Hold the result in a l
 | Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                                                                               | If re-registration becomes frequent    |
 | Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                                                                  | At volume                              |
 | `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana reads `Field_Mapping__mdt`. Two mechanisms for one job.                                                                                                                                             | Next time a Jira mapping changes       |
-| The public board's subtitle is empty: the copy is the owner's to write. See section 1 for how to set it without a click-only change.                                                                                                                                                 | Before launch                          |
+| The public board's subtitle is empty, by the owner's decision for now (2026-09-25). See section 1 for how to set it without a click-only change.                                                                                                                                     | When the owner writes it               |
 | The site template's "Skip to Main" link sits outside every landmark (its `href` is `javascript:void(0)`, so axe does not treat it as a skip link) and uses the browser's default focus ring. The template's, not the board's; `audit-public-board.mjs` reports it separately.        | If the template is replaced            |
 | A transient push failure is still not retried automatically; someone presses Retry or saves a change. A scheduled retry would be the same Failed-to-Pending save, made by a job.                                                                                                     | If transient failures become common    |
 | The same field saved twice in quick succession is owned by both push jobs and can go out twice, deliberately: the second save may carry a newer value. If the jobs run at once, the order their callouts land decides what the source keeps.                                         | Informational                          |

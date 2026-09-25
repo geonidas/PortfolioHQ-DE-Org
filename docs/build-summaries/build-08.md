@@ -1,8 +1,11 @@
 # Build 08 — Board redesign, in-card editing, live updates
 
-**Status:** complete in the scratch org, pending the owner's Lighthouse run and verification list
-(see "Verified"). Both boards were redesigned and the internal board made fully interactive: every
-card names its source with a colour accent, both boards filter by view and source, cards open in
+**Status:** complete and verified in the scratch org. The owner's checks passed on 9/25:
+Lighthouse accessibility 100 on desktop and mobile, the internal keyboard walkthrough, and live
+title updates reaching both boards (see "Verified").
+
+Both boards were redesigned and the internal board made fully interactive: every card names its
+source with a colour accent, both boards filter by view and source, cards open in
 place, the internal board edits title, start and due date and pushes each edit to Jira or Asana,
 drags cards between columns, retries a refused push and links admins to the record, and portrait
 windows show one column at a time. The internal board updates live; the public board re-reads
@@ -168,7 +171,7 @@ spend it alone.
 
 | Item                                                                                                                                     | Trigger point                          |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| The public subtitle is empty; the copy is the owner's. The handoff says how to set it without a click-only change                        | Before launch                          |
+| The public subtitle is empty, by the owner's decision for now. The handoff says how to set it without a click-only change                | When the owner writes it               |
 | Merging to `main` must also run `manifest/build-08/destructiveChangesPost.xml`, or the development org keeps three dead card bundles     | At merge                               |
 | The site template's "Skip to Main" link sits outside every landmark and uses the browser's default ring. The template's, not the board's | If the template is replaced            |
 | Transient push failures are not retried automatically; Retry or a saved change does it                                                   | If transient failures become common    |
@@ -200,18 +203,20 @@ spend it alone.
   with a visible ring at every stop and Escape returning focus.
 - The canary WI-0011 no longer shows Pending, on the board or the record.
 
-**Pending the owner**
+**By the owner, 9/25** (`docs/build-08/verification.md`)
 
-- Lighthouse against `docs/build-08/baseline.md`: accessibility must not fall below 100.
-- The verification list in `docs/build-08/verification.md`, including a keyboard-only walkthrough
-  of the internal board, which only the owner can sign in to.
+- Lighthouse on the public board, logged out: accessibility **100** on desktop and mobile, level
+  with the baseline. The other Lighthouse scores were not reported.
+- A keyboard-only walkthrough of the internal board: works as expected.
+- A title changed in Jira reaching the internal board without a refresh, and the public board.
+- Not reported: refusing a start date on an Asana record page. It is covered by Apex tests.
 
 ---
 
 ## Next: launch
 
 Build 08 was the last build before version 1 goes live. What stands between here and launch is the
-move to the Developer Edition org - out of scope here by design - with the subtitle written, the
+move to the Developer Edition org - out of scope here by design - with the subtitle written if wanted, the
 test edits cleaned up and the branch merged. Version 2 starts with the Big Object archive that
 `IntegrationDataPurge` currently makes necessary, and can take touch drag-and-drop and remembered
 filters with it.
