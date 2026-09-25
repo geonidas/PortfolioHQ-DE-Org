@@ -4,18 +4,26 @@ What a new context window needs and cannot read from the repo. Decisions and the
 reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
 **This file holds only what git does not know: org state, invariants, and traps.**
 
-Current as of **Build 07** (`docs/build-summaries/build-07.md`), which added Asana as a second
-source system. The manual Asana setup in section 6 **has been done** and the integration is live:
-real tasks sync in, six Asana work items render on the public board, and the Format field types
-them. Builds 01–06 are deployed and verified against live Jira. Class names below reflect the
-refactor after build 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`, and Jira
-payload parsing moved into `JiraAdapter.parseInbound`. Older ADRs and summaries use the old name.
+Current as of **Build 08** (`docs/build-summaries/build-08.md`), which redesigned both boards and
+made the internal one fully interactive. Every card names its source with a colour accent; both
+boards filter by view and source; cards open in place; the internal board edits title, start and
+due date and pushes each edit to Jira or Asana, drags cards between columns, retries a refused
+push, links admins to the record page and updates live through Change Data Capture; the public
+board polls every 30 seconds while someone is looking; portrait windows show one column at a time.
+Builds 01-08 are deployed to the scratch org and verified against live Jira and Asana, and
+`feature/first-branch` has not been merged to `main` (the development org) - see section 3,
+"Deleting an LWC from source", for the one thing that merge must also run.
 
-**Two things changed late in build 07 and reversed an earlier decision within it.** Step 8 made
-sync inbound-only for anything flagged public; step 9 removed that, because `Is_Public__c` gates
-reading and says nothing about writing - see section 2. And inbound now inherits the project's
-`Is_Public__c` when it creates a record, so synced work reaches the public board without a manual
-tick.
+Build 07's Asana setup (section 6) is done and live. Class names reflect the refactor after build
+06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`. Older ADRs and summaries use the old
+name.
+
+**What build 08 changed that a reader of build 07 would get wrong.** The public board now names
+the vendor (ADR build-08 decision 1). An outbound push sends only the fields its own save staged,
+recorded in `Pending_Push_Fields__c`, not "the status". Inbound never overwrites a field still
+waiting to push. Moving `Sync_Status__c` from Failed to Pending is a retry, from any client. The
+three card components of builds 04-07 are gone; both boards share `boardCard`, `boardEpicCard`,
+`boardToolbar`, `boardColumns`, `boardModel`, `boardLayout` and `boardTheme`.
 
 ---
 
@@ -106,6 +114,15 @@ The webhook endpoint answers only on `/neoGeoTestvforcesite`. `/neoGeoTest` retu
 302 to login for Apex REST. The public board needs site public access enabled **and the
 site published** — it 302s to login otherwise, including the home page, which is how to
 tell a site-level problem from a page-level one.
+
+### The public board's subtitle — a Builder attribute, empty
+
+`publicWorkItemBoard` exposes a `subtitle` design attribute (build 08 step 6), empty by default,
+so the page shows none. Setting it is a click in Experience Builder, which invariant 9 says must
+be retrieved and committed: after setting it and publishing, retrieve the one view -
+`DigitalExperience:site/Test_Professional_Site1.sfdc_cms__view/Work_Item_Board` - rather than
+adding `DigitalExperience` to `manifest/org-changes.xml`, whose header explains why it stays out.
+Or write the copy into that view's `content.json` beside `columns` and deploy it.
 
 ### Sharing models — already correct, do not change
 
@@ -690,6 +707,13 @@ SyncFields`. The one-line form of the same call compiles. Hold the result in a l
 | Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                                                                               | If re-registration becomes frequent    |
 | Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                                                                  | At volume                              |
 | `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana reads `Field_Mapping__mdt`. Two mechanisms for one job.                                                                                                                                             | Next time a Jira mapping changes       |
+| The public board's subtitle is empty: the copy is the owner's to write. See section 1 for how to set it without a click-only change.                                                                                                                                                 | Before launch                          |
+| The site template's "Skip to Main" link sits outside every landmark (its `href` is `javascript:void(0)`, so axe does not treat it as a skip link) and uses the browser's default focus ring. The template's, not the board's; `audit-public-board.mjs` reports it separately.        | If the template is replaced            |
+| A transient push failure is still not retried automatically; someone presses Retry or saves a change. A scheduled retry would be the same Failed-to-Pending save, made by a job.                                                                                                     | If transient failures become common    |
+| The same field saved twice in quick succession is owned by both push jobs and can go out twice, deliberately: the second save may carry a newer value. If the jobs run at once, the order their callouts land decides what the source keeps.                                         | Informational                          |
+| Drag-and-drop on touch, and remembering filter selections between visits, were out of scope for build 08. Touch users move cards with Move to.                                                                                                                                       | Version 2                              |
+| Several Jira and Asana items carry test edits in their titles ("_edit_", "_newer edit_") from builds 07 and 08. Test data cleanup was out of scope.                                                                                                                                  | Before launch                          |
+| Every commit on `feature/first-branch` has the committer `Sapling <sapling@Saplings-Mac-mini.local>`: git has no name or email configured on the build machine.                                                                                                                      | Before the branch merges               |
 
 ---
 
@@ -718,8 +742,25 @@ sf data query -o MyScratchOrg -q "SELECT Processing_Status__c, COUNT(Id) c FROM 
 # The public board, as an anonymous visitor
 curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/work-item-board
 
-# ...and what it looks like to one, at desktop width and on a 375px phone
-node scripts/capture-public-board.mjs docs/build-08/screenshots <label>
+# ...and what it looks like to one, at desktop width and on a 375px phone - optionally with a
+# card opened first
+node scripts/capture-public-board.mjs docs/build-08/screenshots <label> [WI-0005]
+
+# ...and whether it is accessible to one: axe-core over seven states (colour contrast included,
+# which the Jest gate cannot check), and a keyboard walkthrough at both sizes. Exits 1 on a
+# problem in the board; the site template's own "Skip to Main" link is reported, not failed
+node scripts/audit-public-board.mjs [focus-screenshot.png]
+```
+
+To try Retry without a real failure, make a record look refused. Sync fields only, suppressed, so
+nothing is sent until Retry is pressed; the push then resends the current title:
+
+```bash
+sf apex run --target-org MyScratchOrg <<'APEX'
+Work_Item__c item = [SELECT Id FROM Work_Item__c WHERE Name = 'WI-0010'];
+SyncContext.suppressOutbound();
+update new Work_Item__c(Id = item.Id, Sync_Status__c = 'Failed', Sync_Error__c = 'Simulated.', Pending_Push_Fields__c = 'TITLE');
+APEX
 ```
 
 Build 06 added a second view. Both payloads ship on every call whichever is on screen, so check

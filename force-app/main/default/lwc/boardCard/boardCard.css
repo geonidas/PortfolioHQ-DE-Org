@@ -105,8 +105,18 @@
   align-items: center;
   gap: 2px 8px;
 }
+/* Dates wrap on a narrow card, and a separator that starts a line reads as a stray mark. Each
+   date carries its separator centred in a gutter to its left; the line is shifted left by one
+   gutter and clipped there, so a separator at the start of any line falls in the clipped strip and
+   only the ones between dates show. The first date has no separator at all. */
 .dates {
   gap: 2px 0;
+  margin-left: -14px;
+  clip-path: inset(0 0 0 14px);
+}
+.dates .date {
+  position: relative;
+  padding-left: 14px;
 }
 .source {
   font-weight: 600;
@@ -116,7 +126,11 @@
   margin: 0 4px;
 }
 .dates .sep {
-  margin: 0 6px;
+  position: absolute;
+  left: 0;
+  width: 14px;
+  margin: 0;
+  text-align: center;
 }
 .overdue {
   font-weight: 600;

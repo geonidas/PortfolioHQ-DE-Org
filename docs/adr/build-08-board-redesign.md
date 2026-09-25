@@ -179,3 +179,85 @@ reach once the visitor has scrolled down it.
 is off in portrait (step 8), so the arrows and a swipe are the only ways between columns there,
 and Move to still moves a card. `boardColumns` imports nothing but `boardLayout`'s constants, and
 the guest bundle test lists it among the shared modules.
+
+---
+
+## 5. Every per-source answer comes from custom metadata, through one class
+
+**Context.** Build 07 answered "does this source condense into epics" with a boolean the client
+received, but the answer itself was code. Build 08 added three more per-source questions: what to
+call it, what colour it is, and whether it can hold a start date.
+
+**Decision.** One Custom Metadata type, `Board_Source__mdt`, holds all four answers per external
+system - display label, accent token, supports start date, condenses into epics - and
+`BoardSourceRules` is the only class that reads it. The Jira start date's field id
+(`customfield_10015`) is a `Field_Mapping__mdt` row of a new `Field` mapping type, beside where the
+sprint field will go, never a constant. Custom metadata's `getAll()` costs no SOQL, so the public
+board stays at one query per anonymous request.
+
+**Consequences.** Adding a source is records plus an adapter; renaming or recolouring one is a
+record. An unknown source gets a neutral label and accent rather than an error.
+
+---
+
+## 6. A push sends exactly what changed, and the record says honestly how far it got
+
+**Context.** Until build 08 the outbound push moved a status and nothing else. Editing title and
+dates meant deciding what to send, and the old shape - one "Pending" for the whole record - could
+not say which of several edits the source had accepted.
+
+**Decision.** The trigger records which pushable fields changed in `Pending_Push_Fields__c`; the
+adapter's `push(item, Set<SyncField>)` sends only those, and reports which it confirmed; the
+write-back removes only the confirmed ones, re-reading the row under a lock so an edit made during
+the push survives. A refusal leaves its field pending and its reason in `Sync_Error__c`. Inbound
+never overwrites a field that is still pending, so a webhook arriving between a save and its push
+cannot silently undo the save. Since step 7, each push job sends the fields its own save staged
+(see the handoff), and since step 8 a Failed-to-Pending save is a retry (decision 3).
+
+**Consequences.** Pending, Synced and Failed mean what they say field by field. A Jira edit of
+title and both dates is one PUT carrying three fields, verified live; an Asana start date is never
+sent because it is never staged - the trigger refuses it first.
+
+---
+
+## 7. Dates are calendar days, as strings, from the source
+
+**Decision.** Start and due travel as `YYYY-MM-DD` strings from Apex to the card and back, and are
+never passed through `new Date('YYYY-MM-DD')`, which is UTC midnight and a day early west of
+Greenwich; Jest runs in America/Los_Angeles so that mistake fails a test. Created is the source's
+own timestamp (Jira `fields.created`, Asana `created_at`), not `CreatedDate`, which would read
+launch day on every card after an org move. Inbound uses a "carried" flag per date, so a date
+cleared in the source clears in Salesforce rather than being mistaken for an absent field. Asana
+never reads or sends `start_on` - its free tier has no start dates - and the trigger, not the
+hidden editor, refuses one. Overdue is the internal board's verdict; the public board shows dates
+only.
+
+---
+
+## 8. Descriptions sync inbound only
+
+**Context.** At step 0 the owner asked for descriptions to sync, and chose inbound only when the
+choice was put. Pushing one back would mean writing plain text over Jira's Atlassian Document
+Format, which carries formatting a plain-text edit box cannot show or preserve.
+
+**Decision.** Jira's description and Asana's notes arrive as plain text into `Description__c`,
+which no screen edits and no push sends (invariant 6: nothing is editable that the adapter does
+not push). The internal open card shows it when present; the public payload does not carry it.
+
+---
+
+## 9. Live on the internal board, polled on the public one
+
+**Context.** The internal board runs in Lightning Experience, where `lightning/empApi` can
+subscribe to Change Data Capture. The public board runs in an LWR site, where it cannot, and on a
+Developer Edition allocation of ten minutes of server time and 500 MB a day.
+
+**Decision.** Internal: CDC on `Work_Item__c`, subscribed by the internal container alone,
+debounced, then `refreshApex`; a CDC subscription needs View All Records on the object or View All
+Data, which the handoff records. Public: the owner's "middle option" - re-read every 30 seconds
+while the tab is visible and the visitor has done something in the last five minutes, "Paused"
+after that, a Refresh button always, and each read the same parameterless one-query call.
+
+**Consequences.** Edits made in Jira or Asana appear on the internal board without a refresh and on
+the public board within about 30 seconds of someone looking. An open tab nobody touches stops
+costing server time after five minutes.
