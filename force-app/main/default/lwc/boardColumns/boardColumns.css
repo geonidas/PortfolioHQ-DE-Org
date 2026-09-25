@@ -1,0 +1,100 @@
+@import "c/boardTheme";
+
+:host {
+  display: block;
+}
+.frame {
+  position: relative;
+}
+
+/* Landscape or wider: side by side. A board sets --board-columns-align to stretch when every
+   column should be as tall as the tallest - the internal board does, for its drop targets. */
+.track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: var(--board-columns-align, start);
+}
+
+.position {
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--board-quiet);
+}
+
+.rail {
+  position: sticky;
+  top: calc(50vh - 22px);
+  z-index: 2;
+  height: 0;
+}
+/* 44px circles: paper at 85% over whatever passes beneath, a Line border, an Ink chevron. The
+   chevron holds 12.7:1 against the circle over Ink text, the darkest thing that can pass under. */
+.arrow {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--board-line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .arrow {
+    background: color-mix(in srgb, var(--board-paper) 85%, transparent);
+  }
+}
+.arrow-previous {
+  left: 4px;
+}
+.arrow-next {
+  right: 4px;
+}
+.arrow:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+}
+.chevron {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--board-ink);
+  border-bottom: 2px solid var(--board-ink);
+}
+.arrow-previous .chevron {
+  margin-left: 4px;
+  transform: rotate(135deg);
+}
+.arrow-next .chevron {
+  margin-right: 4px;
+  transform: rotate(-45deg);
+}
+
+/* Portrait: one column at a time, snapped to the centre, swiped natively. Each column fills the
+   track's content box, so this side padding is both how much of a neighbour peeks in and what
+   lets the first and last columns centre too. The columns' own width and snap point are in
+   boardTheme, because they are the board's elements, styled by the board. */
+@media (orientation: portrait) and (max-width: 700px) {
+  /* Each column its own height: only one shows, and nothing is dropped in portrait, so a short
+     column stretched to the tallest would be a long empty box. */
+  .track {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 0 7.5%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .track::-webkit-scrollbar {
+    display: none;
+  }
+}

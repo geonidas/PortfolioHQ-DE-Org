@@ -1177,6 +1177,28 @@ describe("c-work-item-board", () => {
       );
     });
 
+    it("shows one column at a time in portrait, with arrows and no drag", async () => {
+      mockMedia({ fine: true, portrait: true });
+      Element.prototype.scrollBy = jest.fn();
+      const element = mount();
+      getBoardData.emit(twoColumns());
+      await flush();
+      await flush();
+
+      const layout = element.shadowRoot.querySelector("c-board-columns");
+      expect(
+        layout.shadowRoot.querySelector("[data-position] .assistive")
+          .textContent
+      ).toBe("In Progress, 2 of 3");
+      expect(
+        layout.shadowRoot
+          .querySelector('[data-arrow="next"]')
+          .getAttribute("aria-label")
+      ).toBe("Show Done column");
+      expect(surface(element, "w1").getAttribute("draggable")).toBeNull();
+      delete Element.prototype.scrollBy;
+    });
+
     it("stops listening to the layout when it disconnects", async () => {
       mockMedia({ fine: true, portrait: false });
       const element = mount();

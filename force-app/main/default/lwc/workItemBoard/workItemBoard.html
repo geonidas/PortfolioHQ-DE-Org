@@ -63,10 +63,15 @@
           </div>
         </template>
         <template lwc:else>
-          <div class="columns" data-state="ready">
+          <c-board-columns
+            class="columns"
+            columns={viewColumns}
+            data-state="ready"
+          >
             <template for:each={viewColumns} for:item="col">
               <section
                 class="column"
+                data-board-column
                 key={col.key}
                 data-column={col.key}
                 ondragover={handleDragOver}
@@ -126,7 +131,7 @@
                 </template>
               </section>
             </template>
-          </div>
+          </c-board-columns>
 
           <!-- Records the configured columns do not account for. Kept visible on purpose:
                dropping them would hide exactly the data build 03 chose to surface. -->
@@ -185,10 +190,15 @@
         <template lwc:else>
           <!-- The public board's epic view, from the same rules: epics from EpicRollup, and
                cards whose source has no epics passing through into their own column. -->
-          <div class="columns" data-region="epic-columns">
+          <c-board-columns
+            class="columns"
+            columns={epicColumns}
+            data-region="epic-columns"
+          >
             <template for:each={epicColumns} for:item="col">
               <section
                 class="column"
+                data-board-column
                 key={col.key}
                 data-epic-column={col.key}
                 ondragover={handleDragOver}
@@ -237,7 +247,7 @@
                 </template>
               </section>
             </template>
-          </div>
+          </c-board-columns>
 
           <template lwc:if={hasOutsideEpics}>
             <section class="outside" data-region="outside-epics">

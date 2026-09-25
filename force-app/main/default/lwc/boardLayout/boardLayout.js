@@ -20,6 +20,12 @@ export const PORTRAIT_QUERY = "(orientation: portrait) and (max-width: 700px)";
 /** A mouse or trackpad. Drag-and-drop needs one; touch drag is out of scope for build 08. */
 export const FINE_POINTER_QUERY = "(pointer: fine)";
 
+/** Arrows jump rather than glide when the visitor has asked for less motion. */
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/** The column the portrait layout opens on, when the board has it; otherwise the first. */
+export const PORTRAIT_START_COLUMN = "In Progress";
+
 /**
  * The configured column list: an ordered, comma separated string of Status__c values, as a page
  * property provides it. Blank falls back to the default rather than to no columns at all.

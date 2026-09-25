@@ -154,6 +154,9 @@ function describeControls(nodes) {
       if (node.getAttribute("draggable") === "true") {
         return "draggable";
       }
+      if (node.dataset.arrow) {
+        return `arrow-${node.dataset.arrow}`;
+      }
       return node.tagName.toLowerCase();
     });
 }
@@ -846,6 +849,212 @@ describe("c-public-work-item-board open cards", () => {
 
     await setView(element, "epics");
     header(epicCards(element)[0]).click();
+    await flush();
+    await expect(element).toBeAccessible();
+  });
+});
+
+// Build 08 step 9. One column at a time in a portrait window, side by side otherwise.
+describe("c-public-work-item-board portrait", () => {
+  const PORTRAIT = "(orientation: portrait) and (max-width: 700px)";
+  const REDUCED = "(prefers-reduced-motion: reduce)";
+  let media;
+  let scrolls;
+
+  function mockMedia(values) {
+    media = { ...values, listeners: [] };
+    window.matchMedia = jest.fn((query) => ({
+      get matches() {
+        return !!media[query];
+      },
+      addEventListener: (type, listener) => media.listeners.push(listener),
+      removeEventListener: (type, listener) => {
+        media.listeners = media.listeners.filter((l) => l !== listener);
+      }
+    }));
+  }
+
+  beforeEach(() => {
+    scrolls = [];
+    // jsdom lays nothing out and cannot scroll; this records what the track was asked to do.
+    Element.prototype.scrollBy = function scrollBy(options) {
+      scrolls.push(options);
+    };
+  });
+
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    delete window.matchMedia;
+    delete Element.prototype.scrollBy;
+    jest.useRealTimers();
+  });
+
+  const columnsEl = (el) => el.shadowRoot.querySelector("c-board-columns");
+  const inColumns = (el, selector) =>
+    columnsEl(el).shadowRoot.querySelector(selector);
+  const position = (el) => {
+    const line = inColumns(el, "[data-position]");
+    return line ? line.querySelector(".assistive").textContent : null;
+  };
+  const arrow = (el, which) => inColumns(el, `[data-arrow="${which}"]`);
+  async function loaded(props) {
+    const element = mount(props);
+    getPublicBoardData.emit(
+      board([
+        card({ recordNumber: "WI-0001", status: "To Do" }),
+        card({ recordNumber: "WI-0002", status: "In Progress" }),
+        card({ recordNumber: "WI-0003", status: "Done" })
+      ])
+    );
+    await flush();
+    await flush();
+    return element;
+  }
+
+  it("shows every column side by side in landscape, with no arrows", async () => {
+    mockMedia({ [PORTRAIT]: false });
+    const element = await loaded();
+
+    expect(arrow(element, "previous")).toBeNull();
+    expect(arrow(element, "next")).toBeNull();
+    expect(position(element)).toBeNull();
+    expect(scrolls).toHaveLength(0);
+  });
+
+  it("opens on In Progress in portrait, and says where it is", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = await loaded();
+
+    expect(position(element)).toBe("In Progress, 2 of 3");
+    expect(
+      inColumns(element, "[data-position]").getAttribute("aria-live")
+    ).toBe("polite");
+    // Straight there on opening - no animation to watch.
+    expect(scrolls[0].behavior).toBe("auto");
+  });
+
+  it("names each arrow for the column it shows", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = await loaded();
+
+    expect(arrow(element, "previous").getAttribute("aria-label")).toBe(
+      "Show To Do column"
+    );
+    expect(arrow(element, "next").getAttribute("aria-label")).toBe(
+      "Show Done column"
+    );
+  });
+
+  it("hides an arrow at its end, and keeps focus on the one that is left", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = await loaded();
+
+    arrow(element, "next").click();
+    await flush();
+
+    expect(position(element)).toBe("Done, 3 of 3");
+    expect(arrow(element, "next")).toBeNull();
+    expect(arrow(element, "previous").getAttribute("aria-label")).toBe(
+      "Show In Progress column"
+    );
+    expect(columnsEl(element).shadowRoot.activeElement).toBe(
+      arrow(element, "previous")
+    );
+    expect(scrolls[scrolls.length - 1].behavior).toBe("smooth");
+
+    arrow(element, "previous").click();
+    await flush();
+    arrow(element, "previous").click();
+    await flush();
+
+    expect(position(element)).toBe("To Do, 1 of 3");
+    expect(arrow(element, "previous")).toBeNull();
+    expect(columnsEl(element).shadowRoot.activeElement).toBe(
+      arrow(element, "next")
+    );
+  });
+
+  it("jumps instead of gliding when less motion is asked for", async () => {
+    mockMedia({ [PORTRAIT]: true, [REDUCED]: true });
+    const element = await loaded();
+
+    arrow(element, "next").click();
+    await flush();
+
+    expect(scrolls[scrolls.length - 1].behavior).toBe("auto");
+  });
+
+  it("follows a swipe once the track has settled", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = await loaded();
+    jest.useFakeTimers();
+    // Lay the three columns out 300px apart, with the track's centre over the first.
+    const columns = element.shadowRoot.querySelectorAll("[data-board-column]");
+    columns.forEach((column, index) => {
+      column.getBoundingClientRect = () => ({ left: index * 300, width: 280 });
+    });
+    const track = inColumns(element, "[data-track]");
+    track.getBoundingClientRect = () => ({ left: 0, width: 280 });
+
+    track.dispatchEvent(new CustomEvent("scroll"));
+    await flush();
+    // Still moving: the position line has not changed, so it has announced nothing.
+    expect(position(element)).toBe("In Progress, 2 of 3");
+
+    jest.advanceTimersByTime(150);
+    await flush();
+
+    expect(position(element)).toBe("To Do, 1 of 3");
+  });
+
+  it("opens on the first column when the board has no In Progress", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = mount({ columns: "Backlog,Doing" });
+    getPublicBoardData.emit(board([card({ status: "Backlog" })]));
+    await flush();
+    await flush();
+
+    expect(position(element)).toBe("Backlog, 1 of 2");
+    expect(arrow(element, "previous")).toBeNull();
+  });
+
+  it("takes up the portrait layout when the window turns", async () => {
+    mockMedia({ [PORTRAIT]: false });
+    const element = await loaded();
+    expect(arrow(element, "next")).toBeNull();
+
+    media[PORTRAIT] = true;
+    media.listeners.forEach((listener) => listener());
+    await flush();
+    await flush();
+
+    expect(position(element)).toBe("In Progress, 2 of 3");
+    expect(arrow(element, "next")).not.toBeNull();
+  });
+
+  it("adds no control but the two arrows", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = await loaded();
+
+    expect(describeControls(everything(element))).toStrictEqual([
+      "refresh",
+      "view",
+      "source",
+      "arrow-previous",
+      "arrow-next",
+      "disclosure",
+      "disclosure",
+      "disclosure"
+    ]);
+  });
+
+  it("is accessible in portrait, at an end and in the middle", async () => {
+    mockMedia({ [PORTRAIT]: true });
+    const element = await loaded();
+    await expect(element).toBeAccessible();
+    arrow(element, "next").click();
     await flush();
     await expect(element).toBeAccessible();
   });

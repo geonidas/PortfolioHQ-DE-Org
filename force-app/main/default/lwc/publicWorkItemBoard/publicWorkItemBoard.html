@@ -80,9 +80,18 @@
         </template>
 
         <template lwc:else>
-          <div class="columns" data-state="ready">
+          <c-board-columns
+            class="columns"
+            columns={viewColumns}
+            data-state="ready"
+          >
             <template for:each={viewColumns} for:item="col">
-              <section class="column" key={col.key} data-column={col.key}>
+              <section
+                class="column"
+                data-board-column
+                key={col.key}
+                data-column={col.key}
+              >
                 <h2 class="col-head">
                   <span class="col-name">{col.label}</span>
                   <span class="col-count">{col.countLabel}</span>
@@ -114,7 +123,7 @@
                 </template>
               </section>
             </template>
-          </div>
+          </c-board-columns>
 
           <template lwc:if={hasOther}>
             <section class="other" data-region="other">
@@ -159,10 +168,15 @@
                  each card's own status. Not a second layout: one board, read two ways. The
                  Done column is bounded for epics because the server sends at most three
                  completed ones. -->
-            <div class="columns" data-region="epic-columns">
+            <c-board-columns
+              class="columns"
+              columns={epicColumns}
+              data-region="epic-columns"
+            >
               <template for:each={epicColumns} for:item="col">
                 <section
                   class="column"
+                  data-board-column
                   key={col.key}
                   data-epic-column={col.key}
                 >
@@ -199,7 +213,7 @@
                   </template>
                 </section>
               </template>
-            </div>
+            </c-board-columns>
 
             <template lwc:if={hasOtherEpics}>
               <section class="other" data-region="other-epics">

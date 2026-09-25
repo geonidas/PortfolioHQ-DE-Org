@@ -3,7 +3,11 @@
 :host {
   display: block;
 }
+/* Landscape and wider: capped and centred, so a wide screen does not stretch three columns into
+   lines too long to read. */
 .board {
+  max-width: 1440px;
+  margin: 0 auto;
   padding: 12px;
   font-family: var(--board-font);
   color: var(--board-ink);
@@ -46,12 +50,9 @@
 }
 
 /* Every column as tall as the tallest, so a column is a drop target wherever the board has been
-   scrolled to - not only as far down as its own last card. */
+   scrolled to - not only as far down as its own last card. The layout itself is boardColumns'. */
 .columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-  align-items: stretch;
+  --board-columns-align: stretch;
 }
 .column {
   display: flex;

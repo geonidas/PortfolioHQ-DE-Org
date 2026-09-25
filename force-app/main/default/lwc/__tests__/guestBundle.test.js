@@ -91,6 +91,7 @@ describe("the public board's bundle", () => {
     // A walker that silently found nothing would pass every rule below.
     [
       "boardCard",
+      "boardColumns",
       "boardEpicCard",
       "boardToolbar",
       "boardLayout",

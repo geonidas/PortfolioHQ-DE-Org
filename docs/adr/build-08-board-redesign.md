@@ -150,3 +150,32 @@ change - which keeps the number of pushes a record can cause bounded by what peo
 
 **Revisit when** transient failures are common enough that waiting for a person is the problem.
 A scheduled retry would be the same save, made by a job instead of a button.
+
+---
+
+## 4. One layout for both boards, with the boards' own columns slotted into it
+
+**Context.** Step 9 gives both boards a portrait layout: one column at a time, snap and swipe, two
+arrows named for the column they show, a position line, opening on In Progress. The two boards
+render different columns - the internal ones are drop targets holding cards with abilities, the
+public ones hold inert cards - and until now each laid its columns out with its own grid.
+
+**Decision.** A shared `boardColumns` component owns the layout: the track, the arrows, the
+position line and the media queries. Each board still renders its own columns, marked
+`data-board-column`, into its slot, so the cards, the drop handlers and the abilities stay where
+they were and nothing about them is passed through. In landscape the track is the grid it always
+was; in portrait it scrolls horizontally with snap points. The internal board's full-height
+columns (step 8) are a CSS variable it sets, not a second layout.
+
+The portrait condition is written once in `boardLayout.PORTRAIT_QUERY` and repeated in two
+stylesheets, because CSS cannot import it. `lwc/__tests__/portraitQuery.test.js` fails if either
+drifts; it was run against a stylesheet changed to 720px and did.
+
+The arrows sit on a zero-height rail that sticks at mid-screen, not at the top of the column as
+the step 4 wireframe drew them: a portrait column can be long, and an arrow at its top is out of
+reach once the visitor has scrolled down it.
+
+**Consequences.** Portrait behaves identically on both boards because it is one component. Drag
+is off in portrait (step 8), so the arrows and a swipe are the only ways between columns there,
+and Move to still moves a card. `boardColumns` imports nothing but `boardLayout`'s constants, and
+the guest bundle test lists it among the shared modules.

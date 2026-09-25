@@ -3,7 +3,11 @@
 :host {
   display: block;
 }
+/* Landscape and wider: capped and centred, so a wide screen does not stretch three columns into
+   lines too long to read. */
 .board {
+  max-width: 1440px;
+  margin: 0 auto;
   padding: 12px;
   font-family: var(--board-font);
   color: var(--board-ink);
@@ -73,12 +77,6 @@
   margin-bottom: 16px;
 }
 
-.columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-  align-items: start;
-}
 .column {
   display: flex;
   flex-direction: column;
