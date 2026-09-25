@@ -1,8 +1,8 @@
 # Build 08 — Board redesign, in-card editing, live updates
 
 **Status:** complete and verified in the scratch org. The owner's checks passed on 9/25:
-Lighthouse accessibility 100 on desktop and mobile, the internal keyboard walkthrough, and live
-title updates reaching both boards (see "Verified").
+Lighthouse accessibility 100 on desktop and mobile, the internal keyboard walkthrough, live title
+updates reaching both boards, and an Asana start date refused (see "Verified").
 
 Both boards were redesigned and the internal board made fully interactive: every card names its
 source with a colour accent, both boards filter by view and source, cards open in
@@ -209,7 +209,8 @@ spend it alone.
   with the baseline. The other Lighthouse scores were not reported.
 - A keyboard-only walkthrough of the internal board: works as expected.
 - A title changed in Jira reaching the internal board without a refresh, and the public board.
-- Not reported: refusing a start date on an Asana record page. It is covered by Apex tests.
+- A start date on an Asana item refused live: an update to WI-0015, rolled back, returned "Asana
+  does not support start dates, so this item cannot have one."
 
 ---
 
