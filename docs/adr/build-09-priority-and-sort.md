@@ -212,6 +212,23 @@ launch with that (2026-09-25). The fix that removes the class is to hydrate Jira
 Asana's are - read the issue as it is now - and lock the row for the comparison; the handoff's open
 items give the costs and a smaller alternative.
 
+### Three readings of decisions 6 and 7 (step 7)
+
+**"Then key" is the record number.** Both sort orders end on the key so the order is total. The
+record number (`WI-0005`) is the one identifier both boards carry - the public card has no id, and
+an Asana card has no external key - and its digits are compared as a number, so `WI-10000` follows
+`WI-9999` when the auto number grows past four digits.
+
+**In the Epics view, the items that sort are the cards passing through.** An epic card carries a
+title, a status and its progress counts; it lists no items, so there is no list inside an epic to
+sort. The Epics view holds two kinds of card: epics, which keep the server's order, first in each
+column as before; and the cards whose source does not roll up into epics, which sort after them.
+
+**After a drop, focus stays where it was.** A card moved with Move to lands in its sorted place and
+takes focus, as in build 08; a card dropped lands in its sorted place and the board says so in its
+status line, because a drop is a pointer action and build 08 chose not to move focus for one. The
+sort changed where a card lands, not that rule.
+
 ## Found at step 0
 
 **Jira accepts a priority on every DOPP issue type, whatever `editmeta` says.** `editmeta` offers

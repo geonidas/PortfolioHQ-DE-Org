@@ -1393,4 +1393,145 @@ describe("c-work-item-board", () => {
       expect("priority" in saveDetails.mock.calls.at(-1)[0]).toBe(false);
     });
   });
+
+  describe("sorting (build 09)", () => {
+    const sortBy = async (element, value) => {
+      const control = toolbar(element).shadowRoot.querySelector(
+        'select[data-filter="sort"]'
+      );
+      control.value = value;
+      control.dispatchEvent(new CustomEvent("change"));
+      await flush();
+    };
+    const order = (element, status) =>
+      Array.from(
+        element.shadowRoot.querySelectorAll(
+          `[data-column="${status}"] c-board-card`
+        )
+      ).map((node) => node.dataset.key);
+    const cards3 = (w1Status) =>
+      board([
+        item({
+          id: "w1",
+          recordNumber: "WI-0001",
+          status: w1Status,
+          priority: "Third",
+          priorityRank: 3
+        }),
+        item({
+          id: "w2",
+          recordNumber: "WI-0002",
+          status: "In Progress",
+          priority: "First",
+          priorityRank: 1,
+          dueDate: "2026-12-01"
+        }),
+        item({
+          id: "w3",
+          recordNumber: "WI-0003",
+          status: "In Progress",
+          dueDate: "2026-10-01"
+        })
+      ]);
+
+    it("opens on Due date, sorts by Priority, and keeps it across a live refresh", async () => {
+      const element = mount();
+      getBoardData.emit(cards3("In Progress"));
+      await flush();
+      expect(order(element, "In Progress")).toStrictEqual(["w3", "w2", "w1"]);
+
+      await sortBy(element, "priority");
+      expect(order(element, "In Progress")).toStrictEqual(["w2", "w1", "w3"]);
+
+      // What a Change Data Capture refresh does: the wire emits again.
+      getBoardData.emit(cards3("In Progress"));
+      await flush();
+      expect(order(element, "In Progress")).toStrictEqual(["w2", "w1", "w3"]);
+    });
+
+    it("lands a card moved with Move to in its sorted place, with focus on it", async () => {
+      changeStatus.mockResolvedValue({
+        workItemId: "w1",
+        status: "In Progress",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message: "Saved."
+      });
+      refreshApex.mockImplementationOnce(() => {
+        getBoardData.emit(cards3("In Progress"));
+        return Promise.resolve();
+      });
+      const element = mount();
+      getBoardData.emit(cards3("To Do"));
+      await flush();
+      await sortBy(element, "priority");
+      await openCard(element, "w1");
+
+      inCard(element, "w1", '[data-move="In Progress"]').click();
+      await flush();
+      await flush();
+      await flush();
+
+      // Third priority: after First, before none.
+      expect(order(element, "In Progress")).toStrictEqual(["w2", "w1", "w3"]);
+      const moved = cardFor(element, "w1");
+      expect(moved.shadowRoot.activeElement).toBe(
+        moved.shadowRoot.querySelector("[data-disclosure]")
+      );
+    });
+
+    it("lands a dropped card in its sorted place", async () => {
+      window.matchMedia = jest.fn((query) => ({
+        matches: query === "(pointer: fine)",
+        addEventListener() {},
+        removeEventListener() {}
+      }));
+      changeStatus.mockResolvedValue({
+        workItemId: "w1",
+        status: "In Progress",
+        syncStatus: "Pending",
+        pushQueued: true,
+        message: "Saved."
+      });
+      refreshApex.mockImplementationOnce(() => {
+        getBoardData.emit(cards3("In Progress"));
+        return Promise.resolve();
+      });
+      const element = mount();
+      getBoardData.emit(cards3("To Do"));
+      await flush();
+      await sortBy(element, "priority");
+
+      const drag = (type) => {
+        const event = new CustomEvent(type, {
+          bubbles: true,
+          cancelable: true
+        });
+        Object.defineProperty(event, "dataTransfer", {
+          value: {
+            setData() {},
+            setDragImage() {},
+            effectAllowed: "",
+            dropEffect: ""
+          }
+        });
+        return event;
+      };
+      const target = element.shadowRoot.querySelector(
+        '[data-column="In Progress"]'
+      );
+      inCard(element, "w1", "[data-drag-surface]").dispatchEvent(
+        drag("dragstart")
+      );
+      await flush();
+      target.dispatchEvent(drag("dragover"));
+      target.dispatchEvent(drag("drop"));
+      await flush();
+      await flush();
+      await flush();
+
+      expect(order(element, "In Progress")).toStrictEqual(["w2", "w1", "w3"]);
+      delete window.matchMedia;
+    });
+  });
 });

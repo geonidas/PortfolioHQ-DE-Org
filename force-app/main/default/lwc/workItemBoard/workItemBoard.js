@@ -18,6 +18,10 @@ import {
   VIEW_TASKS,
   VIEW_EPICS,
   ALL_SOURCES,
+  SORT_DUE,
+  SORT_PRIORITY,
+  DEFAULT_SORT,
+  sortCards,
   cardModel,
   epicModel,
   sourceOptions,
@@ -69,6 +73,8 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
 
   // What is on screen. Display state only: both views and every source are in the one payload.
   view = VIEW_TASKS;
+  /** Build 09. Display state: every visit opens on Due date (decision 8). */
+  sort = DEFAULT_SORT;
   source = ALL_SOURCES;
   sourceChoices = [];
 
@@ -242,6 +248,18 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
     }
   }
 
+  /**
+   * Re-sorts what is already held (decision 5). Kept on the board, so a live refresh's rebuild,
+   * a filter change and a moved card all land in the chosen order.
+   */
+  handleSortChange(event) {
+    const next = event.detail.value;
+    if (next === SORT_DUE || next === SORT_PRIORITY) {
+      this.sort = next;
+      this.rebuild();
+    }
+  }
+
   handleSourceChange(event) {
     this.source = event.detail.value || ALL_SOURCES;
     this.rebuild();
@@ -297,7 +315,12 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
 
     this.rebuildEpics(bySource(epics, this.source), shownItems);
 
-    const cards = shownItems.map((item) => this.toCard(item));
+    // Sorted before the layout, which keeps the order when it buckets and when it nests: top-level
+    // cards sort, children sort within their parent, and a moved card lands in its sorted place.
+    const cards = sortCards(
+      shownItems.map((item) => this.toCard(item)),
+      this.sort
+    );
     const byId = new Map(cards.map((card) => [card.id, card]));
 
     // Resolve parents before bucketing, so a child can tell whether its parent is on this
@@ -339,9 +362,13 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
   rebuildEpics(epics, items) {
     const entries = [
       ...epics.map((epic) => epicModel(epic, { key: `epic-${epic.id}` })),
-      ...items
-        .filter((item) => !item.condensesIntoEpic)
-        .map((item) => this.toCard(item))
+      // Epics keep their order (decision 7); the cards passing through sort, after them.
+      ...sortCards(
+        items
+          .filter((item) => !item.condensesIntoEpic)
+          .map((item) => this.toCard(item)),
+        this.sort
+      )
     ];
     const laid = layoutColumns(entries, this.configuredColumns);
     this.epicColumns = laid.columns.map((col) => ({

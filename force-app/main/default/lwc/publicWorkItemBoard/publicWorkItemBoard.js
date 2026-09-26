@@ -11,6 +11,10 @@ import {
   VIEW_TASKS,
   VIEW_EPICS,
   ALL_SOURCES,
+  SORT_DUE,
+  SORT_PRIORITY,
+  DEFAULT_SORT,
+  sortCards,
   cardModel,
   epicModel,
   sourceOptions,
@@ -69,6 +73,8 @@ export default class PublicWorkItemBoard extends LightningElement {
   // What is on screen: which view, which source, and which card is open. Display state only -
   // see handleViewChange.
   view = VIEW_TASKS;
+  /** Build 09. Display state, like the view: a new visit opens on Due date (decision 8). */
+  sort = DEFAULT_SORT;
   source = ALL_SOURCES;
   sourceChoices = [];
   expandedKey = null;
@@ -245,6 +251,18 @@ export default class PublicWorkItemBoard extends LightningElement {
     }
   }
 
+  /**
+   * Re-sorts what is already held: no request, no query (decision 5). The sort lives on the
+   * board, so the next poll's rebuild keeps it - as does a change of view or source.
+   */
+  handleSortChange(event) {
+    const next = event.detail.value;
+    if (next === SORT_DUE || next === SORT_PRIORITY) {
+      this.sort = next;
+      this.rebuild();
+    }
+  }
+
   handleSourceChange(event) {
     this.source = event.detail.value || ALL_SOURCES;
     this.rebuild();
@@ -329,7 +347,12 @@ export default class PublicWorkItemBoard extends LightningElement {
 
     this.rebuildEpics(bySource(epics, this.source), shownItems);
 
-    const cards = shownItems.map((item) => this.toCard(item));
+    // Sorted before the layout, which keeps order both when it buckets by column and when it
+    // nests children under a parent - so top-level cards sort, and children within their parent.
+    const cards = sortCards(
+      shownItems.map((item) => this.toCard(item)),
+      this.sort
+    );
     this.taskCards = cards;
     // Nest only when parent and child share a column. A child elsewhere simply stands on its
     // own - no note, because a note about a record a visitor cannot see is either noise or a
@@ -378,9 +401,14 @@ export default class PublicWorkItemBoard extends LightningElement {
 
     // Cards the view does not transform, shown identically in both views. A pass-through card
     // has an auto number, so it keys on that rather than a position.
-    this.passThroughCards = items
-      .filter((item) => !item.condensesIntoEpic)
-      .map((item) => this.toCard(item, `item-${item.recordNumber}`));
+    // Epics keep the order the server gave them (decision 7); the cards passing through sort, and
+    // follow the epics in each column as they always have.
+    this.passThroughCards = sortCards(
+      items
+        .filter((item) => !item.condensesIntoEpic)
+        .map((item) => this.toCard(item, `item-${item.recordNumber}`)),
+      this.sort
+    );
 
     const laid = layoutColumns(
       [...this.epicCards, ...this.passThroughCards],

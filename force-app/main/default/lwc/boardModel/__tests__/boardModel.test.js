@@ -5,6 +5,10 @@ import {
   syncNote,
   bySource,
   cardModel,
+  sortCards,
+  SORT_DUE,
+  SORT_PRIORITY,
+  DEFAULT_SORT,
   dateParts,
   epicModel,
   epicViewCountLabel,
@@ -382,5 +386,118 @@ describe("boardModel priority (build 09)", () => {
       true
     );
     expect(cardModel(item()).supportsPriority).toBe(false);
+  });
+});
+
+describe("boardModel sorting (build 09)", () => {
+  // Card models carry dueDate as YYYY-MM-DD or "", and priorityRank as 1, 2, 3 or null.
+  const c = (recordNumber, dueDate, priorityRank) => ({
+    recordNumber,
+    dueDate: dueDate || "",
+    priorityRank: priorityRank === undefined ? null : priorityRank
+  });
+  const order = (cards, sort) =>
+    sortCards(cards, sort).map((card) => card.recordNumber);
+
+  it("opens on Due date", () => {
+    expect(DEFAULT_SORT).toBe(SORT_DUE);
+  });
+
+  it("by due date: earliest first, no date last", () => {
+    expect(
+      order(
+        [
+          c("WI-0001", null),
+          c("WI-0002", "2026-10-02"),
+          c("WI-0003", "2026-09-28"),
+          c("WI-0004", "2026-12-01")
+        ],
+        SORT_DUE
+      )
+    ).toStrictEqual(["WI-0003", "WI-0002", "WI-0004", "WI-0001"]);
+  });
+
+  it("by due date: ties by priority, none last, then by key", () => {
+    expect(
+      order(
+        [
+          c("WI-0005", "2026-10-02", null),
+          c("WI-0004", "2026-10-02", 3),
+          c("WI-0003", "2026-10-02", 1),
+          c("WI-0002", "2026-10-02", 1),
+          c("WI-0001", null, 1)
+        ],
+        SORT_DUE
+      )
+    ).toStrictEqual(["WI-0002", "WI-0003", "WI-0004", "WI-0005", "WI-0001"]);
+  });
+
+  it("by priority: rank 1 first, none last", () => {
+    expect(
+      order(
+        [
+          c("WI-0001", null, null),
+          c("WI-0002", null, 3),
+          c("WI-0003", null, 1),
+          c("WI-0004", null, 2)
+        ],
+        SORT_PRIORITY
+      )
+    ).toStrictEqual(["WI-0003", "WI-0004", "WI-0002", "WI-0001"]);
+  });
+
+  it("by priority: ties by due date, no date last, then by key", () => {
+    expect(
+      order(
+        [
+          c("WI-0004", null, 2),
+          c("WI-0003", "2026-10-09", 2),
+          c("WI-0002", "2026-10-01", 2),
+          c("WI-0001", "2026-10-01", 2),
+          c("WI-0005", "2026-09-01", null)
+        ],
+        SORT_PRIORITY
+      )
+    ).toStrictEqual(["WI-0001", "WI-0002", "WI-0003", "WI-0004", "WI-0005"]);
+  });
+
+  it("compares keys as numbers, so WI-10000 follows WI-9999", () => {
+    expect(
+      order([c("WI-10000", null), c("WI-9999", null)], SORT_DUE)
+    ).toStrictEqual(["WI-9999", "WI-10000"]);
+  });
+
+  it("treats a date it cannot read as no date, and anything unknown as Due date", () => {
+    expect(
+      order([c("WI-0001", "30/09/2026"), c("WI-0002", "2026-09-30")], "unknown")
+    ).toStrictEqual(["WI-0002", "WI-0001"]);
+  });
+
+  it("compares dates as strings, never building a Date", () => {
+    const RealDate = global.Date;
+    global.Date = function Date() {
+      throw new Error("A Date was built while sorting.");
+    };
+    let sorted;
+    try {
+      sorted = order(
+        [c("WI-0001", "2026-09-25"), c("WI-0002", "2026-09-24")],
+        SORT_DUE
+      );
+    } finally {
+      global.Date = RealDate;
+    }
+    // The 24th before the 25th, in Los Angeles as anywhere: a string has no time zone.
+    expect(sorted).toStrictEqual(["WI-0002", "WI-0001"]);
+  });
+
+  it("returns a new list and leaves the one it was given alone", () => {
+    const given = [c("WI-0002", "2026-10-02"), c("WI-0001", "2026-09-01")];
+    const sorted = sortCards(given, SORT_DUE);
+    expect(sorted).not.toBe(given);
+    expect(given.map((card) => card.recordNumber)).toStrictEqual([
+      "WI-0002",
+      "WI-0001"
+    ]);
   });
 });

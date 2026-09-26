@@ -563,6 +563,7 @@ describe("c-public-work-item-board", () => {
       "refresh",
       "view",
       "source",
+      "sort",
       "disclosure"
     ]);
     everything(element)
@@ -723,6 +724,7 @@ describe("c-public-work-item-board card freshness", () => {
       "refresh",
       "view",
       "source",
+      "sort",
       "disclosure"
     ]);
 
@@ -1045,6 +1047,7 @@ describe("c-public-work-item-board portrait", () => {
       "refresh",
       "view",
       "source",
+      "sort",
       "arrow-previous",
       "arrow-next",
       "disclosure",
@@ -1419,6 +1422,178 @@ describe("c-public-work-item-board priority (build 09)", () => {
       withOne.shadowRoot.querySelector("[data-priority]").textContent
     ).toBe("First");
     expect(withOne.shadowRoot.querySelector("select, [data-field]")).toBeNull();
+    await expect(element).toBeAccessible();
+  });
+});
+
+describe("c-public-work-item-board sorting (build 09)", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  // One column, varied dates and priorities. Two sources: A condenses into epics, B is flat.
+  const mixed = () => [
+    card({
+      recordNumber: "WI-0001",
+      title: "Undated low",
+      priority: "Third",
+      priorityRank: 3
+    }),
+    card({
+      recordNumber: "WI-0002",
+      title: "Late none",
+      dueDate: "2026-12-01"
+    }),
+    card({
+      recordNumber: "WI-0003",
+      title: "Soon high",
+      dueDate: "2026-10-01",
+      priority: "First",
+      priorityRank: 1
+    }),
+    flatCard({
+      recordNumber: "WI-0004",
+      title: "Flat middle",
+      dueDate: "2026-11-01",
+      priority: "Second",
+      priorityRank: 2
+    }),
+    flatCard({
+      recordNumber: "WI-0005",
+      title: "Flat undated high",
+      priority: "First",
+      priorityRank: 1
+    })
+  ];
+  const order = (el) =>
+    Array.from(
+      el.shadowRoot.querySelectorAll('[data-column="To Do"] c-board-card')
+    ).map((node) => node.shadowRoot.querySelector("article").dataset.key);
+  const sortBy = async (el, value) => {
+    const control = el.shadowRoot
+      .querySelector("c-board-toolbar")
+      .shadowRoot.querySelector('select[data-filter="sort"]');
+    control.value = value;
+    control.dispatchEvent(new CustomEvent("change"));
+    await flush();
+  };
+
+  it("opens sorted by due date, and sorts by priority when asked", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board(mixed()));
+    await flush();
+    expect(order(element)).toStrictEqual([
+      "WI-0003",
+      "WI-0004",
+      "WI-0002",
+      "WI-0005",
+      "WI-0001"
+    ]);
+
+    await sortBy(element, "priority");
+    expect(order(element)).toStrictEqual([
+      "WI-0003",
+      "WI-0005",
+      "WI-0004",
+      "WI-0001",
+      "WI-0002"
+    ]);
+  });
+
+  it("keeps the sort across a poll and a filter change, and sorts within one source", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board(mixed()));
+    await flush();
+    await sortBy(element, "priority");
+
+    getPublicBoardData.emit(board(mixed()));
+    await flush();
+    expect(order(element)[0]).toBe("WI-0003");
+
+    await setSource(element, "Asana");
+    expect(order(element)).toStrictEqual(["WI-0005", "WI-0004"]);
+    await setSource(element, "");
+    expect(order(element)).toStrictEqual([
+      "WI-0003",
+      "WI-0005",
+      "WI-0004",
+      "WI-0001",
+      "WI-0002"
+    ]);
+  });
+
+  it("sorts children within their parent in the task view", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([
+        card({ recordNumber: "WI-0010", title: "Parent" }),
+        card({
+          recordNumber: "WI-0011",
+          parentNumber: "WI-0010",
+          dueDate: "2026-10-01",
+          priority: "Third",
+          priorityRank: 3
+        }),
+        card({
+          recordNumber: "WI-0012",
+          parentNumber: "WI-0010",
+          dueDate: "2026-11-01",
+          priority: "First",
+          priorityRank: 1
+        })
+      ])
+    );
+    await flush();
+    const nested = () =>
+      Array.from(
+        element.shadowRoot.querySelectorAll(
+          '[data-column="To Do"] ul.children c-board-card'
+        )
+      ).map((node) => node.shadowRoot.querySelector("article").dataset.key);
+
+    // Nested under the parent, not beside it, and in the chosen order there.
+    expect(nested()).toStrictEqual(["WI-0011", "WI-0012"]);
+    await sortBy(element, "priority");
+    expect(nested()).toStrictEqual(["WI-0012", "WI-0011"]);
+  });
+
+  it("keeps the epics' order in the epic view and sorts the cards passing through", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board(mixed(), [
+        epic({ title: "Epic Z", status: "To Do" }),
+        epic({ title: "Epic A", status: "To Do" })
+      ])
+    );
+    await flush();
+    await setView(element, "epics");
+    await sortBy(element, "priority");
+
+    const column = epicColumn(element, "To Do");
+    const epicsHere = Array.from(
+      column.querySelectorAll("c-board-epic-card")
+    ).map((node) => node.shadowRoot.querySelector(".heading").textContent);
+    expect(epicsHere).toStrictEqual(["Epic Z", "Epic A"]);
+    const passing = Array.from(column.querySelectorAll("c-board-card")).map(
+      (node) => node.shadowRoot.querySelector("article").dataset.key
+    );
+    expect(passing).toStrictEqual(["item-WI-0005", "item-WI-0004"]);
+
+    await sortBy(element, "due");
+    expect(
+      Array.from(column.querySelectorAll("c-board-card")).map(
+        (node) => node.shadowRoot.querySelector("article").dataset.key
+      )
+    ).toStrictEqual(["item-WI-0004", "item-WI-0005"]);
+  });
+
+  it("is accessible sorted by priority", async () => {
+    const element = mount();
+    getPublicBoardData.emit(board(mixed()));
+    await flush();
+    await sortBy(element, "priority");
     await expect(element).toBeAccessible();
   });
 });

@@ -34,15 +34,36 @@ describe("c-board-toolbar", () => {
     }
   });
 
-  it("labels both filters visibly", () => {
+  it("labels every control visibly, in order: View, Source, Sort", () => {
     const element = mount();
     const labels = Array.from(
       element.shadowRoot.querySelectorAll(".field-label")
     ).map((label) => label.textContent);
-    expect(labels).toEqual(["View", "Source"]);
+    // toStrictEqual, and every control named: a fourth control fails this.
+    expect(labels).toStrictEqual(["View", "Source", "Sort"]);
     // Each select sits inside its label, which names it without an id.
     expect(select(element, "view").closest("label")).not.toBeNull();
     expect(select(element, "source").closest("label")).not.toBeNull();
+    expect(select(element, "sort").closest("label")).not.toBeNull();
+  });
+
+  it("offers Due date, then Priority, and opens on Due date", () => {
+    const element = mount();
+    expect(
+      Array.from(select(element, "sort").options).map((o) =>
+        o.textContent.trim()
+      )
+    ).toStrictEqual(["Due date", "Priority"]);
+    expect(select(element, "sort").value).toBe("due");
+  });
+
+  it("shows the current sort and raises sortchange with the chosen value", () => {
+    const element = mount({ sort: "priority" });
+    expect(select(element, "sort").value).toBe("priority");
+    const onSort = jest.fn();
+    element.addEventListener("sortchange", onSort);
+    choose(element, "sort", "due");
+    expect(onSort.mock.calls[0][0].detail).toEqual({ value: "due" });
   });
 
   it("offers Tasks and Epics, and the sources it is given", () => {

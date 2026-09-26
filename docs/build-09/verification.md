@@ -8,8 +8,8 @@ acceptance criteria, the owner's column and Lighthouse after.
 The public board's walkthrough is automated in `scripts/audit-public-board.mjs` (both sizes, every
 stop ringed). The internal board needs a signed-in session. With the mouse set aside:
 
-1. Tab from the page into the board: View, then Source, then each card's header in column order.
-   Every stop shows a dark 2px outline.
+1. Tab from the page into the board: View, then Source, then **Sort** (build 09 step 7), then each
+   card's header in column order. Every stop shows a dark 2px outline.
 2. Enter on a card header opens it; the card lifts and its stripe widens - not the same as the
    outline on a focused, closed card.
 3. Tab through the open card: Retry (on a Failed card only), the Move to buttons, Title, Start

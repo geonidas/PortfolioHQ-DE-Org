@@ -19,6 +19,16 @@ export const VIEW_OPTIONS = [
 /** The Source filter's value for "no filter". An empty string, so it never equals a label. */
 export const ALL_SOURCES = "";
 
+/** Build 09. How a column orders its cards: by due date, or by priority. */
+export const SORT_DUE = "due";
+export const SORT_PRIORITY = "priority";
+export const SORT_OPTIONS = [
+  { value: SORT_DUE, label: "Due date" },
+  { value: SORT_PRIORITY, label: "Priority" }
+];
+/** What every visit opens on. The choice is not remembered between visits (ADR decision 8). */
+export const DEFAULT_SORT = SORT_DUE;
+
 const DONE = "Done";
 const PENDING = "Pending";
 const FAILED = "Failed";
@@ -138,6 +148,85 @@ export function dateParts(
     add("overdue", "Overdue", "date overdue");
   }
   return parts;
+}
+
+// ---------- sorting (build 09) ----------
+
+/** Present values in the given order; an absent one after every present one, whichever side. */
+function blanksLast(a, b, compare) {
+  const hasA = a !== null && a !== undefined;
+  const hasB = b !== null && b !== undefined;
+  if (hasA && hasB) {
+    return compare(a, b);
+  }
+  if (hasA !== hasB) {
+    return hasA ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Earliest due first. The dates are YYYY-MM-DD strings, and compared as strings - they sort as
+ * they read. No Date is built: `new Date('2026-09-24')` is UTC midnight, a day early west of
+ * Greenwich, and a sort is exactly where that mistake would hide.
+ */
+function dueDay(card) {
+  return ISO_DAY.test(card.dueDate || "") ? card.dueDate : null;
+}
+function compareText(x, y) {
+  if (x === y) {
+    return 0;
+  }
+  return x < y ? -1 : 1;
+}
+function byDue(a, b) {
+  return blanksLast(dueDay(a), dueDay(b), compareText);
+}
+
+/** Rank 1 first. The rank comes from Apex, which reads the picklist's order; no name here. */
+function priorityRankOf(card) {
+  return typeof card.priorityRank === "number" ? card.priorityRank : null;
+}
+function byPriority(a, b) {
+  return blanksLast(priorityRankOf(a), priorityRankOf(b), (x, y) => x - y);
+}
+
+/**
+ * The last word, so the order is total and two otherwise equal cards keep their places across
+ * refreshes: the record number, the one identifier both boards carry. Its digits compare as a
+ * number, so WI-10000 follows WI-9999.
+ */
+function byKey(a, b) {
+  return String(a.recordNumber || "").localeCompare(
+    String(b.recordNumber || ""),
+    "en",
+    { numeric: true }
+  );
+}
+
+/**
+ * Cards in the chosen order, as a new list (ADR build-09, decision 6):
+ *
+ * - Due date: earliest first, no date last; ties by priority, then key.
+ * - Priority: rank 1 first, no priority last; ties by due date, then key.
+ *
+ * Client-side and pure, from what the payload already carries - no request, no query. Anything
+ * unrecognised sorts by due date, the default.
+ */
+export function sortCards(cards, sort) {
+  const order =
+    sort === SORT_PRIORITY
+      ? [byPriority, byDue, byKey]
+      : [byDue, byPriority, byKey];
+  return [...(cards || [])].sort((a, b) => {
+    for (const compare of order) {
+      const result = compare(a, b);
+      if (result !== 0) {
+        return result;
+      }
+    }
+    return 0;
+  });
 }
 
 // ---------- identity ----------
