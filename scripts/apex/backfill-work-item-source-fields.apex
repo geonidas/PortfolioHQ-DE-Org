@@ -5,17 +5,22 @@
  *
  * Was backfill-work-item-titles.apex, which filled Title__c from Jira for records that predated
  * the field. Build 08 added Source_Created__c, Start_Date__c, Due_Date__c and inbound
- * descriptions, and a webhook only fills them when an item next changes - which for a finished
- * item may be never. Extended rather than joined by a second script, so there is one backfill.
+ * descriptions, and build 09 Priority__c; a webhook only fills them when an item next changes -
+ * which for a finished item may be never. Extended rather than joined by a second script, so there
+ * is one backfill.
  *
  * It does not read payloads itself. Each record is fetched from its source and handed to that
  * source's own adapter, exactly as a webhook delivery would be, so a backfilled value is the value
  * the live sync would have written - the configured Jira start date field, the carried-or-empty
- * date rule, the plain-text description. Only then are the new fields copied across:
+ * date rule, the plain-text description, the priority mapped by id. Only then are the fields
+ * copied across, and only where they differ from what the record holds:
  *
  *   Title__c            only when blank, as before - a title synced by a webhook is never replaced
  *   Source_Created__c   whenever the source says
- *   Start/Due/Description  whenever carried, INCLUDING clearing them
+ *   Start/Due/Description/Priority  whenever carried, INCLUDING clearing them
+ *
+ * A priority the adapter could not map is not carried - it logs instead - so the backfill never
+ * clears one it does not understand (ADR build-09, decision 4).
  *
  * Never Status__c, and never anything else. A status write on a record carrying External_Id__c
  * would transition the live issue, and seeding data is not a request to move work.
@@ -26,12 +31,17 @@
  * Asana is hydrated by AsanaAdapter itself, ten tasks per batch call.
  *
  * Run it as a user holding both external credential grants (Jira_Token and Asana_Token-PAT1).
- * Safe to rerun: it writes what the sources say, so a second run changes nothing.
+ * Safe to rerun: since build 09 it writes only fields that differ, so a second run writes nothing
+ * at all and says so - "updated=0" - rather than rewriting equal values and firing change events.
+ *
+ * Written suppressed, so nothing it writes is staged in Pending_Push_Fields__c or pushed back: a
+ * priority, a date and a title are all pushable now, and the source already holds these values.
  */
 final Integer JIRA_LIMIT = 80; // one callout each; leaves room under 100 for Asana's batches
 
 List<Work_Item__c> items = [
-    SELECT Id, Name, External_Id__c, External_System__c, Title__c
+    SELECT Id, Name, External_Id__c, External_System__c, Title__c, Source_Created__c,
+        Start_Date__c, Due_Date__c, Description__c, Priority__c
     FROM Work_Item__c
     WHERE External_Id__c != null
     ORDER BY Name ASC
@@ -47,7 +57,7 @@ String startField = FieldMappingService.externalValueFor(
     FieldMappingService.FIELD,
     String.valueOf(Work_Item__c.Start_Date__c)
 );
-String jiraFields = 'summary,created,updated,status,duedate,description' +
+String jiraFields = 'summary,created,updated,status,duedate,description,priority' +
     (startField == null ? '' : ',' + startField);
 
 for (Work_Item__c item : items) {
@@ -111,9 +121,12 @@ if (!asanaRows.isEmpty()) {
 
 // Callouts are done. DML from here down.
 List<Work_Item__c> updates = new List<Work_Item__c>();
-Map<String, Integer> filled = new Map<String, Integer>{
-    'title' => 0, 'created' => 0, 'start' => 0, 'due' => 0, 'description' => 0
+// How many records each field changed on - zero across the board on a second run.
+Map<String, Integer> changed = new Map<String, Integer>{
+    'title' => 0, 'created' => 0, 'start' => 0, 'due' => 0, 'description' => 0, 'priority' => 0
 };
+// What the sources hold, per source and per value: every carried priority, changed or not.
+Map<String, Integer> priorityCounts = new Map<String, Integer>();
 for (InboundChange change : changes) {
     Work_Item__c item = change.externalId == null ? null : itemByExternalId.get(change.externalId);
     if (item == null || !change.isUsable()) {
@@ -121,34 +134,59 @@ for (InboundChange change : changes) {
         continue;
     }
     Work_Item__c patch = new Work_Item__c(Id = item.Id);
+    Boolean differs = false;
     if (String.isBlank(item.Title__c) && String.isNotBlank(change.title)) {
         patch.Title__c = change.title;
-        filled.put('title', filled.get('title') + 1);
+        changed.put('title', changed.get('title') + 1);
+        differs = true;
     }
-    if (change.sourceCreated != null) {
+    // Salesforce stores a Datetime to the second and the sources send milliseconds, so the two
+    // are compared at the stored precision - otherwise every run "changes" every record. Found on
+    // build 09's first run, which reported created=20 while writing the values already held.
+    if (
+        change.sourceCreated != null &&
+        (item.Source_Created__c == null ||
+            change.sourceCreated.getTime() / 1000 != item.Source_Created__c.getTime() / 1000)
+    ) {
         patch.Source_Created__c = change.sourceCreated;
-        filled.put('created', filled.get('created') + 1);
+        changed.put('created', changed.get('created') + 1);
+        differs = true;
     }
-    if (change.carriesStartDate) {
+    if (change.carriesStartDate && change.startDate != item.Start_Date__c) {
         patch.Start_Date__c = change.startDate;
-        if (change.startDate != null) filled.put('start', filled.get('start') + 1);
+        changed.put('start', changed.get('start') + 1);
+        differs = true;
     }
-    if (change.carriesDueDate) {
+    if (change.carriesDueDate && change.dueDate != item.Due_Date__c) {
         patch.Due_Date__c = change.dueDate;
-        if (change.dueDate != null) filled.put('due', filled.get('due') + 1);
+        changed.put('due', changed.get('due') + 1);
+        differs = true;
     }
-    if (change.carriesDescription) {
+    // Case-sensitive, like the title: a description edited only in case is still an edit.
+    if (change.carriesDescription && !SyncFields.sameText(change.description, item.Description__c)) {
         patch.Description__c = change.description;
-        if (change.description != null) filled.put('description', filled.get('description') + 1);
+        changed.put('description', changed.get('description') + 1);
+        differs = true;
     }
-    updates.add(patch);
+    if (change.carriesPriority) {
+        String key = item.External_System__c + ' ' + (change.priority == null ? '(none)' : change.priority);
+        priorityCounts.put(key, (priorityCounts.containsKey(key) ? priorityCounts.get(key) : 0) + 1);
+        if (change.priority != item.Priority__c) {
+            patch.Priority__c = change.priority;
+            changed.put('priority', changed.get('priority') + 1);
+            differs = true;
+        }
+    }
+    if (differs) {
+        updates.add(patch);
+    }
 }
 
 Integer updated = 0;
 if (!updates.isEmpty()) {
-    // None of these fields is Status__c, so the trigger has nothing to push today. From build 08
-    // step 3 a start or due date change IS pushable, so suppression is what keeps a backfill from
-    // writing the same dates straight back to the source.
+    // None of these fields is Status__c, but since build 08 step 3 a title or date change IS
+    // pushable, and since build 09 step 3 a priority change is too. Suppression is what keeps a
+    // backfill from staging them in Pending_Push_Fields__c and writing them straight back.
     SyncContext.suppressOutbound();
     List<Database.SaveResult> results;
     try {
@@ -170,7 +208,12 @@ if (!updates.isEmpty()) {
 }
 
 System.debug('BACKFILL candidates=' + items.size() + ' jira=' + jiraRows.size() + ' asana=' + asanaRows.size()
-    + ' updated=' + updated + ' filled=' + filled + ' skipped=' + skipped.size());
+    + ' updated=' + updated + ' changed=' + changed + ' skipped=' + skipped.size());
+List<String> priorityKeys = new List<String>(priorityCounts.keySet());
+priorityKeys.sort();
+for (String key : priorityKeys) {
+    System.debug('BACKFILL priority ' + key + ': ' + priorityCounts.get(key));
+}
 for (String note : skipped) {
     System.debug('BACKFILL skip ' + note);
 }

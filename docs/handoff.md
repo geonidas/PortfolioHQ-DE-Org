@@ -714,6 +714,14 @@ user license doesn't allow the permission: Edit <Object>`. Guest-facing writes m
   line, then `.changedBetween(...)` below it, and the compiler reports `Variable does not exist:
 SyncFields`. The one-line form of the same call compiles. Hold the result in a local rather
   than chaining off a static call. Found in build 08 step 3, by the deploy.
+- **A Datetime field stores whole seconds.** Jira and Asana send milliseconds
+  (`18:07:41.913`); `Remote_Last_Modified__c` and `Source_Created__c` read back `.000`. So a
+  value just parsed from a payload never equals the one stored from the same payload: compare at
+  the second (`getTime() / 1000`), or a check for "did this change" answers yes every time. Build
+  09's backfill reported 20 creation dates changed on a run that changed nothing, until it did.
+  The loop-prevention comparison has lived with this since build 02 - an echo in the same second
+  as the stored value counts as newer - and is harmless there only because the echo carries the
+  values already held.
 - `@TestVisible` does not expose members to anonymous Apex.
 - Apex only type-checks server-side. Nothing is verified until it deploys.
 
@@ -774,6 +782,10 @@ sf data query -o MyScratchOrg -q "SELECT COUNT() FROM Work_Item__c WHERE Is_Publ
 sf data query -o MyScratchOrg -q "SELECT COUNT() FROM Work_Item__c WHERE Project__c = null AND External_Id__c != null"
 # Or link them all now, by key prefix, without waiting for a redelivery (never writes Status__c)
 sf apex run --file scripts/apex/backfill-work-item-projects.apex --target-org MyScratchOrg
+
+# Fill what inbound sync fills - created, dates, description, priority - from each source, through
+# its own adapter. Writes only fields that differ, suppressed; a second run reports updated=0
+sf apex run --file scripts/apex/backfill-work-item-source-fields.apex --target-org MyScratchOrg
 
 # Outbound: change a status, expect 2 Integration_Log__c rows and no more
 sf data query -o MyScratchOrg -q "SELECT Name, HTTP_Method__c, Status_Code__c FROM Integration_Log__c ORDER BY CreatedDate DESC LIMIT 4"
