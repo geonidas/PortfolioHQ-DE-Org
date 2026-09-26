@@ -2078,4 +2078,236 @@ private class WorkItemInboundProcessorTest {
     Assert.isNull(after.Pending_Push_Fields__c);
     Assert.areEqual('Synced', after.Sync_Status__c);
   }
+
+  // ---------- priority (build 09) ----------
+
+  private static void mapJiraPriorities() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = JiraWebhookPayloadFactory.priorityMappings();
+  }
+
+  /** An item holding a priority the way an earlier delivery left it: written suppressed. */
+  private static Work_Item__c seedWithPriority(
+    String externalId,
+    String priority
+  ) {
+    Work_Item__c item = seedItem(
+      externalId,
+      'To Do',
+      System.now().addHours(-1)
+    );
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(Id = item.Id, Priority__c = priority);
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    return item;
+  }
+
+  private static List<Webhook_Event__c> deliverPriority(
+    String issueId,
+    Map<String, Object> fields
+  ) {
+    return deliver(
+      new List<String>{
+        JiraWebhookPayloadFactory.issueUpdatedWithFields(
+          issueId,
+          'DOPP-' + issueId.right(2),
+          'In Progress',
+          System.now(),
+          fields
+        )
+      }
+    );
+  }
+
+  private static Work_Item__c priorityOf(Id itemId) {
+    return [
+      SELECT
+        Priority__c,
+        Title__c,
+        Status__c,
+        Sync_Status__c,
+        Pending_Push_Fields__c
+      FROM Work_Item__c
+      WHERE Id = :itemId
+    ];
+  }
+
+  @IsTest
+  static void aPriorityFromTheSourceIsStoredAndNotPushedBack() {
+    mapJiraPriorities();
+    Work_Item__c item = seedItem(
+      'jira:10090',
+      'To Do',
+      System.now().addHours(-1)
+    );
+    List<Webhook_Event__c> events = deliverPriority(
+      '10090',
+      new Map<String, Object>{
+        'priority' => JiraWebhookPayloadFactory.priority('2', 'High')
+      }
+    );
+
+    Test.startTest();
+    Integer before = Limits.getQueueableJobs();
+    WorkItemInboundProcessor.process(events);
+    Integer queued = Limits.getQueueableJobs() - before;
+    Test.stopTest();
+
+    Work_Item__c after = priorityOf(item.Id);
+    Assert.areEqual('High', after.Priority__c);
+    Assert.areEqual('Synced', after.Sync_Status__c);
+    Assert.areEqual(
+      0,
+      queued,
+      'A priority that came from Jira is not sent back to it.'
+    );
+  }
+
+  @IsTest
+  static void theEnDashClearsAStoredPriority() {
+    mapJiraPriorities();
+    Work_Item__c item = seedWithPriority('jira:10091', 'High');
+    List<Webhook_Event__c> events = deliverPriority(
+      '10091',
+      new Map<String, Object>{
+        'priority' => JiraWebhookPayloadFactory.priority('10000', '\u2013')
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Assert.isNull(
+      priorityOf(item.Id).Priority__c,
+      'None in Jira is blank here. Keeping High would show a priority nobody has any more.'
+    );
+  }
+
+  @IsTest
+  static void aDeliveryWithoutPriorityLeavesItAlone() {
+    mapJiraPriorities();
+    Work_Item__c item = seedWithPriority('jira:10092', 'Medium');
+    List<Webhook_Event__c> events = deliverPriority(
+      '10092',
+      new Map<String, Object>{ 'summary' => 'Renamed in Jira' }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = priorityOf(item.Id);
+    Assert.areEqual('Renamed in Jira', after.Title__c);
+    Assert.areEqual(
+      'Medium',
+      after.Priority__c,
+      'Not mentioned is not removed.'
+    );
+  }
+
+  @IsTest
+  static void anUnknownPriorityLeavesTheFieldAndAppliesTheRest() {
+    mapJiraPriorities();
+    Work_Item__c item = seedWithPriority('jira:10093', 'Medium');
+    List<Webhook_Event__c> events = deliverPriority(
+      '10093',
+      new Map<String, Object>{
+        'priority' => JiraWebhookPayloadFactory.priority('1', 'Highest'),
+        'summary' => 'Renamed in Jira'
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = priorityOf(item.Id);
+    Assert.areEqual(
+      'Medium',
+      after.Priority__c,
+      'Unchanged - never cleared (decision 4).'
+    );
+    Assert.areEqual('Renamed in Jira', after.Title__c, 'The rest applied.');
+    Assert.areEqual('In Progress', after.Status__c);
+    Assert.areEqual(
+      'Processed',
+      [
+        SELECT Processing_Status__c
+        FROM Webhook_Event__c
+        WHERE Id = :events[0].Id
+      ]
+      .Processing_Status__c,
+      'And the delivery succeeded.'
+    );
+    // Filtered here, not in the query: Error_Message__c is a long text area, which SOQL
+    // cannot filter on.
+    List<Integration_Log__c> warnings = new List<Integration_Log__c>();
+    for (Integration_Log__c log : [
+      SELECT Direction__c, Error_Message__c
+      FROM Integration_Log__c
+    ]) {
+      if (
+        log.Error_Message__c != null &&
+        log.Error_Message__c.contains('priority 1 ')
+      ) {
+        warnings.add(log);
+      }
+    }
+    Assert.areEqual(
+      1,
+      warnings.size(),
+      'One warning in the callout log, naming the id.'
+    );
+    Assert.areEqual(LogDirection.INBOUND, warnings[0].Direction__c);
+  }
+
+  @IsTest
+  static void aPriorityWaitingToBePushedIsNotOverwritten() {
+    mapJiraPriorities();
+    Work_Item__c item = seedWithPriority('jira:10094', 'Low');
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(
+        Id = item.Id,
+        Pending_Push_Fields__c = 'PRIORITY',
+        Sync_Status__c = 'Pending'
+      );
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    List<Webhook_Event__c> events = deliverPriority(
+      '10094',
+      new Map<String, Object>{
+        'priority' => JiraWebhookPayloadFactory.priority('2', 'High')
+      }
+    );
+
+    Test.startTest();
+    WorkItemInboundProcessor.process(events);
+    Test.stopTest();
+
+    Work_Item__c after = priorityOf(item.Id);
+    Assert.areEqual(
+      'Low',
+      after.Priority__c,
+      'The edit on its way out wins until the push settles it, as for every other field.'
+    );
+    Assert.areEqual('In Progress', after.Status__c, 'The rest applied.');
+    Assert.areEqual('PRIORITY', after.Pending_Push_Fields__c);
+    Assert.areEqual('Pending', after.Sync_Status__c);
+    String note = [
+      SELECT Error_Message__c
+      FROM Webhook_Event__c
+      WHERE Id = :events[0].Id
+    ]
+    .Error_Message__c;
+    Assert.isTrue(
+      note.contains('Kept Salesforce\'s priority'),
+      'The delivery says what it held back: ' + note
+    );
+  }
 }

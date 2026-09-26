@@ -859,4 +859,238 @@ private class AsanaAdapterTest {
       'start_on must never be requested.'
     );
   }
+
+  // ---------- priority, inbound (build 09) ----------
+
+  private static final String TASK_C = '1210000000000003';
+  private static AsanaAdapter priorityAdapter;
+
+  /**
+   * One delivery per task, each task answering with the given custom_fields; the status rows
+   * mapped and, when asked, the priority rows too. The changes come back keyed on task gid.
+   */
+  private static Map<String, InboundChange> parseWithCustomFields(
+    Map<String, List<Object>> customFieldsByTask,
+    Boolean mapPriority
+  ) {
+    mapStatuses();
+    if (mapPriority) {
+      FieldMappingService.injected.addAll(
+        AsanaPayloadFactory.priorityMappings()
+      );
+    }
+    trackTheLearningProject();
+    Map<String, String> tasks = new Map<String, String>();
+    List<String> events = new List<String>();
+    for (String gid : customFieldsByTask.keySet()) {
+      tasks.put(
+        gid,
+        AsanaPayloadFactory.withFields(
+          AsanaPayloadFactory.task(
+            gid,
+            'Task ' + gid,
+            AsanaPayloadFactory.SECTION_IN_PROGRESS,
+            'In Progress',
+            false,
+            modifiedAt
+          ),
+          new Map<String, Object>{
+            'custom_fields' => customFieldsByTask.get(gid)
+          }
+        )
+      );
+      events.add(AsanaPayloadFactory.taskEvent(gid));
+    }
+    AsanaCalloutMock mock = mockReturning(tasks);
+    priorityAdapter = new AsanaAdapter();
+
+    Test.startTest();
+    List<InboundChange> changes = priorityAdapter.parseInbound(
+      deliveries(events)
+    );
+    Test.stopTest();
+
+    Assert.isTrue(
+      mock.captured[0].body.contains('"custom_fields.gid"'),
+      'The fetch asks for each custom field\'s gid, which is how the Priority field is found: ' +
+      mock.captured[0].body
+    );
+    Map<String, InboundChange> byGid = new Map<String, InboundChange>();
+    for (InboundChange change : changes) {
+      byGid.put(ExternalIdUtil.rawIdOf(change.externalId), change);
+    }
+    return byGid;
+  }
+
+  private static Map<String, Object> formatField() {
+    return new Map<String, Object>{
+      'gid' => '1218523733859541',
+      'name' => 'Format',
+      'display_value' => 'Book',
+      'enum_value' => new Map<String, Object>{
+        'gid' => AsanaPayloadFactory.FORMAT_OPTION_GID
+      }
+    };
+  }
+
+  @IsTest
+  static void eachPriorityOptionIsReadByItsGid() {
+    // Display names deliberately unlike the values: the option gid is what is read (decision 2).
+    Map<String, InboundChange> changes = parseWithCustomFields(
+      new Map<String, List<Object>>{
+        TASK_A => new List<Object>{
+          formatField(),
+          AsanaPayloadFactory.priorityField(
+            AsanaPayloadFactory.PRIORITY_HIGH,
+            'P1'
+          )
+        },
+        TASK_B => new List<Object>{
+          AsanaPayloadFactory.priorityField(
+            AsanaPayloadFactory.PRIORITY_MEDIUM,
+            'P2'
+          )
+        },
+        TASK_C => new List<Object>{
+          AsanaPayloadFactory.priorityField(
+            AsanaPayloadFactory.PRIORITY_LOW,
+            'P3'
+          )
+        }
+      },
+      true
+    );
+
+    Assert.isTrue(changes.get(TASK_A).carriesPriority);
+    Assert.areEqual('High', changes.get(TASK_A).priority);
+    Assert.areEqual('Medium', changes.get(TASK_B).priority);
+    Assert.areEqual('Low', changes.get(TASK_C).priority);
+    Assert.isNotNull(
+      changes.get(TASK_A).normalizedType,
+      'The Format field beside it is still read.'
+    );
+  }
+
+  @IsTest
+  static void anEmptyPriorityFieldIsNoPriority() {
+    Map<String, InboundChange> changes = parseWithCustomFields(
+      new Map<String, List<Object>>{
+        TASK_A => new List<Object>{
+          AsanaPayloadFactory.priorityField(null, null)
+        }
+      },
+      true
+    );
+
+    Assert.isTrue(
+      changes.get(TASK_A).carriesPriority,
+      'The field is on the task and nothing is chosen: Asana\'s own none, which has to clear a ' +
+      'priority Salesforce holds.'
+    );
+    Assert.isNull(changes.get(TASK_A).priority);
+  }
+
+  @IsTest
+  static void aTaskWithoutThePriorityFieldCarriesNone() {
+    Map<String, InboundChange> changes = parseWithCustomFields(
+      new Map<String, List<Object>>{
+        TASK_A => new List<Object>(),
+        TASK_B => new List<Object>{ formatField() }
+      },
+      true
+    );
+
+    Assert.isFalse(
+      changes.get(TASK_A).carriesPriority,
+      'No field at all - its project does not have one. Absent is not none.'
+    );
+    Assert.isFalse(changes.get(TASK_B).carriesPriority);
+  }
+
+  @IsTest
+  static void withNoFieldRowThePriorityIsNeverRead() {
+    Map<String, InboundChange> changes = parseWithCustomFields(
+      new Map<String, List<Object>>{
+        TASK_A => new List<Object>{
+          AsanaPayloadFactory.priorityField(
+            AsanaPayloadFactory.PRIORITY_HIGH,
+            'High'
+          )
+        }
+      },
+      false
+    );
+
+    Assert.isFalse(
+      changes.get(TASK_A).carriesPriority,
+      'Which custom field is the priority is configuration. No constant stands in for a ' +
+      'missing Field row, as none does for Jira\'s start date field.'
+    );
+  }
+
+  @IsTest
+  static void thePriorityFieldIsFoundByGidNotByName() {
+    Map<String, Object> renamed = AsanaPayloadFactory.priorityField(
+      AsanaPayloadFactory.PRIORITY_HIGH,
+      'High'
+    );
+    renamed.put('name', 'Urgency');
+    Map<String, Object> lookalike = AsanaPayloadFactory.priorityField(
+      AsanaPayloadFactory.PRIORITY_HIGH,
+      'High'
+    );
+    lookalike.put('gid', '1209955599999999');
+
+    Map<String, InboundChange> changes = parseWithCustomFields(
+      new Map<String, List<Object>>{
+        TASK_A => new List<Object>{ renamed },
+        TASK_B => new List<Object>{ lookalike }
+      },
+      true
+    );
+
+    Assert.areEqual(
+      'High',
+      changes.get(TASK_A).priority,
+      'Renaming the field in Asana does not stop it syncing.'
+    );
+    Assert.isFalse(
+      changes.get(TASK_B).carriesPriority,
+      'And another field that happens to be called Priority is not the priority.'
+    );
+  }
+
+  @IsTest
+  static void anUnknownPriorityOptionIsNotCarriedAndIsLogged() {
+    Map<String, InboundChange> changes = parseWithCustomFields(
+      new Map<String, List<Object>>{
+        TASK_A => new List<Object>{
+          AsanaPayloadFactory.priorityField('1209955500000009', 'Urgent')
+        }
+      },
+      true
+    );
+
+    InboundChange change = changes.get(TASK_A);
+    Assert.isTrue(change.isUsable(), 'Never fails the delivery (decision 4).');
+    Assert.isFalse(
+      change.carriesPriority,
+      'Not carried, so Priority__c keeps what it holds. Carried as blank would clear it.'
+    );
+    Assert.areEqual(
+      WorkItemStatus.IN_PROGRESS,
+      change.normalizedStatus,
+      'The rest of the change still applies.'
+    );
+    List<Integration_Log__c> warnings = logsMentioning(
+      priorityAdapter.drainLogs(),
+      '1209955500000009'
+    );
+    Assert.areEqual(1, warnings.size(), 'One warning, naming the option gid.');
+    Assert.isTrue(
+      warnings[0].Error_Message__c.contains('Urgent') &&
+      warnings[0].Error_Message__c.contains(TASK_A),
+      warnings[0].Error_Message__c
+    );
+  }
 }

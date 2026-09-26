@@ -187,6 +187,42 @@ public class JiraWebhookPayloadFactory {
     );
   }
 
+  /** Build 09: DOPP's priority rows - three values, and the en dash (10000), which means none. */
+  public static List<Field_Mapping__mdt> priorityMappings() {
+    return new List<Field_Mapping__mdt>{
+      priorityRow('2', 'High', 'High', false),
+      priorityRow('3', 'Medium', 'Medium', false),
+      priorityRow('4', 'Low', 'Low', false),
+      priorityRow('10000', '\u2013', null, true)
+    };
+  }
+
+  private static Field_Mapping__mdt priorityRow(
+    String id,
+    String label,
+    String normalized,
+    Boolean mapsToBlank
+  ) {
+    return new Field_Mapping__mdt(
+      External_System__c = ExternalSystem.JIRA,
+      Mapping_Type__c = FieldMappingService.PRIORITY,
+      External_Value__c = id,
+      External_Label__c = label,
+      Normalized_Value__c = normalized,
+      Maps_To_Blank__c = mapsToBlank,
+      Is_Active__c = true
+    );
+  }
+
+  /** fields.priority as Jira sends it: an object with an id and a name, among other things. */
+  public static Map<String, Object> priority(String id, String name) {
+    return new Map<String, Object>{
+      'self' => 'https://example.atlassian.net/rest/api/2/priority/' + id,
+      'id' => id,
+      'name' => name
+    };
+  }
+
   /** Inserts a delivery the way the endpoint would have, ready for the processor. */
   public static Webhook_Event__c delivery(String payload) {
     return new Webhook_Event__c(

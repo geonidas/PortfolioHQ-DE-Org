@@ -1326,4 +1326,143 @@ private class JiraAdapterTest {
     Assert.areEqual(SyncResult.Outcome.NOTHING_TO_PUSH, result.outcome);
     Assert.areEqual(0, mock.callCount());
   }
+
+  // ---------- priority, inbound (build 09) ----------
+
+  private static void mapJiraPriorities() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = JiraWebhookPayloadFactory.priorityMappings();
+  }
+
+  private static String withPriority(Object priority) {
+    return JiraWebhookPayloadFactory.issueUpdatedWithFields(
+      '10039',
+      'DOPP-15',
+      'In Progress',
+      UPDATED,
+      new Map<String, Object>{
+        'priority' => priority,
+        'duedate' => '2026-09-30'
+      }
+    );
+  }
+
+  @IsTest
+  static void eachPriorityIsReadByItsId() {
+    mapJiraPriorities();
+    Map<String, String> expected = new Map<String, String>{
+      '2' => 'High',
+      '3' => 'Medium',
+      '4' => 'Low'
+    };
+
+    for (String id : expected.keySet()) {
+      // The name is deliberately wrong: the id is what is read, never the name (decision 2).
+      InboundChange change = parseOne(
+        new JiraAdapter(),
+        withPriority(JiraWebhookPayloadFactory.priority(id, 'Renamed in Jira'))
+      );
+      Assert.isTrue(change.carriesPriority, 'Priority ' + id + ' is carried.');
+      Assert.areEqual(expected.get(id), change.priority, 'Priority ' + id);
+    }
+  }
+
+  @IsTest
+  static void theEnDashIsNoPriority() {
+    mapJiraPriorities();
+
+    InboundChange change = parseOne(
+      new JiraAdapter(),
+      withPriority(JiraWebhookPayloadFactory.priority('10000', '\u2013'))
+    );
+
+    Assert.isTrue(
+      change.carriesPriority,
+      'Choosing the en dash in Jira is choosing none, and has to clear the priority here.'
+    );
+    Assert.isNull(change.priority, 'Blank, not a sentinel (decision 1).');
+  }
+
+  @IsTest
+  static void anExplicitNullPriorityIsNoPriorityToo() {
+    mapJiraPriorities();
+
+    InboundChange change = parseOne(new JiraAdapter(), withPriority(null));
+
+    Assert.isTrue(change.carriesPriority, 'Jira saying the issue has none.');
+    Assert.isNull(change.priority);
+  }
+
+  @IsTest
+  static void aPayloadWithoutPriorityDoesNotCarryIt() {
+    mapJiraPriorities();
+
+    InboundChange change = parseOne(
+      new JiraAdapter(),
+      JiraWebhookPayloadFactory.issueUpdated(
+        '10039',
+        'DOPP-15',
+        'In Progress',
+        UPDATED
+      )
+    );
+
+    Assert.isFalse(
+      change.carriesPriority,
+      'Absent is not none: a delivery that does not mention priority leaves it alone.'
+    );
+  }
+
+  @IsTest
+  static void anUnknownPriorityIsNotCarriedAndIsLogged() {
+    mapJiraPriorities();
+    JiraAdapter adapter = new JiraAdapter();
+
+    // Highest: out of DOPP's scheme, still on the site, and mapped by no row.
+    InboundChange change = parseOne(
+      adapter,
+      withPriority(JiraWebhookPayloadFactory.priority('1', 'Highest'))
+    );
+
+    Assert.isTrue(
+      change.isUsable(),
+      'An unknown priority never fails the delivery (decision 4).'
+    );
+    Assert.isFalse(
+      change.carriesPriority,
+      'Not carried, so the processor leaves the field as it was. Carried as blank would clear ' +
+      'a priority the owner never removed.'
+    );
+    Assert.isTrue(
+      change.carriesDueDate,
+      'The rest of the change still applies.'
+    );
+    List<Integration_Log__c> logs = adapter.drainLogs();
+    Assert.areEqual(1, logs.size(), 'One warning.');
+    Assert.isTrue(
+      logs[0].Error_Message__c.contains('priority 1 ') &&
+        logs[0].Error_Message__c.contains('Highest') &&
+        logs[0].Error_Message__c.contains('DOPP-15'),
+      'The warning names the id, what Jira calls it, and the issue: ' +
+      logs[0].Error_Message__c
+    );
+    Assert.areEqual(LogDirection.INBOUND, logs[0].Direction__c);
+  }
+
+  @IsTest
+  static void aPriorityWithNoIdIsAbsent() {
+    mapJiraPriorities();
+    JiraAdapter adapter = new JiraAdapter();
+
+    InboundChange change = parseOne(
+      adapter,
+      withPriority(new Map<String, Object>{ 'name' => 'High' })
+    );
+
+    Assert.isFalse(
+      change.carriesPriority,
+      'Malformed counts as absent, as a nameless issuetype does - never as none.'
+    );
+    Assert.areEqual(0, adapter.drainLogs().size());
+  }
 }

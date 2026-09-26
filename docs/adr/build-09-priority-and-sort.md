@@ -58,6 +58,12 @@ blank row - Jira `10000` - and a source with none answers null, which the Asana 
 an empty field. The Asana `Priority` field's own gid is a `Field` row, as Jira's start-date field
 id is.
 
+Step 2 settled two readings the decision leaves open. A Jira `"priority": null` is none too - the
+issue has no priority - and clears the field, as an explicit null date does; an absent key, or a
+priority object with no id, is not carried. Asana's field is found by its gid, so renaming it in
+Asana does not stop it syncing and another field called "Priority" is ignored; a task whose project
+lacks the field carries nothing.
+
 ---
 
 ## 2. Map by id, never by name

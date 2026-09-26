@@ -364,6 +364,15 @@ public with sharing class WorkItemInboundProcessor {
           item.Due_Date__c = change.dueDate;
         }
       }
+      // The same carried rule (build 09). The adapter has already mapped the vendor's id; a
+      // priority it could not map arrives not carried, so an unknown value never clears the field.
+      if (change.carriesPriority) {
+        if (pending.contains(SyncField.PRIORITY)) {
+          keptLocal.add(SyncField.PRIORITY);
+        } else {
+          item.Priority__c = change.priority;
+        }
+      }
       if (!keptLocal.isEmpty()) {
         delivery.heldBack =
           'Kept Salesforce\'s ' +

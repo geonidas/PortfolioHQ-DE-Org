@@ -334,6 +334,9 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         Strings.truncate(plainText(fields.get('description')), DESCRIPTION_MAX)
       );
     }
+    if (fields.containsKey('priority')) {
+      carryPriority(change, fields.get('priority'));
+    }
 
     change.remoteUpdated = parseIso(asString(fields.get('updated')));
     if (change.remoteUpdated == null) {
@@ -398,6 +401,68 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     } else {
       change.carryDueDate(day);
     }
+  }
+
+  /**
+   * Jira's priority onto the change, mapped by id (ADR build-09, decision 2).
+   *
+   * Three outcomes, and the difference between the last two is the point:
+   *
+   * - an id a Field_Mapping__mdt row maps is carried as that row's value, and the en dash's row
+   *   maps to blank, so choosing it in Jira clears the priority here;
+   * - an explicit null is Jira saying the issue has no priority at all, and clears it too;
+   * - an id no row maps is NOT carried. The field keeps what it holds and a buffered log row names
+   *   the id (decision 4). Clearing would read as "the owner removed the priority", which is not
+   *   what happened, and failing would cost the delivery the rest of its change.
+   *
+   * A priority object with no id is malformed and counts as absent, as a nameless issuetype does.
+   */
+  private void carryPriority(InboundChange change, Object raw) {
+    if (raw == null) {
+      change.carryPriority(null);
+      return;
+    }
+    Map<String, Object> priority = asMap(raw);
+    String id = priority == null ? null : asString(priority.get('id'));
+    if (String.isBlank(id)) {
+      return;
+    }
+    if (
+      !FieldMappingService.isMapped(
+        ExternalSystem.JIRA,
+        FieldMappingService.PRIORITY,
+        id
+      )
+    ) {
+      pendingLogs.add(
+        new Integration_Log__c(
+          Direction__c = LogDirection.INBOUND,
+          Is_Success__c = false,
+          Status_Code__c = 0,
+          Error_Message__c = Strings.truncate(
+            (change.externalKey == null ? '' : change.externalKey + ' ') +
+              '(' +
+              change.externalId +
+              '): Jira priority ' +
+              id +
+              ' ("' +
+              asString(priority.get('name')) +
+              '") has no Field_Mapping__mdt row of type Priority, so Priority__c was left as ' +
+              'it was and the rest of the change applied. Supporting a new priority needs a ' +
+              'picklist value and a mapping row.',
+            BODY_MAX
+          )
+        )
+      );
+      return;
+    }
+    change.carryPriority(
+      FieldMappingService.normalizedFor(
+        ExternalSystem.JIRA,
+        FieldMappingService.PRIORITY,
+        id
+      )
+    );
   }
 
   /**

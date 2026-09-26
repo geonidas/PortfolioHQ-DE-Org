@@ -10,5 +10,8 @@ public enum SyncField {
   STATUS,
   TITLE,
   START_DATE,
-  DUE_DATE
+  DUE_DATE,
+  // Build 09. Declared in step 2 so inbound can hold a pending priority back; nothing stages it
+  // until SyncFields.changedBetween compares Priority__c (step 3).
+  PRIORITY
 }

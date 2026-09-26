@@ -316,6 +316,18 @@ status transitions carrying no summary, issuetype or parent at all — writing a
 through would blank known data on every one of them. An `issuetype` object present but
 with a blank `name` counts as absent, not as unmapped.
 
+**Priority syncs inbound by id, and an id nothing maps changes nothing** (build 09). Jira's
+`fields.priority.id` and the option gid of Asana's Priority field - found by the field's own gid,
+from a `Field` row, never by the name "Priority" - are looked up in `Field_Mapping__mdt` rows of
+type `Priority`. Three outcomes, and the adapter decides which before the processor sees anything:
+a mapped id is carried as its value; Jira's en dash (`10000`, a `Maps_To_Blank__c` row), a Jira
+`"priority": null` and an Asana field with no option chosen are carried as blank and clear the
+field; an id no row maps is **not carried**, so `Priority__c` keeps what it holds, and an Inbound
+`Integration_Log__c` row names the id. The rest of that delivery applies. Clearing on an unknown id
+would read as the owner removing the priority. A task whose project has no Priority field, or a
+delivery without the key, carries nothing. Priority is held back while `Pending_Push_Fields__c`
+lists `PRIORITY`, like every other pushable field.
+
 **Parent resolution is a second pass, and deliberately creates no stub records.** A
 delivery batch can carry a child and its parent in either order, so linking happens after
 every record in the batch exists. A parent `External_Id__c` Salesforce has never seen

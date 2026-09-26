@@ -11,9 +11,10 @@
  * deliveries are status transitions carrying nothing else, and writing a null through would blank
  * known data on every one of them.
  *
- * Three fields are the exception, because they can genuinely be emptied in the source: the start
- * date, the due date and the description. Those carry an explicit flag - see carryDueDate - and
- * the processor writes them, null included, exactly when the flag says the delivery carried them.
+ * Four fields are the exception, because they can genuinely be emptied in the source: the start
+ * date, the due date, the description and the priority. Those carry an explicit flag - see
+ * carryDueDate - and the processor writes them, null included, exactly when the flag says the
+ * delivery carried them.
  */
 public class InboundChange {
   /**
@@ -72,7 +73,7 @@ public class InboundChange {
   //
   // The rule above - null means "not carried" - cannot express "carried, and empty". A due date
   // removed in the source arrives as an explicit null, and under that rule it would never clear
-  // in Salesforce. So these three carry a flag beside the value, set only through carry*(), which
+  // in Salesforce. So these four carry a flag beside the value, set only through carry*(), which
   // makes it impossible to set a value without saying it was carried. The processor writes the
   // value, null included, exactly when the flag is true.
 
@@ -88,10 +89,19 @@ public class InboundChange {
   public String description { get; private set; }
   public Boolean carriesDescription { get; private set; }
 
+  /**
+   * A Work_Item__c.Priority__c value, already mapped by the adapter. Meaningful only when
+   * carriesPriority; then null means the source has none. A priority the adapter could not map is
+   * not carried at all - it must leave the field alone, not clear it (ADR build-09, decision 4).
+   */
+  public String priority { get; private set; }
+  public Boolean carriesPriority { get; private set; }
+
   public InboundChange() {
     carriesStartDate = false;
     carriesDueDate = false;
     carriesDescription = false;
+    carriesPriority = false;
   }
 
   /** The delivery carried a start date field. Null means it is empty in the source. */
@@ -104,6 +114,12 @@ public class InboundChange {
   public void carryDueDate(Date value) {
     dueDate = value;
     carriesDueDate = true;
+  }
+
+  /** The delivery carried a priority the adapter mapped. Blank means the source has none. */
+  public void carryPriority(String value) {
+    priority = String.isBlank(value) ? null : value;
+    carriesPriority = true;
   }
 
   /** The delivery carried a description. Blank means it is empty in the source. */

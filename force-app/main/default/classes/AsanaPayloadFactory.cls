@@ -23,6 +23,12 @@ public class AsanaPayloadFactory {
   /** The Format enum option a typedTask carries. Mappings key on this, not on the name. */
   public static final String FORMAT_OPTION_GID = '1209988888888888';
 
+  // Build 09: an enum Priority field and its three options. Made up, in the shape Asana uses.
+  public static final String PRIORITY_FIELD_GID = '1209955500000000';
+  public static final String PRIORITY_HIGH = '1209955500000001';
+  public static final String PRIORITY_MEDIUM = '1209955500000002';
+  public static final String PRIORITY_LOW = '1209955500000003';
+
   /** One element of the events array, as AsanaWebhookResource stages it. */
   public static String taskEvent(String taskGid) {
     return taskEvent(taskGid, 'changed');
@@ -193,6 +199,48 @@ public class AsanaPayloadFactory {
         'Completed',
         WorkItemStatus.DONE
       )
+    };
+  }
+
+  /**
+   * The rows priority needs: a Field row naming which custom field is the priority, found by
+   * gid, and one Priority row per option. No row means none - an empty field is Asana's none.
+   */
+  public static List<Field_Mapping__mdt> priorityMappings() {
+    return new List<Field_Mapping__mdt>{
+      mapping(
+        FieldMappingService.FIELD,
+        PRIORITY_FIELD_GID,
+        'Priority',
+        'Priority__c'
+      ),
+      mapping(FieldMappingService.PRIORITY, PRIORITY_HIGH, 'High', 'High'),
+      mapping(
+        FieldMappingService.PRIORITY,
+        PRIORITY_MEDIUM,
+        'Medium',
+        'Medium'
+      ),
+      mapping(FieldMappingService.PRIORITY, PRIORITY_LOW, 'Low', 'Low')
+    };
+  }
+
+  /**
+   * A task's Priority entry in custom_fields, as Asana answers when asked for gid, name,
+   * display_value and enum_value.gid. A null option is sent as "enum_value": null, which is how
+   * Asana says nothing is chosen.
+   */
+  public static Map<String, Object> priorityField(
+    String optionGid,
+    String display
+  ) {
+    return new Map<String, Object>{
+      'gid' => PRIORITY_FIELD_GID,
+      'name' => 'Priority',
+      'display_value' => display,
+      'enum_value' => optionGid == null
+        ? null
+        : new Map<String, Object>{ 'gid' => optionGid, 'name' => display }
     };
   }
 

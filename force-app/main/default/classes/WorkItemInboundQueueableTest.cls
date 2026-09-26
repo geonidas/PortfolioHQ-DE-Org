@@ -130,6 +130,63 @@ private class WorkItemInboundQueueableTest {
     );
   }
 
+  /**
+   * Priority along the path Asana really takes (build 09): subscriber-free, but queueable,
+   * hydrated through a callout, mapped by option gid and applied by the processor.
+   */
+  @IsTest
+  static void anAsanaPriorityArrivesThroughTheRealPath() {
+    FieldMappingService.reset();
+    List<Field_Mapping__mdt> rows = AsanaPayloadFactory.statusMappings();
+    rows.addAll(AsanaPayloadFactory.priorityMappings());
+    FieldMappingService.injected = rows;
+    AsanaAdapter.injectedProjectGids = new Set<String>{
+      AsanaPayloadFactory.PROJECT_GID
+    };
+    Test.setMock(
+      HttpCalloutMock.class,
+      new AsanaCalloutMock(
+        AsanaCalloutMock.Scenario.BATCH_OK,
+        new Map<String, String>{
+          TASK_GID => AsanaPayloadFactory.withFields(
+            AsanaPayloadFactory.task(
+              TASK_GID,
+              'Deep Work by Cal Newport',
+              AsanaPayloadFactory.SECTION_IN_PROGRESS,
+              'In progress',
+              false,
+              Datetime.newInstanceGmt(2026, 9, 21, 12, 0, 0)
+            ),
+            new Map<String, Object>{
+              'custom_fields' => new List<Object>{
+                AsanaPayloadFactory.priorityField(
+                  AsanaPayloadFactory.PRIORITY_MEDIUM,
+                  'Medium'
+                )
+              }
+            }
+          )
+        }
+      )
+    );
+    Webhook_Event__c event = delivery();
+    insert event;
+
+    Test.startTest();
+    System.enqueueJob(new WorkItemInboundQueueable(new Set<Id>{ event.Id }));
+    Test.stopTest();
+
+    Assert.areEqual(
+      'Medium',
+      [
+        SELECT Priority__c
+        FROM Work_Item__c
+        WHERE External_Id__c = :'asana:' + TASK_GID
+      ]
+      .Priority__c
+    );
+  }
+
   @IsTest
   static void aDeliveryAlreadyRetiredIsNotAppliedTwice() {
     // The queueable re-reads rather than carrying rows across, so a delivery retired between the

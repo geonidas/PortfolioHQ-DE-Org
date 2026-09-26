@@ -60,9 +60,12 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     'memberships.project.name',
     'memberships.section.gid',
     'memberships.section.name',
+    // The field's own gid, which is how the Priority field is found (build 09) - by gid, like
+    // everything else here, never by its name.
+    'custom_fields.gid',
     'custom_fields.name',
     'custom_fields.display_value',
-    // The chosen enum option's gid, which is what a Type mapping is keyed on.
+    // The chosen enum option's gid, which is what Type and Priority mappings are keyed on.
     'custom_fields.enum_value.gid'
   };
 
@@ -86,6 +89,11 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
    * so where the manual setup is described.
    */
   private static final String TYPE_CUSTOM_FIELD = 'format';
+
+  /** The Work_Item__c field a Field row names to say which Asana custom field is the priority. */
+  private static final String PRIORITY_FIELD = String.valueOf(
+    Work_Item__c.Priority__c
+  );
 
   private final List<Integration_Log__c> pendingLogs = new List<Integration_Log__c>();
 
@@ -322,11 +330,91 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
       }
     }
 
+    carryPriority(change, task, gid);
+
     // Asana items are flat in this build: no parents, no sub-tasks, no epic equivalent.
     change.parentExternalId = null;
     // Asana has no sprints and never will. The field exists for Jira to fill later.
     change.iterationRef = null;
     return change;
+  }
+
+  /**
+   * The task's Priority field onto the change, mapped by option gid (ADR build-09, decisions 1-4).
+   *
+   * The field is found by its own gid, from a Field_Mapping__mdt row of type Field - the name
+   * "Priority" is somebody's label and can change. Then:
+   *
+   * - no row naming the field, or the field not on the task (its project does not have it): not
+   *   carried, and Priority__c is left alone;
+   * - the field on the task with no option chosen: Asana's own "none", carried as blank. No
+   *   mapping row says this - an empty enum is how Asana spells none, which is this class's
+   *   business and no table's;
+   * - an option a Priority row maps: carried as that value;
+   * - an option no row maps: not carried, and a buffered log row names the gid (decision 4).
+   */
+  private void carryPriority(
+    InboundChange change,
+    Map<String, Object> task,
+    String taskGid
+  ) {
+    String fieldGid = FieldMappingService.externalValueFor(
+      SOURCE_SYSTEM,
+      FieldMappingService.FIELD,
+      PRIORITY_FIELD
+    );
+    Object raw = task.get('custom_fields');
+    if (String.isBlank(fieldGid) || !(raw instanceof List<Object>)) {
+      return;
+    }
+    for (Object entry : (List<Object>) raw) {
+      Map<String, Object> field = asMap(entry);
+      if (
+        field == null ||
+        asString(field.get('gid')) != fieldGid.trim() ||
+        !field.containsKey('enum_value')
+      ) {
+        continue;
+      }
+      Map<String, Object> chosen = asMap(field.get('enum_value'));
+      if (chosen == null) {
+        change.carryPriority(null);
+        return;
+      }
+      String optionGid = asString(chosen.get('gid'));
+      if (String.isBlank(optionGid)) {
+        // An option with no gid is a shape we did not ask for. Absent, not none.
+        return;
+      }
+      if (
+        !FieldMappingService.isMapped(
+          SOURCE_SYSTEM,
+          FieldMappingService.PRIORITY,
+          optionGid
+        )
+      ) {
+        log(
+          'Priority option ' +
+            optionGid +
+            ' ("' +
+            asString(field.get('display_value')) +
+            '") on task ' +
+            taskGid +
+            ' has no Field_Mapping__mdt row of type Priority, so Priority__c was left as it ' +
+            'was and the rest of the change applied. Supporting a new priority needs a ' +
+            'picklist value and a mapping row keyed on the option gid.'
+        );
+        return;
+      }
+      change.carryPriority(
+        FieldMappingService.normalizedFor(
+          SOURCE_SYSTEM,
+          FieldMappingService.PRIORITY,
+          optionGid
+        )
+      );
+      return;
+    }
   }
 
   /** The membership whose project this org tracks, or null when none of them is. */
