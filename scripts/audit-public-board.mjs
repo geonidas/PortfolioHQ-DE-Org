@@ -6,9 +6,11 @@
  * Two checks the Jest gate cannot make, because jsdom has no layout:
  *
  * 1. axe-core - the engine sa11y runs, from this project's own node_modules - over the board in
- *    the states a visitor can put it in: the task view, a card open, the epic view with an epic
- *    open, one source chosen; and at 375px in portrait, with a card open and at the last column.
- *    Colour contrast is checked here and nowhere else in the suite.
+ *    the states a visitor can put it in: the task view by due date and by priority, a card open,
+ *    the epic view with an epic open, one source chosen; and at 375px in portrait by each sort,
+ *    with a card open and at the last column. Colour contrast is checked here and nowhere else in
+ *    the suite. Build 09: changing the sort must send nothing - it is client-side (decision 5) -
+ *    so the requests made while it changes are counted, and any Apex request fails the audit.
  * 2. A keyboard walkthrough at both sizes: Tab through the board and record every stop, whether
  *    it shows a focus ring and whether it scrolled into view; then Enter opens a card and Escape
  *    closes it with focus back on its header.
@@ -66,7 +68,13 @@ const pressNextArrow = `(() => {
 })()`;
 
 const SCENARIOS = [
-  { viewport: desktop, name: "tasks", steps: [] },
+  { viewport: desktop, name: "tasks, by due date (the default)", steps: [] },
+  {
+    viewport: desktop,
+    name: "tasks, by priority",
+    steps: [choose("sort", "priority")],
+    watchRequests: true
+  },
   {
     viewport: desktop,
     name: "tasks, a card open",
@@ -78,7 +86,13 @@ const SCENARIOS = [
     steps: [choose("view", "epics"), openFirstEpic]
   },
   { viewport: desktop, name: "one source", steps: [choose("source", "Asana")] },
-  { viewport: phone, name: "portrait tasks", steps: [] },
+  { viewport: phone, name: "portrait, by due date (the default)", steps: [] },
+  {
+    viewport: phone,
+    name: "portrait, by priority",
+    steps: [choose("sort", "priority")],
+    watchRequests: true
+  },
   {
     viewport: phone,
     name: "portrait, a card open",
@@ -193,19 +207,34 @@ let failed = false;
 await withGuestBrowser(async (cdp) => {
   for (const scenario of SCENARIOS) {
     await loadBoard(cdp, scenario.viewport);
+    // Every request the steps cause, when the scenario asks. A sort re-renders what the board
+    // already holds; a request to Apex here would mean it had started asking the server.
+    const requests = [];
+    let stopWatching = () => {};
+    if (scenario.watchRequests) {
+      await cdp.send("Network.enable");
+      stopWatching = cdp.on("Network.requestWillBeSent", (params) =>
+        requests.push(params.request.url)
+      );
+    }
     for (const step of scenario.steps) {
       if (!(await evaluate(cdp, step))) {
         throw new Error(`Could not set up "${scenario.name}"`);
       }
       await sleep(1200);
     }
+    stopWatching();
+    const apexRequests = requests.filter((url) => /apex|aura/i.test(url));
     const result = await axe(cdp);
-    if (result.board.length) {
+    if (result.board.length || apexRequests.length) {
       failed = true;
     }
     report.axe.push({
       viewport: scenario.viewport.name,
       scenario: scenario.name,
+      ...(scenario.watchRequests
+        ? { requestsWhileSorting: requests.length, apexRequests }
+        : {}),
       ...result
     });
   }

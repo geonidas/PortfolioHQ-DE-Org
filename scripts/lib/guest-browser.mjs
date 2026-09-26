@@ -69,9 +69,21 @@ function connect(url) {
     new Promise((resolve) =>
       listeners.push((m) => m.method === method && resolve(m))
     );
+  // Every event of one kind until the returned function is called. Build 09: the audit counts
+  // the requests a sort change makes, which should be none.
+  const on = (method, handler) => {
+    const listener = (m) => m.method === method && handler(m.params);
+    listeners.push(listener);
+    return () => {
+      const at = listeners.indexOf(listener);
+      if (at >= 0) {
+        listeners.splice(at, 1);
+      }
+    };
+  };
   return new Promise((resolve) =>
     socket.addEventListener("open", () =>
-      resolve({ send, once, close: () => socket.close() })
+      resolve({ send, once, on, close: () => socket.close() })
     )
   );
 }
