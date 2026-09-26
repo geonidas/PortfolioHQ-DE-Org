@@ -1515,12 +1515,12 @@ private class WorkItemInboundProcessorTest {
     Test.stopTest();
 
     Assert.areEqual(
-      2,
+      3,
       mock.callCount(),
-      'A real status change must reach Jira: list, then transition.'
+      'A real status change must reach Jira: list, then transition - then the timestamp read.'
     );
     Assert.areEqual(
-      2,
+      3,
       [SELECT COUNT() FROM Integration_Log__c],
       'And the callouts must be logged, which is how this failure was visible at all.'
     );

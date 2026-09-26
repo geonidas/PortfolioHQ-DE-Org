@@ -34,6 +34,18 @@ public with sharing class SyncResult {
    */
   public Set<SyncField> confirmedFields { get; set; }
 
+  /**
+   * The source's own timestamp of the record just after this push wrote to it - null when
+   * nothing was written, or when the adapter could not learn it.
+   *
+   * The write-back stamps it on Remote_Last_Modified__c (build 09 step 5). Before, a push left
+   * that field where the last delivery had put it, so the echo of an EARLIER push, processed
+   * late - after this one had landed - still counted as newer, was applied, and showed the
+   * earlier value as Synced until the later echo put it right. Seen live on WI-0003. With the
+   * stamp the late echo is older than what the record holds, and the timestamp check retires it.
+   */
+  public Datetime remoteUpdated { get; set; }
+
   private SyncResult(Outcome outcome, String message, Integer statusCode) {
     this.outcome = outcome;
     this.message = message;

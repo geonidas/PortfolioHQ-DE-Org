@@ -488,10 +488,15 @@ private class PublicBoardControllerTest {
       'accentToken',
       'createdAt',
       'startDate',
-      'dueDate'
+      'dueDate',
       // And one removed in the same step: lastSyncedAt, read only by the card's "Updated"
       // line, which the redesign drops. A narrowing is recorded here as deliberately as a
       // widening; the board-level lastSyncedAt stays.
+      //
+      // Build 09 step 5, added after this assertion failed and named both. The priority a
+      // public card shows, and the number both boards sort on so no client compares a name.
+      'priority',
+      'priorityRank'
     };
     Assert.areEqual(
       expected,
@@ -1027,5 +1032,47 @@ private class PublicBoardControllerTest {
 
     Assert.areEqual('Jira', board.epics[0].sourceLabel);
     Assert.areEqual('accent-1', board.epics[0].accentToken);
+  }
+
+  @IsTest
+  static void aCardCarriesItsPriorityAndRankInTheSameOneQuery() {
+    Project__c open = project(true, 'OPEN');
+    List<String> priorities = new List<String>{ 'High', 'Medium', 'Low', null };
+    List<Work_Item__c> rows = TestDataFactory.createWorkItems(
+      priorities.size(),
+      open.Id,
+      false
+    );
+    for (Integer i = 0; i < rows.size(); i++) {
+      rows[i].Is_Public__c = true;
+      rows[i].Status__c = 'To Do';
+      rows[i].Title__c = 'Priority case ' + i;
+      rows[i].Priority__c = priorities[i];
+    }
+    insert rows;
+
+    Test.startTest();
+    Integer before = Limits.getQueries();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Integer used = Limits.getQueries() - before;
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      used,
+      'Priority joins the existing query (invariant 2).'
+    );
+    for (Integer i = 0; i < priorities.size(); i++) {
+      PublicBoardController.PublicCard card = cardTitled(
+        board,
+        'Priority case ' + i
+      );
+      Assert.areEqual(priorities[i], card.priority, 'The label.');
+      Assert.areEqual(
+        priorities[i] == null ? null : i + 1,
+        card.priorityRank,
+        'The number the client sorts on; none has none, and sorts last.'
+      );
+    }
   }
 }

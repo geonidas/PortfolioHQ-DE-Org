@@ -56,9 +56,10 @@ private class JiraAdapterTest {
     Test.stopTest();
 
     Assert.areEqual(
-      2,
+      3,
       mock.callCount(),
-      'A status change is two calls: list, then apply.'
+      'A status change is two calls - list, then apply - and the read of Jira\'s updated ' +
+      'timestamp that the write-back stamps.'
     );
     Assert.areEqual(
       'GET',
@@ -403,7 +404,17 @@ private class JiraAdapterTest {
     Test.stopTest();
 
     List<Integration_Log__c> logs = adapter.drainLogs();
-    Assert.areEqual(2, logs.size(), 'One row per callout.');
+    Assert.areEqual(
+      3,
+      logs.size(),
+      'One row per callout: listing, transition, and the timestamp read (build 09).'
+    );
+    Integration_Log__c timestampRead = logs.remove(2);
+    Assert.areEqual('GET', timestampRead.HTTP_Method__c);
+    Assert.isTrue(
+      timestampRead.Endpoint__c.endsWith('?fields=updated'),
+      timestampRead.Endpoint__c
+    );
     Assert.areEqual('GET', logs[0].HTTP_Method__c, 'First row is the listing.');
     Assert.areEqual(
       'POST',
@@ -1118,7 +1129,11 @@ private class JiraAdapterTest {
     Test.stopTest();
 
     Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
-    Assert.areEqual(1, mock.callCount(), 'One PUT, no transition calls.');
+    Assert.areEqual(
+      2,
+      mock.callCount(),
+      'One PUT and the timestamp read; no transition calls.'
+    );
     Assert.areEqual('PUT', mock.captured[0].method);
     Assert.areEqual(
       'callout:Jira_Classic/rest/api/3/issue/10023',
@@ -1216,7 +1231,11 @@ private class JiraAdapterTest {
     Test.stopTest();
 
     Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
-    Assert.areEqual(3, mock.callCount(), 'The most one item ever costs.');
+    Assert.areEqual(
+      4,
+      mock.callCount(),
+      'The most one item ever costs: the edit, the two-step transition, the timestamp read.'
+    );
     Assert.areEqual(
       'PUT',
       mock.captured[0].method,
@@ -1492,13 +1511,18 @@ private class JiraAdapterTest {
     }
     Test.stopTest();
 
-    Assert.areEqual(4, mock.callCount(), 'One PUT per push, and nothing else.');
+    Assert.areEqual(
+      8,
+      mock.callCount(),
+      'One PUT per push, each followed by the timestamp read, and nothing else.'
+    );
     for (Integer i = 0; i < order.size(); i++) {
       Assert.isTrue(results[i].isSuccess(), 'Failure: ' + results[i].message);
-      Assert.areEqual('PUT', mock.captured[i].method);
+      Assert.areEqual('PUT', mock.captured[2 * i].method);
+      Assert.areEqual('GET', mock.captured[2 * i + 1].method);
       Assert.areEqual(
         '{"fields":{"priority":{"id":"' + idByValue.get(order[i]) + '"}}}',
-        mock.captured[i].body,
+        mock.captured[2 * i].body,
         'Only the priority, by id, for ' + order[i]
       );
       Assert.areEqual(
@@ -1521,7 +1545,7 @@ private class JiraAdapterTest {
     Test.stopTest();
 
     Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
-    Assert.areEqual(1, mock.callCount(), 'One PUT.');
+    Assert.areEqual(2, mock.callCount(), 'One PUT, then the timestamp read.');
     Map<String, Object> fields = (Map<String, Object>) ((Map<String, Object>) JSON.deserializeUntyped(
         mock.captured[0].body
       ))
@@ -1561,5 +1585,49 @@ private class JiraAdapterTest {
       result.confirmedFields,
       'So the priority stays pending, with the reason.'
     );
+  }
+
+  // ---------- the source's timestamp of our write (build 09 step 5) ----------
+
+  @IsTest
+  static void aPushThatWroteReportsJirasOwnUpdatedTime() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+    mock.currentUpdated = '2026-09-25T18:06:28.592-0700';
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(editedItem(), new Set<SyncField>{ SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual('GET', mock.lastCall().method);
+    Assert.isTrue(
+      mock.lastCall().endpoint.endsWith('/issue/10023?fields=updated'),
+      'Read after the write, from Jira\'s own clock: ' +
+      mock.lastCall().endpoint
+    );
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 26, 1, 6, 28).getTime() + 592,
+      result.remoteUpdated.getTime(),
+      'Jira\'s updated, offset and milliseconds included.'
+    );
+  }
+
+  @IsTest
+  static void aPushThatWroteNothingReadsNothing() {
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.PUT_REFUSED);
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(editedItem(), new Set<SyncField>{ SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.isFalse(result.isSuccess());
+    Assert.areEqual(
+      1,
+      mock.callCount(),
+      'A refused PUT wrote nothing, so there is no echo coming and nothing to stamp.'
+    );
+    Assert.isNull(result.remoteUpdated);
   }
 }

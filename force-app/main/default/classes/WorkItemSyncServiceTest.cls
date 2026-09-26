@@ -179,7 +179,11 @@ private class WorkItemSyncServiceTest {
       SELECT HTTP_Method__c, Status_Code__c, Is_Success__c, Work_Item__c
       FROM Integration_Log__c
     ];
-    Assert.areEqual(4, logs.size(), 'Two items at two callouts each.');
+    Assert.areEqual(
+      6,
+      logs.size(),
+      'Two items at three callouts each: list, transition, and the timestamp read.'
+    );
     for (Integration_Log__c log : logs) {
       Assert.isTrue(log.Is_Success__c, 'All calls succeeded.');
       Assert.isNotNull(
@@ -703,7 +707,7 @@ private class WorkItemSyncServiceTest {
   }
 
   @IsTest
-  static void aTitleOnlyPushCostsOneCallout() {
+  static void aTitleOnlyPushCostsOneWriteAndOneRead() {
     List<Work_Item__c> items = seed(1, 'In Progress');
     update new Work_Item__c(Id = items[0].Id, Pending_Push_Fields__c = 'TITLE');
     Test.setMock(
@@ -719,7 +723,11 @@ private class WorkItemSyncServiceTest {
     Integer used = Limits.getCallouts() - before;
     Test.stopTest();
 
-    Assert.areEqual(1, used, 'One PUT; a title needs no transition.');
+    Assert.areEqual(
+      2,
+      used,
+      'One PUT and the timestamp read; a title needs no transition.'
+    );
     Assert.areEqual('Synced', stored().Sync_Status__c);
   }
 
@@ -1001,5 +1009,135 @@ private class WorkItemSyncServiceTest {
     Test.stopTest();
 
     Assert.areEqual(0, queued);
+  }
+
+  // ---------- the late echo (build 09 step 5) ----------
+
+  private static Work_Item__c stamped() {
+    return [
+      SELECT Remote_Last_Modified__c, Priority__c, Sync_Status__c
+      FROM Work_Item__c
+      LIMIT 1
+    ];
+  }
+
+  @IsTest
+  static void theWriteBackStampsTheSourcesTimeAndNeverMovesItBack() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'TITLE',
+      Remote_Last_Modified__c = Datetime.newInstanceGmt(2026, 9, 20, 9, 0, 0)
+    );
+    JiraCalloutMock mock = new JiraCalloutMock(
+      JiraCalloutMock.Scenario.TRANSITION_OK
+    );
+    mock.currentUpdated = '2026-09-20T10:05:07.250+0000';
+    Test.setMock(HttpCalloutMock.class, mock);
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    Test.stopTest();
+
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 20, 10, 5, 7),
+      stamped().Remote_Last_Modified__c,
+      'Jira\'s own time for what was written - stored, like every Datetime, to the second.'
+    );
+  }
+
+  @IsTest
+  static void aStampOlderThanWhatIsHeldIsNotWritten() {
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    Datetime newer = Datetime.newInstanceGmt(2026, 9, 20, 11, 0, 0);
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Pending_Push_Fields__c = 'TITLE',
+      Remote_Last_Modified__c = newer
+    );
+    JiraCalloutMock mock = new JiraCalloutMock(
+      JiraCalloutMock.Scenario.TRANSITION_OK
+    );
+    mock.currentUpdated = '2026-09-20T10:05:07.250+0000';
+    Test.setMock(HttpCalloutMock.class, mock);
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    Test.stopTest();
+
+    Assert.areEqual(
+      newer,
+      stamped().Remote_Last_Modified__c,
+      'Forward only: a delivery already applied something newer.'
+    );
+  }
+
+  @IsTest
+  static void aLateEchoOfAnEarlierPushNoLongerRevertsTheField() {
+    // WI-0003, 26 September: High saved, then none. The echo of the High save was processed
+    // after the none push had landed, counted as newer, and showed High/Synced while Jira held
+    // the en dash. Replayed here with the stamp in place.
+    FieldMappingService.reset();
+    FieldMappingService.injected = JiraWebhookPayloadFactory.priorityMappings();
+    List<Work_Item__c> items = seed(1, 'In Progress');
+    String rawId = ExternalIdUtil.rawIdOf(items[0].External_Id__c);
+    update new Work_Item__c(
+      Id = items[0].Id,
+      Priority__c = null,
+      Pending_Push_Fields__c = 'PRIORITY',
+      Remote_Last_Modified__c = Datetime.newInstanceGmt(2026, 9, 26, 1, 5, 0)
+    );
+    JiraCalloutMock mock = new JiraCalloutMock(
+      JiraCalloutMock.Scenario.TRANSITION_OK
+    );
+    // The none push lands at 01:06:28; the High push landed at 01:06:03.
+    mock.currentUpdated = '2026-09-26T01:06:28.592+0000';
+    Test.setMock(HttpCalloutMock.class, mock);
+
+    Test.startTest();
+    WorkItemSyncService.pushPending(reread());
+    // Then the High save's echo, late.
+    Webhook_Event__c lateEcho = JiraWebhookPayloadFactory.delivery(
+      JiraWebhookPayloadFactory.issueUpdatedWithFields(
+        rawId,
+        'DOPP-17',
+        'In Progress',
+        Datetime.newInstanceGmt(2026, 9, 26, 1, 6, 3),
+        new Map<String, Object>{
+          'priority' => JiraWebhookPayloadFactory.priority('2', 'High')
+        }
+      )
+    );
+    insert lateEcho;
+    WorkItemInboundProcessor.process(
+      [
+        SELECT
+          Id,
+          Source_System__c,
+          Raw_Payload__c,
+          Processing_Status__c,
+          Signature_Valid__c,
+          Retry_Count__c
+        FROM Webhook_Event__c
+        WHERE Id = :lateEcho.Id
+      ]
+    );
+    Test.stopTest();
+
+    Assert.isNull(
+      stamped().Priority__c,
+      'The late echo is older than the stamp and changes nothing.'
+    );
+    Assert.areEqual('Synced', stamped().Sync_Status__c);
+    Webhook_Event__c retired = [
+      SELECT Processing_Status__c
+      FROM Webhook_Event__c
+      WHERE Id = :lateEcho.Id
+    ];
+    Assert.areEqual(
+      'Ignored',
+      retired.Processing_Status__c,
+      'Retired by the timestamp check, as a stale delivery.'
+    );
   }
 }

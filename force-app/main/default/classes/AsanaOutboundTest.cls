@@ -91,8 +91,9 @@ private class AsanaOutboundTest {
       mock.captured[0].body
     );
     Assert.isTrue(
-      mock.captured[1].endpoint.endsWith('/tasks/' + TASK_GID),
-      'Then the completion flag on the task itself: ' +
+      mock.captured[1]
+        .endpoint.endsWith('/tasks/' + TASK_GID + '?opt_fields=modified_at'),
+      'Then the completion flag on the task itself, asking for modified_at back: ' +
       mock.captured[1].endpoint
     );
     Assert.areEqual('PUT', mock.captured[1].method);
@@ -515,7 +516,10 @@ private class AsanaOutboundTest {
     Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
     Assert.areEqual(1, mock.callCount(), 'No section move without a status.');
     Assert.areEqual('PUT', mock.captured[0].method);
-    Assert.isTrue(mock.captured[0].endpoint.endsWith('/tasks/' + TASK_GID));
+    Assert.isTrue(
+      mock.captured[0]
+        .endpoint.endsWith('/tasks/' + TASK_GID + '?opt_fields=modified_at')
+    );
     Map<String, Object> data = dataOf(mock.captured[0]);
     Assert.areEqual(
       new Set<String>{ 'name', 'due_on' },
@@ -754,6 +758,32 @@ private class AsanaOutboundTest {
     Assert.areEqual(
       new Set<SyncField>{ SyncField.TITLE },
       result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void theTaskUpdateAsksForModifiedAtAndReportsIt() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Title__c = 'Deep Work by Cal Newport';
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    mock.modifiedAt = '2026-09-26T01:10:35.325Z';
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.TITLE });
+    Test.stopTest();
+
+    Assert.areEqual(1, mock.callCount(), 'No second callout for it.');
+    Assert.isTrue(
+      mock.captured[0]
+        .endpoint.endsWith('/tasks/' + TASK_GID + '?opt_fields=modified_at'),
+      mock.captured[0].endpoint
+    );
+    Assert.areEqual(
+      Datetime.newInstanceGmt(2026, 9, 26, 1, 10, 35).getTime() + 325,
+      result.remoteUpdated.getTime()
     );
   }
 }

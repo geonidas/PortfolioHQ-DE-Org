@@ -838,13 +838,18 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     }
 
     Integer statusCode = null;
+    Datetime modifiedAt = null;
     if (!taskUpdate.isEmpty()) {
       HttpResponse updated;
       String phase = describeUpdate(taskUpdate, sectionGid);
       try {
+        // modified_at comes back on the same call, so the write-back can stamp Asana's own time
+        // for what was just written (SyncResult.remoteUpdated) without a second callout.
         updated = send(
           'PUT',
-          '/tasks/' + EncodingUtil.urlEncode(rawId, 'UTF-8'),
+          '/tasks/' +
+            EncodingUtil.urlEncode(rawId, 'UTF-8') +
+            '?opt_fields=modified_at',
           JSON.serialize(new Map<String, Object>{ 'data' => taskUpdate })
         );
       } catch (Exception e) {
@@ -862,6 +867,7 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
         if (updated.getStatusCode() >= 200 && updated.getStatusCode() < 300) {
           confirmed.addAll(riding);
           statusCode = updated.getStatusCode();
+          modifiedAt = modifiedAtOf(updated);
         } else {
           failure = combine(failure, toFailure(updated, phase));
         }
@@ -872,7 +878,25 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
       ? SyncResult.pushed(confirmed, statusCode)
       : failure;
     result.confirmedFields = confirmed;
+    result.remoteUpdated = modifiedAt;
     return stamp(result, item, externalId);
+  }
+
+  /**
+   * Asana's modified_at from a task update's response, or null. Asana hydrates every inbound
+   * event with the task as it is NOW, so a late echo already carries current values here; the
+   * stamp keeps the two adapters' contracts the same at no cost.
+   */
+  private static Datetime modifiedAtOf(HttpResponse response) {
+    try {
+      Map<String, Object> body = asMap(
+        JSON.deserializeUntyped(response.getBody())
+      );
+      Map<String, Object> data = body == null ? null : asMap(body.get('data'));
+      return data == null ? null : parseIso(asString(data.get('modified_at')));
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   /**

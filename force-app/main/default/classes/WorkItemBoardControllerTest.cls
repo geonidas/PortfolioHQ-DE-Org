@@ -671,7 +671,11 @@ private class WorkItemBoardControllerTest {
       ],
       'One push. The sync\'s own write-back changes no pushable field, so it queues nothing.'
     );
-    Assert.areEqual(1, mock.callCount(), 'One PUT, nothing else.');
+    Assert.areEqual(
+      2,
+      mock.callCount(),
+      'One PUT, then the read of Jira\'s updated timestamp; nothing else.'
+    );
     Assert.areEqual('PUT', mock.captured[0].method);
     Work_Item__c after = reread(item.Id);
     Assert.areEqual('Synced', after.Sync_Status__c, 'Jira confirmed it.');
@@ -1089,7 +1093,11 @@ private class WorkItemBoardControllerTest {
     WorkItemBoardController.saveDetails(item.Id, 'Retitled', '', '', 'Low');
     Test.stopTest(); // runs the queued push
 
-    Assert.areEqual(1, mock.callCount(), 'One save, one job, one PUT.');
+    Assert.areEqual(
+      2,
+      mock.callCount(),
+      'One save, one job, one PUT - and the timestamp read after it.'
+    );
     Map<String, Object> fields = (Map<String, Object>) ((Map<String, Object>) JSON.deserializeUntyped(
         mock.captured[0].body
       ))
@@ -1159,6 +1167,36 @@ private class WorkItemBoardControllerTest {
     Assert.isTrue(
       result.fieldErrors.get('priority').contains('does not hold a priority'),
       String.valueOf(result.fieldErrors)
+    );
+  }
+
+  @IsTest
+  static void anInternalCardCarriesPriorityRankAndWhetherItCanEditOne() {
+    Project__c project = seedProject('PRI');
+    Work_Item__c item = seedItems(1, project.Id, 'To Do')[0];
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(Id = item.Id, Priority__c = 'Low');
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+
+    Test.startTest();
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    Test.stopTest();
+
+    WorkItemBoardController.BoardCard card = board.items[0];
+    Assert.areEqual('Low', card.priority);
+    Assert.areEqual(
+      3,
+      card.priorityRank,
+      'Third in the picklist, so third in the sort.'
+    );
+    Assert.isTrue(
+      card.supportsPriority,
+      'From Board_Source__mdt: the editor reads this, never the source\'s name.'
     );
   }
 }

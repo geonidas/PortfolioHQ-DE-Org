@@ -181,6 +181,37 @@ none is refused, as a start date is.
 saved, and push the en dash to Jira - silently, since every save would succeed. Step 6's editor
 sends `''` for "No priority"; its live check is where blank surviving the trip is proven.
 
+### A push stamps the source's own time for what it wrote (step 5)
+
+**Context.** Step 3's live check found a race older than priority. A push left
+`Remote_Last_Modified__c` where the last delivery had put it, so the echo of an earlier push that
+was processed after a later push had landed counted as newer, was applied, and showed the earlier
+value as Synced until the later echo arrived. Every pushed field was exposed; the owner chose to
+fix it in step 5 rather than carry it to version 2.
+
+**Decision.** Each adapter reports the source's own timestamp of what it wrote
+(`SyncResult.remoteUpdated`), and the write-back stores it on `Remote_Last_Modified__c`, forward
+only. Jira reads `?fields=updated` after a push that wrote anything - one more callout, four at
+most per item, chunks of 25. Asana asks for `modified_at` on the task update it already sends.
+
+**Rejected.** Salesforce's own clock at push time, which costs no callout but puts two vendors'
+clocks into one comparison. Jira's `returnIssue=true`, which would have saved the read - probed
+live, it returns only the edited fields and no `updated`. Doing nothing: the race converges, but
+for a while the card claims Synced with a value the source no longer holds.
+
+**Consequences.** The late echo is retired by the timestamp check it used to pass; the echo of the
+push itself still applies, and carries any Jira edit made just before the push with it. Asana was
+never exposed - it hydrates every event with the current task - and is stamped for symmetry. Two
+windows remain, milliseconds wide or one in a thousand, described in the handoff. Proved by a
+replay test and live: WI-0003's "none" echo re-delivered after a Low push came back Ignored.
+
+**Revisit in version 2.** The stamp shrinks the race; it does not remove it. Two pushes in the same
+second, a Jira edit between our write and the read, an echo on exactly `.000`, and two inbound jobs
+on one issue at once can still apply a stale value until the next delivery. The owner chose to
+launch with that (2026-09-25). The fix that removes the class is to hydrate Jira deliveries as
+Asana's are - read the issue as it is now - and lock the row for the comparison; the handoff's open
+items give the costs and a smaller alternative.
+
 ## Found at step 0
 
 **Jira accepts a priority on every DOPP issue type, whatever `editmeta` says.** `editmeta` offers

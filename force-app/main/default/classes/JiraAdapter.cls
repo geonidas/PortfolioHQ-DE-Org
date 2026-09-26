@@ -539,8 +539,9 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
   // ---------- outbound ----------
 
   /**
-   * Push the changed fields, as at most three callouts: one PUT for every field edit, then the
-   * two-step transition for a status.
+   * Push the changed fields, as at most four callouts: one PUT for every field edit, then the
+   * two-step transition for a status, then - only when something was written - one read of the
+   * issue's updated timestamp for the write-back to stamp (see SyncResult.remoteUpdated).
    *
    * Field edits go first. Some Jira workflows make an issue read-only once it is in Done, so an
    * edit sent after a transition into Done could be refused where the same edit sent before it
@@ -562,6 +563,8 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     Set<SyncField> confirmed = new Set<SyncField>();
     SyncResult failure = null;
     Integer lastStatusCode = null;
+    // Whether Jira now holds something this push wrote, and so will send an echo of it.
+    Boolean wrote = false;
 
     Set<SyncField> edits = new Set<SyncField>(changed);
     edits.remove(SyncField.STATUS);
@@ -618,6 +621,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         if (edited == null) {
           confirmed.addAll(edits);
           lastStatusCode = 204;
+          wrote = true;
         } else {
           failure = combine(failure, edited);
         }
@@ -630,6 +634,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       if (moved.isSuccess()) {
         confirmed.add(SyncField.STATUS);
         lastStatusCode = moved.statusCode;
+        wrote = wrote || moved.outcome == SyncResult.Outcome.SUCCESS;
       } else {
         failure = combine(failure, moved);
       }
@@ -650,7 +655,46 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
       result = SyncResult.pushed(confirmed, lastStatusCode);
     }
     result.confirmedFields = confirmed;
+    if (wrote) {
+      result.remoteUpdated = readUpdated(item, rawId);
+    }
     return stamp(result, item, externalId);
+  }
+
+  /**
+   * When Jira says the issue last changed, read straight after a push that wrote to it.
+   *
+   * A read because nothing cheaper answers: the edit and the transition both return 204 with no
+   * body, and PUT with returnIssue=true returns only the edited fields, without updated - probed
+   * live in build 09 step 5. It is the source's own clock, not Salesforce's, so no skew between
+   * the two enters the comparison the stamp is for. Null when the read fails: the push itself
+   * stands, and the record keeps whatever stamp it had.
+   *
+   * The one window it leaves: an edit made in Jira between our write and this read is stamped
+   * over, and its own delivery then counts as old. Milliseconds wide, in a system one person
+   * drives from both ends.
+   */
+  private Datetime readUpdated(Work_Item__c item, String rawId) {
+    try {
+      HttpResponse response = send(
+        'GET',
+        issuePath(rawId) + '?fields=updated',
+        null,
+        item.Id
+      );
+      if (response.getStatusCode() != 200) {
+        return null;
+      }
+      Map<String, Object> body = asMap(
+        JSON.deserializeUntyped(response.getBody())
+      );
+      Map<String, Object> fields = body == null
+        ? null
+        : asMap(body.get('fields'));
+      return fields == null ? null : parseIso(asString(fields.get('updated')));
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   /** One PUT carrying every field edit. Null on success; the failure otherwise. */

@@ -134,6 +134,10 @@ public with sharing class PublicBoardController {
     // midnight - the previous day west of Greenwich.
     card.startDate = IsoDate.format(record.Start_Date__c);
     card.dueDate = IsoDate.format(record.Due_Date__c);
+    // Build 09: the label to show and the number to sort on. The order lives in
+    // WorkItemPriority, read from the picklist, so the client never compares a name.
+    card.priority = WorkItemPriority.labelOf(record.Priority__c);
+    card.priorityRank = WorkItemPriority.rankOf(record.Priority__c);
     return card;
   }
 
@@ -203,6 +207,17 @@ public with sharing class PublicBoardController {
     /** YYYY-MM-DD, or null. */
     @AuraEnabled
     public String dueDate { get; set; }
+
+    /**
+     * The priority's label, or null for none. Build 09 step 5, added with the key-set assertion
+     * failing first. Epics carry none: EpicRollup does not roll priority up (decision 7).
+     */
+    @AuraEnabled
+    public String priority { get; set; }
+
+    /** 1, 2 or 3 in priority order, or null for none: what the client sorts on (decision 6). */
+    @AuraEnabled
+    public Integer priorityRank { get; set; }
 
     // lastSyncedAt was here until build 08 step 5. The card's "Updated" line was its only
     // reader and the redesign removes that line; the board-level lastSyncedAt stays for the

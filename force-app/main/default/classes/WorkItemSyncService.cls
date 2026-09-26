@@ -10,15 +10,16 @@
  */
 public with sharing class WorkItemSyncService {
   /**
-   * Items per transaction. Up to three callouts each against a limit of 100 - a Jira field edit
-   * plus a two-step transition - so 33 is the count ceiling. Two until build 08, when title and
-   * date edits became pushable. The tighter real constraint may be the platform's 120 seconds of
+   * Items per transaction. Up to four callouts each against a limit of 100 - a Jira field edit, a
+   * two-step transition, and the read of Jira's updated timestamp that the late-echo fix stamps -
+   * so 25 is the count ceiling. Two until build 08, when title and date edits became pushable;
+   * three until build 09 step 5. The tighter real constraint may be the platform's 120 seconds of
    * cumulative callout time, which is why calloutTimeBudgetMs exists rather than trusting this
    * number alone.
    */
-  public static final Integer DEFAULT_CHUNK_SIZE = 33;
+  public static final Integer DEFAULT_CHUNK_SIZE = 25;
 
-  private static final Integer CALLOUTS_PER_ITEM = 3;
+  private static final Integer CALLOUTS_PER_ITEM = 4;
 
   private static final Integer SYNC_ERROR_MAX = Work_Item__c.Sync_Error__c.getDescribe()
     .getLength();
@@ -203,7 +204,13 @@ public with sharing class WorkItemSyncService {
    *                                                the source refused stays pending
    *
    * Last_Synced__c moves only on success, so it keeps meaning "the last time Salesforce and the
-   * remote system actually agreed" rather than "the last time we tried". Synced is illegal beside
+   * remote system actually agreed" rather than "the last time we tried".
+   *
+   * Remote_Last_Modified__c takes the source's own timestamp of what this push wrote, when the
+   * adapter learned it, and only ever moves forward (build 09 step 5). That is what retires the
+   * late echo of an earlier push: it is older than the stamp, so inbound ignores it, where before
+   * it counted as newer and briefly reverted the field. The echo of THIS push still applies - it
+   * carries the fields' current values, including anything edited in the source just before. Synced is illegal beside
    * an Unspecified status (Sync_Status_Requires_Known_Status), so such a record stays Pending -
    * which is also what inbound sync calls it.
    */
@@ -223,7 +230,7 @@ public with sharing class WorkItemSyncService {
     }
     Set<Id> ids = byId.keySet();
     for (Work_Item__c current : [
-      SELECT Id, Status__c, Pending_Push_Fields__c
+      SELECT Id, Status__c, Pending_Push_Fields__c, Remote_Last_Modified__c
       FROM Work_Item__c
       WHERE Id IN :ids
       FOR UPDATE
@@ -238,6 +245,13 @@ public with sharing class WorkItemSyncService {
         Id = current.Id,
         Pending_Push_Fields__c = SyncFields.serialize(remaining)
       );
+      if (
+        result.remoteUpdated != null &&
+        (current.Remote_Last_Modified__c == null ||
+        result.remoteUpdated > current.Remote_Last_Modified__c)
+      ) {
+        updatedItem.Remote_Last_Modified__c = result.remoteUpdated;
+      }
       if (!result.isSuccess()) {
         updatedItem.Sync_Status__c = SyncStatus.FAILED;
         updatedItem.Sync_Error__c = Strings.truncate(

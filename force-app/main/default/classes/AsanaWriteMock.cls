@@ -28,6 +28,9 @@ public class AsanaWriteMock implements HttpCalloutMock {
       : statusCodes;
   }
 
+  /** What a successful write answers for modified_at, which a task update asks for (build 09). */
+  public String modifiedAt = '2026-09-21T12:00:05.123Z';
+
   public Integer callCount() {
     return captured.size();
   }
@@ -48,7 +51,9 @@ public class AsanaWriteMock implements HttpCalloutMock {
     response.setStatus(code == 200 ? 'OK' : 'Error');
     response.setBody(
       code == 200
-        ? '{"data":{"gid":"1210000000000042"}}'
+        ? '{"data":{"gid":"1210000000000042","modified_at":' +
+          JSON.serialize(modifiedAt) +
+          '}}'
         : '{"errors":[{"message":"Refused"}]}'
     );
     return response;

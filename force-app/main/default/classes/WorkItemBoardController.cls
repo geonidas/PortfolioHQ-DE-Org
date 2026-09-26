@@ -91,6 +91,9 @@ public with sharing class WorkItemBoardController {
     card.createdAt = item.Source_Created__c;
     card.startDate = IsoDate.format(item.Start_Date__c);
     card.dueDate = IsoDate.format(item.Due_Date__c);
+    card.priority = WorkItemPriority.labelOf(item.Priority__c);
+    card.priorityRank = WorkItemPriority.rankOf(item.Priority__c);
+    card.supportsPriority = rules.supportsPriority;
     return card;
   }
 
@@ -621,6 +624,12 @@ public with sharing class WorkItemBoardController {
     /** YYYY-MM-DD, or null. */
     @AuraEnabled
     public String dueDate { get; set; }
+    /** The priority's label, or null for none. Build 09. */
+    @AuraEnabled
+    public String priority { get; set; }
+    /** 1, 2 or 3 in priority order, or null for none: what the client sorts on. */
+    @AuraEnabled
+    public Integer priorityRank { get; set; }
 
     // Internal only.
     @AuraEnabled
@@ -637,6 +646,10 @@ public with sharing class WorkItemBoardController {
     /** Whether the card offers a start date editor. Apex refuses one either way. */
     @AuraEnabled
     public Boolean supportsStartDate { get; set; }
+    /** Whether the card offers a priority editor, from Board_Source__mdt. saveDetails refuses a
+     * priority for a source without one either way. */
+    @AuraEnabled
+    public Boolean supportsPriority { get; set; }
   }
 
   /** One epic on the internal board's Epics view: PublicEpic's fields, plus its id and number. */

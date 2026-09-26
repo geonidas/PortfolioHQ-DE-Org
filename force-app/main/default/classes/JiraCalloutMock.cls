@@ -26,6 +26,12 @@ public class JiraCalloutMock implements HttpCalloutMock {
    */
   public String currentStatus = 'To Do';
 
+  /**
+   * What the same read answers for fields.updated. The adapter reads it after a push that wrote
+   * something, and the write-back stamps it on Remote_Last_Modified__c (build 09 step 5).
+   */
+  public String currentUpdated = '2026-09-20T10:05:00.000+0000';
+
   /** Snapshot of one outbound call, taken at send time. */
   public class CapturedRequest {
     public String method;
@@ -91,7 +97,9 @@ public class JiraCalloutMock implements HttpCalloutMock {
           'OK',
           '{"id":"10023","key":"DOPP-1","fields":{"status":{"id":"1","name":' +
             JSON.serialize(currentStatus) +
-            '}}}'
+            '},"updated":' +
+            JSON.serialize(currentUpdated) +
+            '}}'
         );
       }
     }

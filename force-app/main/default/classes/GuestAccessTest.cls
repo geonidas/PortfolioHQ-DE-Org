@@ -102,7 +102,10 @@ private class GuestAccessTest {
       // public card shows: when the source created the work, when it starts, when it is due.
       'Work_Item__c.Source_Created__c',
       'Work_Item__c.Start_Date__c',
-      'Work_Item__c.Due_Date__c'
+      'Work_Item__c.Due_Date__c',
+      // Build 09 step 5, added after this assertion failed and named it. The priority a public
+      // card shows and sorts by; read only, like every field here.
+      'Work_Item__c.Priority__c'
     };
 
     Set<String> granted = new Set<String>();

@@ -36,6 +36,8 @@ public with sharing class PublicWorkItemSelector {
         Source_Created__c,
         Start_Date__c,
         Due_Date__c,
+        // Build 09: the priority a card shows and sorts by. Same query, same one-query budget.
+        Priority__c,
         // Read, never published as it is. The board asks BoardSourceRules about this system
         // and sends the answers - a label from Board_Source__mdt, an accent token, whether its
         // work condenses into epics - rather than the picklist value.
