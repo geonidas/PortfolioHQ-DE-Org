@@ -548,7 +548,8 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
    * Jira accepted.
    *
    * Only the changed fields travel, and a cleared date is sent as an explicit null, which is how
-   * Jira removes one.
+   * Jira removes one. The priority rides the same PUT as an id - a cleared one as the en dash's
+   * id, since a Jira issue cannot be without a priority (ADR build-09, decision 1).
    */
   public SyncResult push(Work_Item__c item, Set<SyncField> changed) {
     SyncResult rejection = validatePush(item, changed);
@@ -566,7 +567,7 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
     edits.remove(SyncField.STATUS);
     if (!edits.isEmpty()) {
       Map<String, Object> fields = new Map<String, Object>();
-      String unmapped = null;
+      List<String> unmapped = new List<String>();
       if (edits.contains(SyncField.TITLE)) {
         fields.put('summary', item.Title__c);
       }
@@ -577,17 +578,38 @@ public with sharing class JiraAdapter implements IWorkItemAdapter {
         String startField = startDateFieldId();
         if (startField == null) {
           edits.remove(SyncField.START_DATE);
-          unmapped =
+          unmapped.add(
             'No Field_Mapping__mdt row of type Field names the Jira field for Start_Date__c, ' +
-            'so the start date was not pushed. Add one - on this site it is customfield_10015.';
+            'so the start date was not pushed. Add one - on this site it is customfield_10015.'
+          );
         } else {
           fields.put(startField, IsoDate.format(item.Start_Date__c));
         }
       }
-      if (unmapped != null) {
+      if (edits.contains(SyncField.PRIORITY)) {
+        // By id, never by name; a blank finds the Maps_To_Blank row, the en dash.
+        String priorityId = FieldMappingService.externalValueFor(
+          ExternalSystem.JIRA,
+          FieldMappingService.PRIORITY,
+          item.Priority__c
+        );
+        if (priorityId == null) {
+          edits.remove(SyncField.PRIORITY);
+          unmapped.add(
+            'No Field_Mapping__mdt row of type Priority gives a Jira priority id for ' +
+              (String.isBlank(item.Priority__c)
+                ? 'no priority'
+                : '"' + item.Priority__c + '"') +
+              ', so the priority was not pushed.'
+          );
+        } else {
+          fields.put('priority', new Map<String, Object>{ 'id' => priorityId });
+        }
+      }
+      if (!unmapped.isEmpty()) {
         failure = SyncResult.failure(
           SyncResult.Outcome.BAD_REQUEST,
-          unmapped,
+          String.join(unmapped, ' '),
           null
         );
       }

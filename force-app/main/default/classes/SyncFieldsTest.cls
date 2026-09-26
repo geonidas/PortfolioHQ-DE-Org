@@ -128,4 +128,40 @@ private class SyncFieldsTest {
     );
     Assert.areEqual('nothing', SyncFields.describe(new Set<SyncField>()));
   }
+
+  @IsTest
+  static void aPriorityChangeIsItsOwnChangeClearingIncluded() {
+    Work_Item__c none = item('To Do', 'A', null, null);
+    Work_Item__c high = item('To Do', 'A', null, null);
+    high.Priority__c = 'High';
+    Work_Item__c low = item('To Do', 'A', null, null);
+    low.Priority__c = 'Low';
+
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.PRIORITY },
+      SyncFields.changedBetween(high, none),
+      'Set.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.PRIORITY },
+      SyncFields.changedBetween(none, high),
+      'Cleared is a change too: it pushes as the source\'s none.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.PRIORITY },
+      SyncFields.changedBetween(low, high)
+    );
+    Assert.isTrue(SyncFields.changedBetween(high, high).isEmpty());
+    Assert.areEqual(
+      'priority',
+      SyncFields.describe(new Set<SyncField>{ SyncField.PRIORITY })
+    );
+    Assert.areEqual(
+      'TITLE;PRIORITY',
+      SyncFields.serialize(
+        new Set<SyncField>{ SyncField.PRIORITY, SyncField.TITLE }
+      ),
+      'Stored in declaration order, PRIORITY last: added, never renamed.'
+    );
+  }
 }

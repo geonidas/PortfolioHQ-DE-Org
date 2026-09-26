@@ -269,7 +269,7 @@ public with sharing class WorkItemBoardController {
   }
 
   /**
-   * Save title, start date and due date from the expanded card.
+   * Save title, start date, due date and priority from the expanded card.
    *
    * Writes the fields that actually changed and nothing else, in USER_MODE, and leaves the push
    * to WorkItemTrigger exactly as changeStatus does: the trigger records the changed fields and
@@ -286,17 +286,26 @@ public with sharing class WorkItemBoardController {
    * Dates travel as YYYY-MM-DD strings, never as a Date the browser built: new Date('YYYY-MM-DD')
    * is UTC midnight, which is the previous day west of Greenwich.
    *
+   * The priority is the one argument where null and blank differ (build 09). Blank is "no
+   * priority", and pushes as each source's none. Null is "not sent": the card before build 09
+   * calls with four arguments, and so does a board left open in a tab from before an update. Read
+   * as none, the missing fifth argument would clear the priority of every record such a card
+   * saved - and push the en dash to Jira. A priority set on a source whose Board_Source__mdt says
+   * it has none is refused, as a start date is.
+   *
    * @param workItemId the record to save
    * @param title      the title as typed; trimmed
    * @param startDate  YYYY-MM-DD, or blank for none
    * @param dueDate    YYYY-MM-DD, or blank for none
+   * @param priority   a Priority__c value, blank for none, or null to leave it as it is
    */
   @AuraEnabled
   public static DetailSaveResult saveDetails(
     Id workItemId,
     String title,
     String startDate,
-    String dueDate
+    String dueDate,
+    String priority
   ) {
     if (workItemId == null) {
       throw new AuraHandledException('No work item was supplied.');
@@ -363,6 +372,8 @@ public with sharing class WorkItemBoardController {
         );
       }
 
+      String chosenPriority = readPriority(priority, current, source, result);
+
       if (!result.fieldErrors.isEmpty()) {
         result.saved = false;
         result.syncStatus = current.Sync_Status__c;
@@ -385,6 +396,10 @@ public with sharing class WorkItemBoardController {
       }
       if (due != current.Due_Date__c) {
         patch.Due_Date__c = due;
+        anyChange = true;
+      }
+      if (priority != null && chosenPriority != current.Priority__c) {
+        patch.Priority__c = chosenPriority;
         anyChange = true;
       }
       if (!anyChange) {
@@ -433,6 +448,54 @@ public with sharing class WorkItemBoardController {
     Work_Item__c.Title__c.getDescribe().getLength(),
     255
   );
+
+  /**
+   * The Priority__c value a saveDetails priority argument asks for: the picklist's own spelling,
+   * or null for blank. Null in is null out, and the caller leaves the field alone for it.
+   *
+   * Matched against the picklist, case-insensitively, rather than a list of names: no priority
+   * name is written in Apex (ADR build-09, decision 2). An unknown value, or a value for a source
+   * that holds no priority, is a field error saying how to fix it.
+   */
+  private static String readPriority(
+    String priority,
+    Work_Item__c current,
+    BoardSourceRules.Source source,
+    DetailSaveResult result
+  ) {
+    if (String.isBlank(priority)) {
+      return null;
+    }
+    Map<String, String> byLowerCase = new Map<String, String>();
+    List<String> labels = new List<String>();
+    for (
+      Schema.PicklistEntry entry : Work_Item__c.Priority__c.getDescribe()
+        .getPicklistValues()
+    ) {
+      if (entry.isActive()) {
+        byLowerCase.put(entry.getValue().toLowerCase(), entry.getValue());
+        labels.add(entry.getLabel());
+      }
+    }
+    String chosen = byLowerCase.get(priority.trim().toLowerCase());
+    if (chosen == null) {
+      result.fieldErrors.put(
+        'priority',
+        '"' +
+          priority.trim() +
+          '" is not a priority. Choose ' +
+          String.join(labels, ', ') +
+          ' or No priority.'
+      );
+    } else if (!source.supportsPriority && chosen != current.Priority__c) {
+      result.fieldErrors.put(
+        'priority',
+        (String.isBlank(source.label) ? 'This source' : source.label) +
+        ' does not hold a priority. Choose No priority to save.'
+      );
+    }
+    return chosen;
+  }
 
   private static Date readDay(
     String value,

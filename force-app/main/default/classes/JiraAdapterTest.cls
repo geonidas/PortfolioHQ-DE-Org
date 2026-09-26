@@ -1465,4 +1465,101 @@ private class JiraAdapterTest {
     );
     Assert.areEqual(0, adapter.drainLogs().size());
   }
+
+  // ---------- priority, outbound (build 09) ----------
+
+  @IsTest
+  static void aPriorityOnlySaveSendsOnlyThePriorityById() {
+    mapJiraPriorities();
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+    // Blank last: none in Salesforce goes out as the en dash (decision 1).
+    Map<String, String> idByValue = new Map<String, String>{
+      'High' => '2',
+      'Medium' => '3',
+      'Low' => '4',
+      null => '10000'
+    };
+    List<String> order = new List<String>{ 'High', 'Medium', 'Low', null };
+
+    Test.startTest();
+    List<SyncResult> results = new List<SyncResult>();
+    for (String value : order) {
+      Work_Item__c item = editedItem();
+      item.Priority__c = value;
+      results.add(
+        new JiraAdapter().push(item, new Set<SyncField>{ SyncField.PRIORITY })
+      );
+    }
+    Test.stopTest();
+
+    Assert.areEqual(4, mock.callCount(), 'One PUT per push, and nothing else.');
+    for (Integer i = 0; i < order.size(); i++) {
+      Assert.isTrue(results[i].isSuccess(), 'Failure: ' + results[i].message);
+      Assert.areEqual('PUT', mock.captured[i].method);
+      Assert.areEqual(
+        '{"fields":{"priority":{"id":"' + idByValue.get(order[i]) + '"}}}',
+        mock.captured[i].body,
+        'Only the priority, by id, for ' + order[i]
+      );
+      Assert.areEqual(
+        new Set<SyncField>{ SyncField.PRIORITY },
+        results[i].confirmedFields
+      );
+    }
+  }
+
+  @IsTest
+  static void aTitleAndPrioritySaveIsOnePutCarryingBoth() {
+    mapJiraPriorities();
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+    Work_Item__c item = editedItem();
+    item.Priority__c = 'High';
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(item, new Set<SyncField>{ SyncField.TITLE, SyncField.PRIORITY });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(1, mock.callCount(), 'One PUT.');
+    Map<String, Object> fields = (Map<String, Object>) ((Map<String, Object>) JSON.deserializeUntyped(
+        mock.captured[0].body
+      ))
+      .get('fields');
+    Assert.areEqual(new Set<String>{ 'summary', 'priority' }, fields.keySet());
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE, SyncField.PRIORITY },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void aPriorityWithNoMappingIsRefusedWhileTheRestStillGoes() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = new List<Field_Mapping__mdt>();
+    JiraCalloutMock mock = mockFor(JiraCalloutMock.Scenario.TRANSITION_OK);
+    Work_Item__c item = editedItem();
+    item.Priority__c = 'High';
+
+    Test.startTest();
+    SyncResult result = new JiraAdapter()
+      .push(item, new Set<SyncField>{ SyncField.TITLE, SyncField.PRIORITY });
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.BAD_REQUEST, result.outcome);
+    Assert.isTrue(
+      result.message.contains('type Priority'),
+      'Says what to add: ' + result.message
+    );
+    Assert.areEqual(
+      '{"fields":{"summary":"Render work items on the board"}}',
+      mock.captured[0].body,
+      'The title still goes, alone - an unmapped priority is never guessed.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE },
+      result.confirmedFields,
+      'So the priority stays pending, with the reason.'
+    );
+  }
 }

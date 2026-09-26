@@ -24,7 +24,9 @@ public with sharing class WorkItemSelector {
     // LastModifiedDate orders the completed epics EpicRollup keeps, as on the public board.
     'Sync_Error__c, LastModifiedDate, ' +
     // Build 08 step 8: whether a Failed record has anything left to send again.
-    'Pending_Push_Fields__c';
+    'Pending_Push_Fields__c, ' +
+    // Build 09: what saveDetails compares a priority edit against, and what the cards show.
+    'Priority__c';
 
   /**
    * One query, whether or not a project was supplied.

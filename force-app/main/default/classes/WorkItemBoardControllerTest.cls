@@ -616,7 +616,8 @@ private class WorkItemBoardControllerTest {
       item.Id,
       '  Render work items on the board  ',
       '',
-      '2026-10-01'
+      '2026-10-01',
+      null
     );
     Work_Item__c staged = reread(item.Id);
     Test.stopTest();
@@ -658,7 +659,7 @@ private class WorkItemBoardControllerTest {
     Work_Item__c item = jiraItem();
 
     Test.startTest();
-    WorkItemBoardController.saveDetails(item.Id, 'Retitled', '', '');
+    WorkItemBoardController.saveDetails(item.Id, 'Retitled', '', '', null);
     Test.stopTest(); // runs the queued push
 
     Assert.areEqual(
@@ -686,7 +687,8 @@ private class WorkItemBoardControllerTest {
       item.Id,
       'Seeded work item 1',
       '2026-09-01',
-      ''
+      '',
+      null
     );
     Test.stopTest();
 
@@ -708,7 +710,8 @@ private class WorkItemBoardControllerTest {
       item.Id,
       'Seeded work item 1',
       '2026-10-05',
-      '2026-10-01'
+      '2026-10-01',
+      null
     );
     Test.stopTest();
 
@@ -729,13 +732,15 @@ private class WorkItemBoardControllerTest {
       item.Id,
       '    ',
       '',
-      ''
+      '',
+      null
     );
     WorkItemBoardController.DetailSaveResult tooLong = WorkItemBoardController.saveDetails(
       item.Id,
       'x'.repeat(WorkItemBoardController.TITLE_MAX + 1),
       '',
-      ''
+      '',
+      null
     );
     Test.stopTest();
 
@@ -764,7 +769,8 @@ private class WorkItemBoardControllerTest {
       item.Id,
       'Seeded work item 1',
       '',
-      '2026-02-30'
+      '2026-02-30',
+      null
     );
     Test.stopTest();
 
@@ -786,7 +792,8 @@ private class WorkItemBoardControllerTest {
       item.Id,
       'Seeded work item 1',
       '',
-      ''
+      '',
+      null
     );
     Integer queued = Limits.getQueueableJobs() - before;
     Test.stopTest();
@@ -800,7 +807,7 @@ private class WorkItemBoardControllerTest {
   @IsTest
   static void saveDetailsRefusesAMissingId() {
     try {
-      WorkItemBoardController.saveDetails(null, 'Title', '', '');
+      WorkItemBoardController.saveDetails(null, 'Title', '', '', null);
       Assert.fail('A missing id should be refused.');
     } catch (AuraHandledException e) {
       Assert.isNotNull(e.getMessage());
@@ -956,6 +963,202 @@ private class WorkItemBoardControllerTest {
       4,
       internal.items.size(),
       'The internal task view keeps every card, the epic included.'
+    );
+  }
+
+  // ---------- saving a priority (build 09) ----------
+
+  private static Work_Item__c withPriority(String priority) {
+    Work_Item__c item = jiraItem();
+    SyncContext.suppressOutbound();
+    try {
+      update new Work_Item__c(Id = item.Id, Priority__c = priority);
+    } finally {
+      SyncContext.resumeOutbound();
+    }
+    return item;
+  }
+
+  private static Work_Item__c priorityOf(Id itemId) {
+    return [
+      SELECT Priority__c, Title__c, Sync_Status__c, Pending_Push_Fields__c
+      FROM Work_Item__c
+      WHERE Id = :itemId
+    ];
+  }
+
+  @IsTest
+  static void aPriorityIsSavedAndStagedAlone() {
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '',
+      '',
+      'high'
+    );
+    Work_Item__c staged = priorityOf(item.Id);
+    Test.stopTest();
+
+    Assert.isTrue(result.saved, result.message);
+    Assert.isTrue(result.pushQueued, 'The trigger queued the push.');
+    Assert.areEqual(
+      'High',
+      staged.Priority__c,
+      'Stored in the picklist\'s own spelling, whatever case it arrived in.'
+    );
+    Assert.areEqual(
+      'PRIORITY',
+      staged.Pending_Push_Fields__c,
+      'Only the priority waits to push.'
+    );
+    Assert.areEqual('Pending', staged.Sync_Status__c);
+  }
+
+  @IsTest
+  static void aNullPriorityLeavesItAloneWhateverElseIsSaved() {
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+    Work_Item__c item = withPriority('Medium');
+
+    Test.startTest();
+    // What the card before build 09 sends - and a board left open from before an update.
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Retitled',
+      '',
+      '',
+      null
+    );
+    Work_Item__c staged = priorityOf(item.Id);
+    Test.stopTest();
+
+    Assert.isTrue(result.saved, result.message);
+    Assert.areEqual(
+      'Medium',
+      staged.Priority__c,
+      'Not sent is not none. Read as none, every title edit from an older card would clear ' +
+      'the priority and push the en dash to Jira.'
+    );
+    Assert.areEqual('TITLE', staged.Pending_Push_Fields__c);
+  }
+
+  @IsTest
+  static void aBlankPriorityClearsItAndPushes() {
+    Test.setMock(
+      HttpCalloutMock.class,
+      new JiraCalloutMock(JiraCalloutMock.Scenario.TRANSITION_OK)
+    );
+    Work_Item__c item = withPriority('Medium');
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '',
+      '',
+      ''
+    );
+    Work_Item__c staged = priorityOf(item.Id);
+    Test.stopTest();
+
+    Assert.isTrue(result.saved, result.message);
+    Assert.isNull(staged.Priority__c, 'Blank is the explicit none.');
+    Assert.areEqual('PRIORITY', staged.Pending_Push_Fields__c);
+  }
+
+  @IsTest
+  static void aTitleAndPrioritySavedTogetherGoOutInOneCall() {
+    FieldMappingService.reset();
+    FieldMappingService.injected = JiraWebhookPayloadFactory.priorityMappings();
+    JiraCalloutMock mock = new JiraCalloutMock(
+      JiraCalloutMock.Scenario.TRANSITION_OK
+    );
+    Test.setMock(HttpCalloutMock.class, mock);
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.saveDetails(item.Id, 'Retitled', '', '', 'Low');
+    Test.stopTest(); // runs the queued push
+
+    Assert.areEqual(1, mock.callCount(), 'One save, one job, one PUT.');
+    Map<String, Object> fields = (Map<String, Object>) ((Map<String, Object>) JSON.deserializeUntyped(
+        mock.captured[0].body
+      ))
+      .get('fields');
+    Assert.areEqual(new Set<String>{ 'summary', 'priority' }, fields.keySet());
+    Assert.areEqual(
+      '4',
+      ((Map<String, Object>) fields.get('priority')).get('id'),
+      'Low, by id.'
+    );
+    Work_Item__c after = priorityOf(item.Id);
+    Assert.areEqual('Synced', after.Sync_Status__c, 'Jira confirmed both.');
+    Assert.isNull(after.Pending_Push_Fields__c);
+  }
+
+  @IsTest
+  static void anUnknownPriorityIsAFieldErrorAndSavesNothing() {
+    Work_Item__c item = withPriority('Medium');
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Retitled',
+      '',
+      '',
+      'Urgent'
+    );
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    String error = result.fieldErrors.get('priority');
+    Assert.isNotNull(error, String.valueOf(result.fieldErrors));
+    Assert.isTrue(
+      error.contains('"Urgent"') && error.contains('No priority'),
+      'Names what was sent and how to fix it, from the picklist: ' + error
+    );
+    Assert.areEqual(
+      'Seeded work item 1',
+      priorityOf(item.Id).Title__c,
+      'Nothing saved.'
+    );
+  }
+
+  @IsTest
+  static void aPriorityOnASourceWithoutOneIsRefused() {
+    BoardSourceRules.reset();
+    BoardSourceRules.injected = new List<Board_Source__mdt>{
+      new Board_Source__mdt(
+        External_System__c = 'Jira',
+        Display_Label__c = 'Jira',
+        Supports_Priority__c = false
+      )
+    };
+    Work_Item__c item = jiraItem();
+
+    Test.startTest();
+    WorkItemBoardController.DetailSaveResult result = WorkItemBoardController.saveDetails(
+      item.Id,
+      'Seeded work item 1',
+      '',
+      '',
+      'High'
+    );
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    Assert.isTrue(
+      result.fieldErrors.get('priority').contains('does not hold a priority'),
+      String.valueOf(result.fieldErrors)
     );
   }
 }

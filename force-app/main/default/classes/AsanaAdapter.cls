@@ -736,8 +736,8 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
    *   to Done     move the task to the Completed section AND set completed true
    *   out of Done move it to the target section AND set completed false
    *
-   * Title and due date ride on the same task update as the completion flag - name and due_on -
-   * so a status change plus an edit is still two callouts. Writing due_on clears any due TIME
+   * Title, due date and priority ride on the same task update as the completion flag - name,
+   * due_on and custom_fields - so a status change plus an edit is still two callouts. Writing due_on clears any due TIME
    * the task had (due_at): the board works in calendar days, and Asana holds one or the other.
    *
    * Never start_on. Start dates are a paid Asana feature this workspace does not have, and
@@ -779,6 +779,14 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     if (changed.contains(SyncField.DUE_DATE)) {
       taskUpdate.put('due_on', IsoDate.format(item.Due_Date__c));
       riding.add(SyncField.DUE_DATE);
+    }
+    if (changed.contains(SyncField.PRIORITY)) {
+      SyncResult priorityRejection = addPriority(item, taskUpdate);
+      if (priorityRejection == null) {
+        riding.add(SyncField.PRIORITY);
+      } else {
+        failure = combine(failure, priorityRejection);
+      }
     }
 
     String sectionGid = null;
@@ -867,6 +875,56 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     return stamp(result, item, externalId);
   }
 
+  /**
+   * The priority onto the task update, resolved before any callout (build 09).
+   *
+   * custom_fields keyed on the Priority field's gid, from its Field row, valued with the option
+   * gid a Priority row gives - or null for a blank priority, which is how Asana empties an enum
+   * field and is Asana's none. That last part is this class's knowledge, not the mapping table's:
+   * no row says "blank". A missing row refuses the priority alone, and the rest of the update
+   * still goes. Null on success.
+   */
+  private SyncResult addPriority(
+    Work_Item__c item,
+    Map<String, Object> taskUpdate
+  ) {
+    String fieldGid = FieldMappingService.externalValueFor(
+      SOURCE_SYSTEM,
+      FieldMappingService.FIELD,
+      PRIORITY_FIELD
+    );
+    if (String.isBlank(fieldGid)) {
+      return SyncResult.failure(
+        SyncResult.Outcome.BAD_REQUEST,
+        'No Field_Mapping__mdt row of type Field names the Asana custom field for Priority__c, ' +
+        'so the priority was not pushed.',
+        null
+      );
+    }
+    String optionGid = null;
+    if (String.isNotBlank(item.Priority__c)) {
+      optionGid = FieldMappingService.externalValueFor(
+        SOURCE_SYSTEM,
+        FieldMappingService.PRIORITY,
+        item.Priority__c
+      );
+      if (String.isBlank(optionGid)) {
+        return SyncResult.failure(
+          SyncResult.Outcome.BAD_REQUEST,
+          'No Field_Mapping__mdt row of type Priority gives an Asana option for "' +
+            item.Priority__c +
+            '", so the priority was not pushed.',
+          null
+        );
+      }
+    }
+    taskUpdate.put(
+      'custom_fields',
+      new Map<String, Object>{ fieldGid.trim() => optionGid }
+    );
+    return null;
+  }
+
   /** The section move. Null on success; the failure otherwise. */
   private SyncResult moveToSection(String rawId, String sectionGid) {
     HttpResponse moved;
@@ -916,6 +974,9 @@ public with sharing class AsanaAdapter implements IWorkItemAdapter {
     }
     if (taskUpdate.containsKey('due_on')) {
       parts.add('setting due_on');
+    }
+    if (taskUpdate.containsKey('custom_fields')) {
+      parts.add('setting the priority');
     }
     return String.join(parts, ' and ');
   }

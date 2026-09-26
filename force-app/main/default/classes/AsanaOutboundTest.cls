@@ -638,4 +638,122 @@ private class AsanaOutboundTest {
       result.confirmedFields
     );
   }
+
+  // ---------- priority (build 09) ----------
+
+  private static void mapStatusesAndPriorities() {
+    mapStatuses();
+    FieldMappingService.injected.addAll(AsanaPayloadFactory.priorityMappings());
+  }
+
+  @IsTest
+  static void aPriorityOnlySaveSendsOnlyThePriorityAsAnOptionGid() {
+    mapStatusesAndPriorities();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    Map<String, String> gidByValue = new Map<String, String>{
+      'High' => AsanaPayloadFactory.PRIORITY_HIGH,
+      'Medium' => AsanaPayloadFactory.PRIORITY_MEDIUM,
+      'Low' => AsanaPayloadFactory.PRIORITY_LOW,
+      null => null
+    };
+    List<String> order = new List<String>{ 'High', 'Medium', 'Low', null };
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    List<SyncResult> results = new List<SyncResult>();
+    for (String value : order) {
+      item.Priority__c = value;
+      results.add(
+        new AsanaAdapter().push(item, new Set<SyncField>{ SyncField.PRIORITY })
+      );
+    }
+    Test.stopTest();
+
+    Assert.areEqual(4, mock.callCount(), 'One task update per push.');
+    for (Integer i = 0; i < order.size(); i++) {
+      Assert.isTrue(results[i].isSuccess(), 'Failure: ' + results[i].message);
+      Map<String, Object> data = dataOf(mock.captured[i]);
+      Assert.areEqual(
+        new Set<String>{ 'custom_fields' },
+        data.keySet(),
+        'Only the priority - never completed, never the name.'
+      );
+      Map<String, Object> customFields = (Map<String, Object>) data.get(
+        'custom_fields'
+      );
+      Assert.areEqual(
+        new Set<String>{ AsanaPayloadFactory.PRIORITY_FIELD_GID },
+        customFields.keySet(),
+        'Keyed on the field gid.'
+      );
+      Assert.areEqual(
+        gidByValue.get(order[i]),
+        customFields.get(AsanaPayloadFactory.PRIORITY_FIELD_GID),
+        'The option gid for ' +
+          order[i] +
+          '; null empties the field, Asana\'s none.'
+      );
+      Assert.areEqual(
+        new Set<SyncField>{ SyncField.PRIORITY },
+        results[i].confirmedFields
+      );
+    }
+  }
+
+  @IsTest
+  static void aTitleAndPriorityAreOneTaskUpdate() {
+    mapStatusesAndPriorities();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Title__c = 'Deep Work by Cal Newport';
+    item.Priority__c = 'Low';
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.TITLE, SyncField.PRIORITY });
+    Test.stopTest();
+
+    Assert.isTrue(result.isSuccess(), 'Failure: ' + result.message);
+    Assert.areEqual(1, mock.callCount(), 'One write.');
+    Assert.areEqual(
+      new Set<String>{ 'name', 'custom_fields' },
+      dataOf(mock.captured[0]).keySet()
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE, SyncField.PRIORITY },
+      result.confirmedFields
+    );
+  }
+
+  @IsTest
+  static void withNoPriorityFieldRowThePriorityIsRefusedWhileTheRestStillGoes() {
+    mapStatuses();
+    Work_Item__c item = asanaItem(WorkItemStatus.IN_PROGRESS, false);
+    item.Title__c = 'Deep Work by Cal Newport';
+    item.Priority__c = 'High';
+
+    Test.startTest();
+    AsanaWriteMock mock = new AsanaWriteMock(200);
+    Test.setMock(HttpCalloutMock.class, mock);
+    SyncResult result = new AsanaAdapter()
+      .push(item, new Set<SyncField>{ SyncField.TITLE, SyncField.PRIORITY });
+    Test.stopTest();
+
+    Assert.areEqual(SyncResult.Outcome.BAD_REQUEST, result.outcome);
+    Assert.isTrue(
+      result.message.contains('type Field'),
+      'Says what to add: ' + result.message
+    );
+    Assert.areEqual(
+      new Set<String>{ 'name' },
+      dataOf(mock.captured[0]).keySet(),
+      'The title still goes, without a custom_fields key.'
+    );
+    Assert.areEqual(
+      new Set<SyncField>{ SyncField.TITLE },
+      result.confirmedFields
+    );
+  }
 }

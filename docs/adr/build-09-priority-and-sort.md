@@ -164,6 +164,23 @@ display anyway.
 
 ---
 
+## Made during the build
+
+### `saveDetails` tells "not sent" from "none" (step 3)
+
+**Context.** The expanded card sends title, start and due on every save, and `saveDetails` writes
+whichever differ from the record. Priority joins as a fifth argument - and until step 6 ships, the
+card does not send it. Neither does any board left open in a tab from before an update.
+
+**Decision.** Null means "not sent" and leaves the priority alone; blank means "no priority" and
+pushes each source's none. Any other value is matched against the picklist, case-insensitively,
+and must be one of its values; a priority set on a source whose `Board_Source__mdt` says it holds
+none is refused, as a start date is.
+
+**Why.** Read as none, the missing argument would clear the priority of every record an older card
+saved, and push the en dash to Jira - silently, since every save would succeed. Step 6's editor
+sends `''` for "No priority"; its live check is where blank surviving the trip is proven.
+
 ## Found at step 0
 
 **Jira accepts a priority on every DOPP issue type, whatever `editmeta` says.** `editmeta` offers

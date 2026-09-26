@@ -15,6 +15,9 @@ public class SyncFields {
    * compared case-sensitively - Apex's == on strings is not, so "Deep work" to "Deep Work" would
    * otherwise be no change at all and never reach the source.
    *
+   * The priority is a picklist, so == is the right comparison: its values differ by more than
+   * case. Cleared counts, and pushes as the source's none (build 09).
+   *
    * Nothing at all for a record with no External_Id__c: the source has no record to update.
    */
   public static Set<SyncField> changedBetween(
@@ -39,6 +42,9 @@ public class SyncFields {
     }
     if (item.Due_Date__c != prior.Due_Date__c) {
       changed.add(SyncField.DUE_DATE);
+    }
+    if (item.Priority__c != prior.Priority__c) {
+      changed.add(SyncField.PRIORITY);
     }
     return changed;
   }

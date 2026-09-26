@@ -36,7 +36,7 @@ public with sharing class WorkItemSyncService {
    */
   public static final String ITEM_FIELDS =
     'Id, External_Id__c, External_System__c, Status__c, Sync_Status__c, Last_Synced__c, ' +
-    'Title__c, Start_Date__c, Due_Date__c, Pending_Push_Fields__c';
+    'Title__c, Start_Date__c, Due_Date__c, Priority__c, Pending_Push_Fields__c';
 
   /**
    * Push each item's pending fields to its external system, with their current values.
