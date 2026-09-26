@@ -3,9 +3,9 @@
 
 # Build 09 — Priority and sorting
 
-**Status:** complete and verified in the scratch org, against live Jira and Asana. The owner's
-internal-board checks for the editor passed on 9/26; three checks remain for the owner, listed
-under "Verified". Lighthouse is level with the baseline on every score.
+**Status:** complete and verified in the scratch org, against live Jira and Asana. Every owner
+check passed on 9/26 - the editor, the walkthrough, live updates on the internal board, its Sort
+and an Asana save. Lighthouse is level with the baseline on every score.
 
 Every work item now has a priority - High, Medium, Low, or none - that syncs with Jira and Asana
 in both directions. Cards on both boards show it as a neutral badge on the date row; the internal
@@ -194,7 +194,7 @@ as build 08 chose; after Move to it follows the card into its sorted place.
 | What the step 5 stamp leaves open: two pushes in one second, a Jira edit between our write and the read, an echo on exactly `.000`, and two inbound jobs on one issue. The full fix is to hydrate Jira deliveries like Asana's and lock the row for the comparison | Version 2, by the owner's decision      |
 | Remembered filters and sort, and a Priority filter                                                                                                                                                                                                                 | Version 2                               |
 | Merging to `main` must also run `manifest/build-08/destructiveChangesPost.xml`, or the development org keeps three dead card bundles                                                                                                                               | At merge                                |
-| The git committer identity on this machine; test edits in several Jira and Asana titles, and DOPP-17 left on no priority                                                                                                                                           | Before launch                           |
+| The git committer identity on this machine; test edits in several Jira and Asana titles, and priorities changed during the checks (DOPP-17 none, DOPP-19 Low, DOPP-6 High)                                                                                         | Before launch                           |
 | The public subtitle is empty, by the owner's decision                                                                                                                                                                                                              | When the owner writes it                |
 | Lighthouse best practices 96, not 100: the site root's favicon 404s. The site template's "Skip to Main" link sits outside every landmark. Neither is the board's                                                                                                   | If the template or site assets change   |
 | A Jira edit can outlast the 10-second callout timeout; the push then fails though Jira applied it, and Retry recovers                                                                                                                                              | If Jira timeouts recur                  |
@@ -229,8 +229,10 @@ as build 08 chose; after Move to it follows the card into its sorted place.
   Medium, High and none again, through a timeout that Retry recovered.
 - The keyboard walkthrough with Priority between Due and Save changes.
 
-**Left for the owner:** a priority changed in Jira or Asana reaching the internal board without a
-refresh; the internal board's Sort; a priority saved from an Asana card.
+- Reported fine, not one by one, with the org's record of each: a priority changed in Jira
+  (DOPP-6 to High, WH-00235) and in Asana (WI-0017, WH-00236) reaching the internal board without a
+  refresh; its Sort; a priority saved from an Asana card (WI-0017 to Low, `custom_fields` alone,
+  LOG-00156) and another from a Jira card (WI-0005 to Low, the priority alone, LOG-00158).
 
 ---
 
