@@ -1,7 +1,9 @@
 import { LightningElement, api } from "lwc";
 import { detailErrors, moveOptions } from "c/boardModel";
 
-const FIELDS = ["title", "startDate", "dueDate"];
+const FIELDS = ["title", "startDate", "dueDate", "priority"];
+/** The editor's empty choice. Words for "none", not a priority: the choices come from the board. */
+const NO_PRIORITY = "No priority";
 
 /**
  * One card, on either board. It renders the view model the board hands it - see
@@ -24,8 +26,9 @@ const FIELDS = ["title", "startDate", "dueDate"];
 export default class BoardCard extends LightningElement {
   @api card;
   /**
-   * Internal board only: { moveTo: [status], edit, openRecord, retry, drag, titleMax }. Absent on
-   * the public board, and every control below is absent with it. `drag` is true only while the
+   * Internal board only: { moveTo: [status], edit, openRecord, retry, drag, titleMax,
+   * priorityOptions: [{ value, label, rank }] }. Absent on the public board, and every control
+   * below is absent with it. `drag` is true only while the
    * board has a fine pointer and is not in its portrait layout.
    */
   @api abilities;
@@ -179,6 +182,52 @@ export default class BoardCard extends LightningElement {
   get showNoStartNote() {
     return !this.card.supportsStartDate;
   }
+  /** The board's priority choices, in order. Empty on a board that sent none. */
+  get priorityOptions() {
+    return (this.abilities && this.abilities.priorityOptions) || [];
+  }
+  /** Only for a source that holds a priority, from Board_Source__mdt - never inferred. */
+  get showPriorityEditor() {
+    return (
+      this.canEdit &&
+      this.card.supportsPriority &&
+      this.priorityOptions.length > 0
+    );
+  }
+  /**
+   * The saved priority as a choice's value. Found by rank, which the card and the choices share,
+   * so the card never has to match a label to a value.
+   */
+  get savedPriorityValue() {
+    const saved = this.priorityOptions.find(
+      (option) => option.rank === this.card.priorityRank
+    );
+    return saved ? saved.value : "";
+  }
+  get priorityValue() {
+    return "priority" in this.draft
+      ? this.draft.priority
+      : this.savedPriorityValue;
+  }
+  /** The board's choices in its order, then "No priority" last - an empty value. */
+  get priorityChoices() {
+    const current = this.priorityValue;
+    return [
+      ...this.priorityOptions.map((option) => ({
+        key: `priority-${option.rank}`,
+        value: option.value,
+        label: option.label,
+        selected: option.value === current
+      })),
+      {
+        key: "priority-none",
+        value: "",
+        label: NO_PRIORITY,
+        selected: current === ""
+      }
+    ];
+  }
+
   /** A source that cannot hold a start date gets a sentence instead of an input. */
   get startUnsupportedNote() {
     return `${this.card.sourceLabel || "This source's"} items have no start date.`;
@@ -245,6 +294,12 @@ export default class BoardCard extends LightningElement {
   get dueInvalid() {
     return String(!!this.errors.dueDate);
   }
+  get priorityError() {
+    return this.errors.priority || "";
+  }
+  get priorityInvalid() {
+    return String(!!this.errors.priority);
+  }
 
   // ---------- the draft ----------
 
@@ -301,6 +356,9 @@ export default class BoardCard extends LightningElement {
   handleDue(event) {
     this.edit("dueDate", event.target.value);
   }
+  handlePriority(event) {
+    this.edit("priority", event.target.value);
+  }
 
   handleMove(event) {
     if (this.isBusy) {
@@ -316,6 +374,10 @@ export default class BoardCard extends LightningElement {
   /**
    * Checks the draft the way the server will, and sends it only when nothing is wrong. Dates
    * leave as the input's own YYYY-MM-DD strings, or empty for none.
+   *
+   * The priority goes only from a card that shows its editor, and always then - an empty string
+   * for "No priority". A card without the editor leaves it out, which saveDetails reads as "not
+   * sent" and leaves the priority alone; an empty string would clear it.
    */
   handleSubmit(event) {
     event.preventDefault();
@@ -340,6 +402,9 @@ export default class BoardCard extends LightningElement {
         input.focus();
       }
       return;
+    }
+    if (this.showPriorityEditor) {
+      values.priority = this.priorityValue;
     }
     this.dispatchEvent(
       new CustomEvent("save", { detail: { key: this.card.key, ...values } })

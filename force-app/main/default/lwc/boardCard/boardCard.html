@@ -74,18 +74,29 @@
         </span>
       </p>
 
-      <template lwc:if={card.hasDates}>
-        <p class="meta" data-dates>
+      <!-- The dates and the priority badge. The badge is its own item, right-aligned: when it
+           does not fit beside the dates it drops below them, rather than making them wrap. Both
+           are drawn for the eye and hidden from screen readers, which hear the spoken line -
+           "Created 12 Sep, Due 2 Oct, Priority: High". -->
+      <template lwc:if={card.hasDateRow}>
+        <p class="meta date-row" data-dates>
           <span class="assistive">{datesSpoken}</span>
-          <span class="line dates" aria-hidden="true">
-            <template for:each={dateLine} for:item="part">
-              <span key={part.key} class={part.cssClass} data-date={part.key}
-                ><template lwc:if={part.showSep}
-                  ><span class="sep">·</span></template
-                >{part.text}</span
-              >
-            </template>
-          </span>
+          <template lwc:if={card.hasDates}>
+            <span class="line dates" aria-hidden="true">
+              <template for:each={dateLine} for:item="part">
+                <span key={part.key} class={part.cssClass} data-date={part.key}
+                  ><template lwc:if={part.showSep}
+                    ><span class="sep">·</span></template
+                  >{part.text}</span
+                >
+              </template>
+            </span>
+          </template>
+          <template lwc:if={card.hasPriority}>
+            <span class="chip priority" aria-hidden="true" data-priority
+              >{card.priority}</span
+            >
+          </template>
         </p>
       </template>
 
@@ -213,6 +224,39 @@
             </p>
             <template lwc:if={showNoStartNote}>
               <p class="field-note" data-no-start>{startUnsupportedNote}</p>
+            </template>
+
+            <!-- Between the dates and Save. The choices come from the board, in the picklist's
+                 order; "No priority" is the card's own, and sends an empty value. -->
+            <template lwc:if={showPriorityEditor}>
+              <div class="field priority-field">
+                <label class="field-label" for="priority">Priority</label>
+                <select
+                  id="priority"
+                  class="field-input"
+                  aria-invalid={priorityInvalid}
+                  aria-describedby="priority-error"
+                  data-field="priority"
+                  onchange={handlePriority}
+                >
+                  <template for:each={priorityChoices} for:item="choice">
+                    <option
+                      key={choice.key}
+                      value={choice.value}
+                      selected={choice.selected}
+                    >
+                      {choice.label}
+                    </option>
+                  </template>
+                </select>
+                <p
+                  id="priority-error"
+                  class="field-error"
+                  data-error="priority"
+                >
+                  {priorityError}
+                </p>
+              </div>
             </template>
 
             <div class="actions">

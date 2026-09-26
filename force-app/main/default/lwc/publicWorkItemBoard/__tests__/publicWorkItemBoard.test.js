@@ -42,7 +42,10 @@ function card(overrides) {
       accentToken: "accent-1",
       createdAt: "2026-09-08T21:59:09.000Z",
       startDate: null,
-      dueDate: null
+      dueDate: null,
+      // Build 09 step 5: the label to show and the number to sort on.
+      priority: null,
+      priorityRank: null
     },
     overrides
   );
@@ -1382,5 +1385,40 @@ describe("c-public-work-item-board staying current", () => {
     setVisibility("visible");
 
     expect(refreshApex).not.toHaveBeenCalled();
+  });
+});
+
+describe("c-public-work-item-board priority (build 09)", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+  });
+
+  const header = (cardEl) =>
+    cardEl.shadowRoot.querySelector("[data-disclosure]");
+
+  it("shows a card's priority read-only, closed and open, and none when it has none", async () => {
+    const element = mount();
+    getPublicBoardData.emit(
+      board([
+        card({ recordNumber: "WI-0001", priority: "First", priorityRank: 1 }),
+        card({ recordNumber: "WI-0002", title: "Another" })
+      ])
+    );
+    await flush();
+    const [withOne, without] = cards(element);
+    expect(
+      withOne.shadowRoot.querySelector("[data-priority]").textContent
+    ).toBe("First");
+    expect(without.shadowRoot.querySelector("[data-priority]")).toBeNull();
+
+    header(withOne).click();
+    await flush();
+    expect(
+      withOne.shadowRoot.querySelector("[data-priority]").textContent
+    ).toBe("First");
+    expect(withOne.shadowRoot.querySelector("select, [data-field]")).toBeNull();
+    await expect(element).toBeAccessible();
   });
 });

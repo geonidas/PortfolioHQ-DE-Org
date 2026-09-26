@@ -1199,4 +1199,21 @@ private class WorkItemBoardControllerTest {
       'From Board_Source__mdt: the editor reads this, never the source\'s name.'
     );
   }
+
+  @IsTest
+  static void theBoardCarriesThePriorityChoicesInOrder() {
+    Project__c project = seedProject('OPT');
+    seedItems(1, project.Id, 'To Do');
+
+    Test.startTest();
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    Test.stopTest();
+
+    Assert.areEqual(3, board.priorityOptions.size());
+    for (Integer i = 0; i < board.priorityOptions.size(); i++) {
+      Assert.areEqual(i + 1, board.priorityOptions[i].rank);
+    }
+  }
 }

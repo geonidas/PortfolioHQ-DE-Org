@@ -12,6 +12,35 @@
 public with sharing class WorkItemPriority {
   private static Map<String, Integer> rankByValue;
   private static Map<String, String> labelByValue;
+  private static List<Option> ordered;
+
+  /** One choice for the internal board's priority editor. */
+  public class Option {
+    /** What saveDetails is sent: the picklist value. */
+    @AuraEnabled
+    public String value { get; private set; }
+    /** What the editor shows. */
+    @AuraEnabled
+    public String label { get; private set; }
+    /** Its place in the order - the same number a card's priorityRank carries. */
+    @AuraEnabled
+    public Integer rank { get; private set; }
+
+    private Option(String value, String label, Integer rank) {
+      this.value = value;
+      this.label = label;
+      this.rank = rank;
+    }
+  }
+
+  /**
+   * The active values in priority order, for the editor. The editor adds its own "No priority";
+   * no value here means none, because Salesforce stores none as blank (decision 1).
+   */
+  public static List<Option> options() {
+    load();
+    return new List<Option>(ordered);
+  }
 
   /** 1 for the first active picklist value, 2 for the next; null for blank or an unknown value. */
   public static Integer rankOf(String value) {
@@ -31,6 +60,7 @@ public with sharing class WorkItemPriority {
     }
     rankByValue = new Map<String, Integer>();
     labelByValue = new Map<String, String>();
+    ordered = new List<Option>();
     Integer rank = 0;
     for (
       Schema.PicklistEntry entry : Work_Item__c.Priority__c.getDescribe()
@@ -42,6 +72,7 @@ public with sharing class WorkItemPriority {
       rank++;
       rankByValue.put(entry.getValue().toLowerCase(), rank);
       labelByValue.put(entry.getValue().toLowerCase(), entry.getLabel());
+      ordered.add(new Option(entry.getValue(), entry.getLabel(), rank));
     }
   }
 

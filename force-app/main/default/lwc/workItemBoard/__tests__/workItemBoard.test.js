@@ -83,7 +83,11 @@ function item(overrides) {
       supportsStartDate: true,
       createdAt: "2026-09-08T21:59:09.000Z",
       startDate: null,
-      dueDate: null
+      dueDate: null,
+      // Build 09 step 5.
+      priority: null,
+      priorityRank: null,
+      supportsPriority: false
     },
     overrides
   );
@@ -1294,6 +1298,99 @@ describe("c-work-item-board", () => {
       jest.advanceTimersByTime(5000);
 
       expect(refreshApex).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("priority (build 09)", () => {
+    const OPTIONS = [
+      { value: "P1", label: "First", rank: 1 },
+      { value: "P2", label: "Second", rank: 2 },
+      { value: "P3", label: "Third", rank: 3 }
+    ];
+    const withOptions = (items) =>
+      Object.assign(board(items), { priorityOptions: OPTIONS });
+    const saveWith = async (element, value) => {
+      const control = inCard(element, "w1", "[data-field='priority']");
+      control.value = value;
+      control.dispatchEvent(new CustomEvent("change"));
+      inCard(element, "w1", "form").dispatchEvent(
+        new CustomEvent("submit", { cancelable: true })
+      );
+      await flush();
+      await flush();
+    };
+
+    beforeEach(() => {
+      saveDetails.mockResolvedValue({
+        workItemId: "w1",
+        saved: true,
+        pushQueued: true,
+        syncStatus: "Pending",
+        message: "Saved.",
+        fieldErrors: {}
+      });
+    });
+
+    it("hands the board's choices to the open card", async () => {
+      const element = mount();
+      getBoardData.emit(
+        withOptions([
+          item({
+            id: "w1",
+            supportsPriority: true,
+            priority: "Second",
+            priorityRank: 2
+          })
+        ])
+      );
+      await flush();
+      await openCard(element, "w1");
+      const labels = Array.from(
+        inCard(element, "w1", "[data-field='priority']").querySelectorAll(
+          "option"
+        )
+      ).map((option) => option.textContent.trim());
+      expect(labels).toStrictEqual(["First", "Second", "Third", "No priority"]);
+    });
+
+    it("sends the chosen value, and an empty string for No priority", async () => {
+      const element = mount();
+      getBoardData.emit(
+        withOptions([
+          item({
+            id: "w1",
+            supportsPriority: true,
+            priority: "Second",
+            priorityRank: 2
+          })
+        ])
+      );
+      await flush();
+      await openCard(element, "w1");
+
+      await saveWith(element, "");
+      expect(saveDetails).toHaveBeenLastCalledWith({
+        workItemId: "w1",
+        title: "Reconcile the nightly Jira pull",
+        startDate: "",
+        dueDate: "",
+        priority: ""
+      });
+    });
+
+    it("leaves priority out for a card whose source holds none, so Apex leaves it alone", async () => {
+      const element = mount();
+      getBoardData.emit(
+        withOptions([item({ id: "w1", supportsPriority: false })])
+      );
+      await flush();
+      await openCard(element, "w1");
+      inCard(element, "w1", "form").dispatchEvent(
+        new CustomEvent("submit", { cancelable: true })
+      );
+      await flush();
+      await flush();
+      expect("priority" in saveDetails.mock.calls.at(-1)[0]).toBe(false);
     });
   });
 });

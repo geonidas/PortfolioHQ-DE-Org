@@ -38,6 +38,26 @@ private class WorkItemPriorityTest {
   }
 
   @IsTest
+  static void theEditorsOptionsAreThePicklistInOrderWithTheirRanks() {
+    List<WorkItemPriority.Option> options = WorkItemPriority.options();
+
+    Assert.areEqual(
+      3,
+      options.size(),
+      'No "none" option: the editor adds its own.'
+    );
+    for (Integer i = 0; i < options.size(); i++) {
+      Assert.areEqual(i + 1, options[i].rank);
+      Assert.areEqual(
+        options[i].rank,
+        WorkItemPriority.rankOf(options[i].value),
+        'An option\'s rank is the rank its value gets on a card, so the editor can find the ' +
+        'current choice by number.'
+      );
+    }
+  }
+
+  @IsTest
   static void blankAndUnknownHaveNoRankAndNoLabel() {
     Assert.isNull(WorkItemPriority.rankOf(null));
     Assert.isNull(WorkItemPriority.rankOf(''));

@@ -105,6 +105,27 @@
   align-items: center;
   gap: 2px 8px;
 }
+/* The date row (build 09): the dates as one item and the priority badge as another, pushed to
+   the right edge. A wrapping flex row decides its lines from each item's full width before
+   anything shrinks, so a badge with no room beside the dates drops below them instead of making
+   them wrap. Measured live in step 6: a Medium badge is 60px, 68 with its gap. At 1024px a
+   three-date card has 24px spare, and at 375px a two-date one has 61, so those badges drop below;
+   High and Low fit. The dates wrap, or not, exactly as they did before the badge existed. */
+.date-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.date-row .dates {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* Neutral, like every chip: no colour per priority, so it never competes with the accent. */
+.priority {
+  margin-left: auto;
+}
+
 /* Dates wrap on a narrow card, and a separator that starts a line reads as a stray mark. Each
    date carries its separator centred in a gutter to its left; the line is shifted left by one
    gutter and clipped there, so a separator at the start of any line falls in the clipped strip and
@@ -306,6 +327,14 @@
 }
 .field-error:empty {
   display: none;
+}
+/* A short list, so the select is as wide as its longest choice rather than the whole card. */
+.priority-field {
+  align-self: flex-start;
+}
+.priority-field .field-input {
+  width: auto;
+  min-width: 10rem;
 }
 .field-note {
   margin: 0;

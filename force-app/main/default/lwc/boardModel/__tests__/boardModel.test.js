@@ -336,3 +336,51 @@ describe("boardModel filters", () => {
     expect(keptSource("Source C", options)).toBe(ALL_SOURCES);
   });
 });
+
+describe("boardModel priority (build 09)", () => {
+  it("carries the label and rank as sent, and says the priority aloud", () => {
+    const card = cardModel(
+      item({ dueDate: "2026-10-02", priority: "First", priorityRank: 1 }),
+      { now: NOW }
+    );
+    expect(card).toMatchObject({
+      priority: "First",
+      hasPriority: true,
+      priorityRank: 1,
+      hasDateRow: true
+    });
+    expect(card.datesSpoken).toBe("Created 12 Sep, Due 2 Oct, Priority: First");
+    expect(card.datesLongSpoken).toBe(
+      "Created 12 Sep 2026, Due 2 Oct 2026, Priority: First"
+    );
+  });
+
+  it("says nothing of a priority there is none of", () => {
+    const card = cardModel(item({ priority: null, priorityRank: null }), {
+      now: NOW
+    });
+    expect(card).toMatchObject({
+      priority: null,
+      hasPriority: false,
+      priorityRank: null
+    });
+    expect(card.datesSpoken).toBe("Created 12 Sep");
+  });
+
+  it("keeps the row for a priority when there are no dates", () => {
+    const card = cardModel(
+      item({ createdAt: null, priority: "Third", priorityRank: 3 }),
+      { now: NOW }
+    );
+    expect(card.hasDates).toBe(false);
+    expect(card.hasDateRow).toBe(true);
+    expect(card.datesSpoken).toBe("Priority: Third");
+  });
+
+  it("reads whether the source holds a priority from the payload, never from its name", () => {
+    expect(cardModel(item({ supportsPriority: true })).supportsPriority).toBe(
+      true
+    );
+    expect(cardModel(item()).supportsPriority).toBe(false);
+  });
+});

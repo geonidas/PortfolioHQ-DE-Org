@@ -199,6 +199,10 @@ export function cardModel(
   const dates = dateParts(item, { showOverdue, now });
   const datesLong = dateParts(item, { showOverdue, now, withYear: true });
   const ids = idParts(item.recordNumber, item.externalKey, heading);
+  // Build 09. The label to show and the phrase a screen reader hears - "Priority: High", never a
+  // bare word. The rank is what a sort reads; nothing here compares a priority's name.
+  const priority = item.priority || null;
+  const prioritySpoken = priority ? `Priority: ${priority}` : null;
   return {
     key: key || item.recordNumber,
     recordNumber: item.recordNumber,
@@ -221,6 +225,12 @@ export function cardModel(
     syncClass: sync.cssClass,
     dates,
     hasDates: dates.length > 0,
+    priority,
+    hasPriority: !!priority,
+    priorityRank:
+      typeof item.priorityRank === "number" ? item.priorityRank : null,
+    // The date row holds the dates and the priority badge, so it shows when either does.
+    hasDateRow: dates.length > 0 || !!priority,
     // What a screen reader hears for the two meta lines, which are hidden from it and drawn
     // for the eye instead. LWC drops whitespace between tags, so spans read side by side run
     // together - "JiraWI-0003" - and the separator dots would be read aloud.
@@ -229,10 +239,13 @@ export function cardModel(
       ...ids.map((id) => id.text),
       item.type
     ]),
-    datesSpoken: spoken(dates.map((part) => part.text)),
+    datesSpoken: spoken([...dates.map((part) => part.text), prioritySpoken]),
     // The expanded card's date line: the same dates, each with its year.
     datesLong,
-    datesLongSpoken: spoken(datesLong.map((part) => part.text)),
+    datesLongSpoken: spoken([
+      ...datesLong.map((part) => part.text),
+      prioritySpoken
+    ]),
     isOverdue: showOverdue && isOverdue(item, now),
     // What the expanded card adds. Absent from the public payload, and so absent there.
     title: item.title || "",
@@ -240,6 +253,7 @@ export function cardModel(
     dueDate: item.dueDate || "",
     sourceName: sourceName(item.sourceLabel),
     supportsStartDate: !!item.supportsStartDate,
+    supportsPriority: !!item.supportsPriority,
     description: item.description || null,
     hasDescription: !!item.description,
     projectLabel: item.projectLabel || null,

@@ -287,7 +287,8 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
           retry: true,
           drag: this.canDrag,
           openRecord: !!this.board.canOpenRecord,
-          titleMax: this.board.titleMaxLength
+          titleMax: this.board.titleMaxLength,
+          priorityOptions: this.board.priorityOptions || []
         }
       : undefined;
     // Every item on the board, before the filter, so an open card can name its parent even
@@ -634,15 +635,16 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
    * its input; a save that went through says so and that the push is still running.
    */
   async handleSave(event) {
-    const { key, title, startDate, dueDate } = event.detail;
+    const { key, title, startDate, dueDate, priority } = event.detail;
     this.feedback = { key, busy: true };
     try {
-      const result = await saveDetails({
-        workItemId: key,
-        title,
-        startDate,
-        dueDate
-      });
+      const params = { workItemId: key, title, startDate, dueDate };
+      // Only when the card sent one. Absent reaches Apex as null, "leave it alone"; an empty
+      // string is "No priority" and clears it.
+      if (priority !== undefined) {
+        params.priority = priority;
+      }
+      const result = await saveDetails(params);
       const fieldErrors = result.fieldErrors || {};
       this.feedback = {
         key,

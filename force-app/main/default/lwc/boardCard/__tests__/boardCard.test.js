@@ -743,4 +743,211 @@ describe("c-board-card", () => {
       await expect(element).toBeAccessible();
     });
   });
+
+  describe("priority (build 09)", () => {
+    // Deliberately not real priority names: the card shows whatever the board sends.
+    const OPTIONS = [
+      { value: "P1", label: "First", rank: 1 },
+      { value: "P2", label: "Second", rank: 2 },
+      { value: "P3", label: "Third", rank: 3 }
+    ];
+    const ABILITIES = {
+      moveTo: [],
+      edit: true,
+      titleMax: 255,
+      priorityOptions: OPTIONS
+    };
+    const editable = (overrides, props) =>
+      mount(
+        Object.assign(
+          model(
+            Object.assign(
+              {
+                supportsStartDate: true,
+                supportsPriority: true,
+                priority: "Second",
+                priorityRank: 2
+              },
+              overrides
+            )
+          ),
+          { key: "a0B1" }
+        ),
+        Object.assign({ expandedKey: "a0B1", abilities: ABILITIES }, props)
+      );
+    const select = (element) => $(element, "[data-field='priority']");
+    const choose = (element, value) => {
+      select(element).value = value;
+      select(element).dispatchEvent(new CustomEvent("change"));
+    };
+    const submit = async (element) => {
+      $(element, "form").dispatchEvent(
+        new CustomEvent("submit", { cancelable: true })
+      );
+      await Promise.resolve();
+    };
+
+    it('shows the priority as a neutral badge on the date row, heard as "Priority: Second"', () => {
+      const element = mount(model({ priority: "Second", priorityRank: 2 }));
+      const badge = $(element, "[data-priority]");
+      const row = $(element, "[data-dates]");
+
+      expect(badge.textContent).toBe("Second");
+      expect(badge.className).toBe("chip priority");
+      expect(badge.getAttribute("aria-hidden")).toBe("true");
+      expect(badge.parentElement).toBe(row);
+      expect(row.querySelector(".assistive").textContent).toBe(
+        "Created 12 Sep, Start 24 Sep, Due 1 Oct, Priority: Second"
+      );
+    });
+
+    it("shows no badge, and says nothing of it, when there is none", () => {
+      const element = mount(model({ priority: null, priorityRank: null }));
+      expect($(element, "[data-priority]")).toBeNull();
+      expect($(element, "[data-dates] .assistive").textContent).not.toContain(
+        "Priority"
+      );
+    });
+
+    it("keeps the badge on a card with no dates", () => {
+      const element = mount(
+        model({
+          createdAt: null,
+          startDate: null,
+          dueDate: null,
+          priority: "Third",
+          priorityRank: 3
+        })
+      );
+      expect($(element, "[data-dates] .dates")).toBeNull();
+      expect($(element, "[data-priority]").textContent).toBe("Third");
+    });
+
+    it("stays on the open card too, read-only, as on the public board", () => {
+      const element = mount(
+        Object.assign(model({ priority: "First", priorityRank: 1 }), {
+          key: "WI-0003"
+        }),
+        { expandedKey: "WI-0003" }
+      );
+      expect($(element, "[data-priority]").textContent).toBe("First");
+      expect($(element, "[data-field='priority']")).toBeNull();
+    });
+
+    it("offers the board's choices in order, then No priority, with the saved one chosen", () => {
+      const element = editable();
+      const choices = Array.from(select(element).querySelectorAll("option"));
+
+      expect(choices.map((c) => c.textContent.trim())).toStrictEqual([
+        "First",
+        "Second",
+        "Third",
+        "No priority"
+      ]);
+      expect(choices.map((c) => c.value)).toStrictEqual(["P1", "P2", "P3", ""]);
+      expect(choices.map((c) => c.selected)).toStrictEqual([
+        false,
+        true,
+        false,
+        false
+      ]);
+    });
+
+    it("chooses No priority when there is none", () => {
+      const element = editable({ priority: null, priorityRank: null });
+      const chosen = Array.from(
+        select(element).querySelectorAll("option")
+      ).find((c) => c.selected);
+      expect(chosen.value).toBe("");
+    });
+
+    it("sits between the dates and Save", () => {
+      const element = editable();
+      const stops = Array.from(
+        $(element, "form").querySelectorAll("input, select, button")
+      ).map((node) => node.dataset.field || node.dataset.action);
+      expect(stops).toStrictEqual([
+        "title",
+        "startDate",
+        "dueDate",
+        "priority",
+        "save",
+        "cancel"
+      ]);
+    });
+
+    it("sends the choice's value, and an empty string for No priority", async () => {
+      const element = editable();
+      const handler = jest.fn();
+      element.addEventListener("save", handler);
+
+      choose(element, "P3");
+      await submit(element);
+      expect(handler.mock.calls[0][0].detail.priority).toBe("P3");
+
+      choose(element, "");
+      await submit(element);
+      expect(handler.mock.calls[1][0].detail.priority).toBe("");
+    });
+
+    it("sends the saved priority unchanged when only the title changed", async () => {
+      const element = editable();
+      const handler = jest.fn();
+      element.addEventListener("save", handler);
+      const title = $(element, "[data-field='title']");
+      title.value = "Renamed";
+      title.dispatchEvent(new CustomEvent("input"));
+      await submit(element);
+      expect(handler.mock.calls[0][0].detail).toMatchObject({
+        title: "Renamed",
+        priority: "P2"
+      });
+    });
+
+    it("has no priority editor for a source without one, and sends none", async () => {
+      const element = editable({ supportsPriority: false });
+      const handler = jest.fn();
+      element.addEventListener("save", handler);
+      expect(select(element)).toBeNull();
+      await submit(element);
+      expect("priority" in handler.mock.calls[0][0].detail).toBe(false);
+    });
+
+    it("shows the server's priority error beside the select", () => {
+      const element = editable(
+        {},
+        {
+          feedback: {
+            key: "a0B1",
+            tone: "error",
+            message: "Nothing was saved.",
+            fieldErrors: { priority: "Source A does not hold a priority." }
+          }
+        }
+      );
+      expect($(element, "[data-error='priority']").textContent.trim()).toBe(
+        "Source A does not hold a priority."
+      );
+      expect(select(element).getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it("is accessible closed with a badge, and open with the editor and an error", async () => {
+      await expect(
+        mount(model({ priority: "First", priorityRank: 1 }))
+      ).toBeAccessible();
+      await expect(
+        editable(
+          {},
+          {
+            feedback: {
+              key: "a0B1",
+              tone: "error",
+              message: "Nothing was saved.",
+              fieldErrors: { priority: "Source A does not hold a priority." }
+            }
+          }
+        )
+      ).toBeAccessible();
+    });
+  });
 });

@@ -47,6 +47,7 @@ public with sharing class WorkItemBoardController {
       board.lastSyncedAt = mostRecentSync(items);
       board.canOpenRecord = canOpenRecord();
       board.titleMaxLength = TITLE_MAX;
+      board.priorityOptions = WorkItemPriority.options();
       return board;
     } catch (Exception e) {
       // A raw exception reaches the client as an opaque server error. Converting it gives
@@ -587,6 +588,12 @@ public with sharing class WorkItemBoardController {
     /** The title limit saveDetails enforces, so the card can say so before it sends. */
     @AuraEnabled
     public Integer titleMaxLength { get; set; }
+    /**
+     * The priority editor's choices, in order, from the picklist - so the component names no
+     * priority (ADR build-09, decision 2). Internal only: the public board edits nothing.
+     */
+    @AuraEnabled
+    public List<WorkItemPriority.Option> priorityOptions { get; set; }
   }
 
   /**
