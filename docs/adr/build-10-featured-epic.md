@@ -410,3 +410,13 @@ summary and the handoff.
   column down, so at first the "In Progress" heading sits under the left arrow. It moves as the
   page scrolls, and build 09's capture shows the arrows over a card in the same way. It is a
   carried item, not a regression of this build.
+
+---
+
+## After step 5: DOPP-16 corrected
+
+The owner reported that DOPP-16 is an Epic in Jira. Salesforce held WI-0002 as a Story under
+WI-0000, from the build 06 seed script, with no delivery since to correct it - the same class of
+finding as step 0's WI-0001 and WI-0005/WI-0006. The owner set `Type__c` to Epic and cleared the
+parent, outbound suppressed; nothing was sent to Jira. WI-0003 now counts under DOPP-16. All build
+10 measurements were taken before this.
