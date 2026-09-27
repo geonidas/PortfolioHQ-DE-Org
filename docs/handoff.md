@@ -763,6 +763,15 @@ SyncFields`. The one-line form of the same call compiles. Hold the result in a l
   as the stored value counts as newer - and is harmless there only because the echo carries the
   values already held.
 - `@TestVisible` does not expose members to anonymous Apex.
+- **Plain DML on a custom setting is checked against the running user, even in Apex.** Unlike a
+  custom object, a hierarchy custom setting's `insert` or `update` is refused with "Access to entity
+  'Featured_Epic__c' denied" for a user who cannot customise the application - from a `without
+sharing` class too, and with the setting granted in a permission set. Reading it is not checked:
+  the site guest reads the featured epic with no grant at all. Only an explicit
+  `Database.insert/update(record, AccessLevel.SYSTEM_MODE)` writes it. Found in build 10 step 3 by
+  the first test that ran as a Standard User holding `Portfolio_HQ_Developer`; every earlier test
+  had run as the admin, which passes either way - the same mistake as section 3's "Test the
+  identity".
 - **A `@TestSetup` method is counted as a test in a run's summary.** The org writes an
   `ApexTestResult` row for it, so `sf apex run test` reports one more test than there are test
   methods, while the per-test list in the same JSON leaves it out. `FeaturedEpicServiceTest` (build 10) is the first class here with one: the run after it read 481 for 480 tests. Count methods, or

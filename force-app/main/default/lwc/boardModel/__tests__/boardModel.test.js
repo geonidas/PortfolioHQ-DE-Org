@@ -12,6 +12,8 @@ import {
   dateParts,
   epicModel,
   epicViewCountLabel,
+  FEATURED_LABEL_INTERNAL,
+  FEATURED_LABEL_PUBLIC,
   formatDay,
   formatInstant,
   idParts,
@@ -499,5 +501,49 @@ describe("boardModel sorting (build 09)", () => {
       "WI-0002",
       "WI-0001"
     ]);
+  });
+});
+
+// Build 10 step 3. The indicator follows the payload; its words are the board's.
+describe("boardModel featured epic (build 10)", () => {
+  const featured = { title: "E", status: "In Progress", isFeatured: true };
+  const plain = { title: "E", status: "In Progress", isFeatured: false };
+
+  it("shows the board's own words for a featured epic", () => {
+    expect(
+      epicModel(featured, { key: "e", featuredLabel: FEATURED_LABEL_INTERNAL })
+    ).toMatchObject({
+      isFeatured: true,
+      showFeatured: true,
+      featuredLabel: "Featured on the public board"
+    });
+    expect(
+      epicModel(featured, { key: "e", featuredLabel: FEATURED_LABEL_PUBLIC })
+        .featuredLabel
+    ).toBe("Featured");
+  });
+
+  it("shows nothing for an epic the payload does not mark", () => {
+    for (const epic of [plain, { title: "E", status: "To Do" }]) {
+      expect(
+        epicModel(epic, { key: "e", featuredLabel: FEATURED_LABEL_INTERNAL })
+      ).toMatchObject({
+        isFeatured: false,
+        showFeatured: false,
+        featuredLabel: null
+      });
+    }
+  });
+
+  it("shows nothing on a board that gives the indicator no words", () => {
+    expect(epicModel(featured, { key: "e" })).toMatchObject({
+      isFeatured: true,
+      showFeatured: false,
+      featuredLabel: null
+    });
+  });
+
+  it("takes only a real true from the payload", () => {
+    expect(epicModel({ ...plain, isFeatured: "true" }).isFeatured).toBe(false);
   });
 });

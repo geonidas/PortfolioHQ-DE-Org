@@ -4,6 +4,8 @@ import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData"
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
 import saveDetails from "@salesforce/apex/WorkItemBoardController.saveDetails";
 import retryPush from "@salesforce/apex/WorkItemBoardController.retryPush";
+import featureEpic from "@salesforce/apex/WorkItemBoardController.featureEpic";
+import unfeatureEpic from "@salesforce/apex/WorkItemBoardController.unfeatureEpic";
 import { refreshApex } from "@salesforce/apex";
 import { subscribe, unsubscribe } from "lightning/empApi";
 
@@ -27,6 +29,16 @@ jest.mock(
 );
 jest.mock(
   "@salesforce/apex/WorkItemBoardController.retryPush",
+  () => ({ default: jest.fn() }),
+  { virtual: true }
+);
+jest.mock(
+  "@salesforce/apex/WorkItemBoardController.featureEpic",
+  () => ({ default: jest.fn() }),
+  { virtual: true }
+);
+jest.mock(
+  "@salesforce/apex/WorkItemBoardController.unfeatureEpic",
   () => ({ default: jest.fn() }),
   { virtual: true }
 );
@@ -1532,6 +1544,246 @@ describe("c-work-item-board", () => {
 
       expect(order(element, "In Progress")).toStrictEqual(["w2", "w1", "w3"]);
       delete window.matchMedia;
+    });
+  });
+
+  // Build 10 step 3. Featuring an epic on the public board, from the open epic card.
+  describe("the featured epic (build 10)", () => {
+    const epic = (overrides) =>
+      Object.assign(
+        {
+          id: "e1",
+          recordNumber: "WI-0000",
+          title: "Integration app",
+          status: "In Progress",
+          totalChildren: 1,
+          completedChildren: 0,
+          sourceLabel: "Jira",
+          accentToken: "accent-1",
+          isFeatured: false
+        },
+        overrides
+      );
+    const data = ({ canFeatureEpic = true, featured = null } = {}) => {
+      const d = board([
+        item({ id: "e1", recordNumber: "WI-0000", type: "Epic" }),
+        item({ id: "e2", recordNumber: "WI-0001", type: "Epic" }),
+        item({ id: "s1", recordNumber: "WI-0003", parentId: "e1" }),
+        item({
+          id: "a1",
+          recordNumber: "WI-0015",
+          title: "Deep Work",
+          externalKey: null,
+          type: "Book",
+          sourceLabel: "Asana",
+          accentToken: "accent-2",
+          condensesIntoEpic: false,
+          supportsStartDate: false
+        })
+      ]);
+      d.canFeatureEpic = canFeatureEpic;
+      d.featuredEpicId = featured;
+      d.epics = [
+        epic({ isFeatured: featured === "e1" }),
+        epic({
+          id: "e2",
+          recordNumber: "WI-0001",
+          title: "Shipped work",
+          status: "Done",
+          totalChildren: 0,
+          isFeatured: featured === "e2"
+        })
+      ];
+      return d;
+    };
+    const epicCard = (element, id) =>
+      element.shadowRoot.querySelector(
+        `c-board-epic-card[data-key="epic-${id}"]`
+      );
+    const inEpic = (element, id, selector) =>
+      epicCard(element, id).shadowRoot.querySelector(selector);
+    async function showEpics(element, payload) {
+      getBoardData.emit(payload);
+      await flush();
+      await choose(element, "view", "epics");
+    }
+    async function openEpic(element, id) {
+      inEpic(element, id, "[data-disclosure]").click();
+      await flush();
+    }
+    // The Apex call, the feedback, the refresh and the render each take a turn.
+    const settle = () =>
+      flush().then(flush).then(flush).then(flush).then(flush);
+
+    it("shows the indicator on the epic the payload marks, and moves it when the payload does", async () => {
+      const element = mount();
+      await showEpics(element, data({ featured: "e1" }));
+      expect(inEpic(element, "e1", "[data-featured]").textContent).toBe(
+        "★Featured on the public board"
+      );
+      expect(inEpic(element, "e2", "[data-featured]")).toBeNull();
+
+      getBoardData.emit(data({ featured: "e2" }));
+      await flush();
+      expect(inEpic(element, "e1", "[data-featured]")).toBeNull();
+      expect(inEpic(element, "e2", "[data-featured]")).not.toBeNull();
+
+      getBoardData.emit(data());
+      await flush();
+      expect(
+        element.shadowRoot.querySelectorAll("c-board-epic-card")
+      ).toHaveLength(2);
+      expect(inEpic(element, "e1", "[data-featured]")).toBeNull();
+      expect(inEpic(element, "e2", "[data-featured]")).toBeNull();
+    });
+
+    it("offers the button on epic cards only, and only with the permission", async () => {
+      const element = mount();
+      await showEpics(element, data({ featured: "e1" }));
+      await openEpic(element, "e1");
+      expect(
+        inEpic(element, "e1", "[data-action='feature']").textContent.trim()
+      ).toBe("Remove from public board");
+      await openEpic(element, "e2");
+      expect(
+        inEpic(element, "e2", "[data-action='feature']").textContent.trim()
+      ).toBe("Feature on public board");
+
+      // The flat card passing through the Epics view, open: no such button.
+      await openCard(element, "a1");
+      const flat = cardFor(element, "a1");
+      expect(
+        flat.shadowRoot
+          .querySelector("[data-disclosure]")
+          .getAttribute("aria-expanded")
+      ).toBe("true");
+      expect(
+        flat.shadowRoot.querySelector("[data-action='feature']")
+      ).toBeNull();
+
+      // And in the Tasks view, where every card is a task card.
+      await choose(element, "view", "tasks");
+      expect(
+        element.shadowRoot.querySelectorAll("c-board-epic-card")
+      ).toHaveLength(0);
+      expect(
+        cards(element).some((c) =>
+          c.shadowRoot.querySelector("[data-action='feature']")
+        )
+      ).toBe(false);
+    });
+
+    it("offers no button without the permission", async () => {
+      const element = mount();
+      await showEpics(element, data({ canFeatureEpic: false, featured: "e1" }));
+      await openEpic(element, "e1");
+      expect(inEpic(element, "e1", "[data-action='feature']")).toBeNull();
+      // The indicator is for everyone who can see the board; only the button needs the permission.
+      expect(inEpic(element, "e1", "[data-featured]")).not.toBeNull();
+    });
+
+    it("features an epic, says so, and refreshes itself", async () => {
+      featureEpic.mockResolvedValue({
+        saved: true,
+        refused: false,
+        message: "WI-0001 is featured on the public board, in place of WI-0000."
+      });
+      const element = mount();
+      await showEpics(element, data({ featured: "e1" }));
+      await openEpic(element, "e2");
+
+      inEpic(element, "e2", "[data-action='feature']").click();
+      await settle();
+
+      expect(featureEpic).toHaveBeenCalledWith({ epicId: "e2" });
+      expect(unfeatureEpic).not.toHaveBeenCalled();
+      expect(refreshApex).toHaveBeenCalledTimes(1);
+      expect(inEpic(element, "e2", "[data-feedback]").textContent.trim()).toBe(
+        "WI-0001 is featured on the public board, in place of WI-0000."
+      );
+      expect(inEpic(element, "e2", "[data-feedback]").className).not.toContain(
+        "feedback-error"
+      );
+
+      // The refresh brings the replaced payload: the indicator moves, the button flips.
+      getBoardData.emit(data({ featured: "e2" }));
+      await flush();
+      expect(inEpic(element, "e1", "[data-featured]")).toBeNull();
+      expect(inEpic(element, "e2", "[data-featured]")).not.toBeNull();
+      expect(
+        inEpic(element, "e2", "[data-action='feature']").textContent.trim()
+      ).toBe("Remove from public board");
+    });
+
+    it("removes the featured epic with the epic it was pressed on", async () => {
+      unfeatureEpic.mockResolvedValue({
+        saved: true,
+        refused: false,
+        message: "WI-0000 is no longer featured on the public board."
+      });
+      const element = mount();
+      await showEpics(element, data({ featured: "e1" }));
+      await openEpic(element, "e1");
+
+      inEpic(element, "e1", "[data-action='feature']").click();
+      await settle();
+
+      expect(unfeatureEpic).toHaveBeenCalledWith({ epicId: "e1" });
+      expect(featureEpic).not.toHaveBeenCalled();
+      expect(refreshApex).toHaveBeenCalledTimes(1);
+
+      getBoardData.emit(data());
+      await flush();
+      expect(inEpic(element, "e1", "[data-featured]")).toBeNull();
+      expect(
+        inEpic(element, "e1", "[data-action='feature']").textContent.trim()
+      ).toBe("Feature on public board");
+    });
+
+    it("shows a refusal as an error, and a failed call too", async () => {
+      featureEpic.mockResolvedValueOnce({
+        saved: false,
+        refused: true,
+        message: "WI-0001 is not public, so the public board cannot show it."
+      });
+      const element = mount();
+      await showEpics(element, data());
+      await openEpic(element, "e2");
+      inEpic(element, "e2", "[data-action='feature']").click();
+      await settle();
+      expect(inEpic(element, "e2", "[data-feedback]").className).toContain(
+        "feedback-error"
+      );
+      expect(inEpic(element, "e2", "[data-feedback]").textContent.trim()).toBe(
+        "WI-0001 is not public, so the public board cannot show it."
+      );
+
+      featureEpic.mockRejectedValueOnce({
+        body: { message: "Only someone with the permission can change it." }
+      });
+      inEpic(element, "e2", "[data-action='feature']").click();
+      await settle();
+      expect(inEpic(element, "e2", "[data-feedback]").textContent.trim()).toBe(
+        "Only someone with the permission can change it."
+      );
+      expect(inEpic(element, "e2", "[data-feedback]").className).toContain(
+        "feedback-error"
+      );
+    });
+
+    it("is accessible with the featured epic open and a message showing", async () => {
+      featureEpic.mockResolvedValue({
+        saved: true,
+        refused: false,
+        message: "WI-0000 is featured on the public board."
+      });
+      const element = mount();
+      const payload = data({ featured: "e1" });
+      payload.canOpenRecord = true;
+      await showEpics(element, payload);
+      await openEpic(element, "e1");
+      await settle();
+      await expect(element).toBeAccessible();
     });
   });
 });

@@ -437,11 +437,26 @@ export function detailErrors(
   return errors;
 }
 
-/** An epic card's view model. The public payload carries no identifier; the internal one does. */
-export function epicModel(epic, { key } = {}) {
+/**
+ * Build 10. What the featured epic's indicator says on each board (ADR build-10, decision 12):
+ * the internal board says where the epic is featured; on the public board that goes without
+ * saying. Words, not a colour - the accent stripe already means source.
+ */
+export const FEATURED_LABEL_INTERNAL = "Featured on the public board";
+export const FEATURED_LABEL_PUBLIC = "Featured";
+
+/**
+ * An epic card's view model. The public payload carries no identifier; the internal one does.
+ *
+ * @param options.featuredLabel the board's words for the featured indicator. The payload says
+ *                              whether the epic is featured; a board that passes no words shows
+ *                              no indicator.
+ */
+export function epicModel(epic, { key, featuredLabel } = {}) {
   const total = epic.totalChildren || 0;
   const done = epic.completedChildren || 0;
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  const isFeatured = epic.isFeatured === true;
   return {
     key,
     isEpic: true,
@@ -460,7 +475,11 @@ export function epicModel(epic, { key } = {}) {
     // "0 of 0" reads as broken. An epic with nothing under it says so in words.
     progressLabel:
       total > 0 ? `${done} of ${total} done` : "No child items yet",
-    barStyle: `width: ${percent}%`
+    barStyle: `width: ${percent}%`,
+    // Build 10. From the payload, never worked out here: Apex resolved it.
+    isFeatured,
+    showFeatured: isFeatured && !!featuredLabel,
+    featuredLabel: isFeatured && featuredLabel ? featuredLabel : null
   };
 }
 

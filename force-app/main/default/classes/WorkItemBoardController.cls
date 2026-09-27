@@ -13,6 +13,12 @@ public with sharing class WorkItemBoardController {
   /** Grants the board's Open record link. Assigned through Portfolio_HQ_Developer. */
   @TestVisible
   private static final String OPEN_RECORD_PERMISSION = 'Portfolio_HQ_Open_Record';
+  /**
+   * Grants the epic card's Feature and Remove button, and the two methods behind it (build 10).
+   * Assigned through Portfolio_HQ_Developer; a site guest never holds it (GuestAccessTest).
+   */
+  @TestVisible
+  private static final String FEATURE_EPIC_PERMISSION = 'Portfolio_HQ_Feature_Epic';
 
   /**
    * Everything the board needs, in one round trip: every card, and the epic view built by the
@@ -53,6 +59,7 @@ public with sharing class WorkItemBoardController {
       board.projectLabel = ProjectSelector.labelFor(project);
       board.lastSyncedAt = mostRecentSync(items);
       board.canOpenRecord = canOpenRecord();
+      board.canFeatureEpic = canFeatureEpic();
       board.titleMaxLength = TITLE_MAX;
       board.priorityOptions = WorkItemPriority.options();
       return board;
@@ -274,6 +281,70 @@ public with sharing class WorkItemBoardController {
     }
   }
 
+  /**
+   * Features an epic on the public board: the open epic card's "Feature on public board" (build
+   * 10). Replaces whichever epic was featured.
+   *
+   * Writes the Featured_Epic__c setting and nothing else - no work item, so WorkItemTrigger never
+   * runs, nothing is staged and nothing is pushed (ADR build-10, decision 2). A new method rather
+   * than an argument to saveDetails, so a board left open across the deploy is unaffected. Checked
+   * against Portfolio_HQ_Feature_Epic here, not only in the component: hiding the button is
+   * presentation, this is the rule. What can be featured is FeaturedEpicService's rule, and a
+   * refusal comes back as a result with the reason, not as an exception.
+   *
+   * @param epicId the epic to feature
+   */
+  @AuraEnabled
+  public static FeaturedEpicService.Result featureEpic(Id epicId) {
+    requireFeaturePermission();
+    try {
+      return FeaturedEpicService.feature(epicId);
+    } catch (Exception e) {
+      throw handled('Could not feature the epic: ' + e.getMessage());
+    }
+  }
+
+  /**
+   * Removes an epic from the public board: the featured epic card's "Remove from public board".
+   * Only if it is still the featured one - a board left open after another epic was featured must
+   * not undo that choice - and otherwise says which epic is.
+   *
+   * @param epicId the epic the button was pressed on
+   */
+  @AuraEnabled
+  public static FeaturedEpicService.Result unfeatureEpic(Id epicId) {
+    requireFeaturePermission();
+    try {
+      return FeaturedEpicService.clear(epicId);
+    } catch (Exception e) {
+      throw handled(
+        'Could not remove the epic from the public board: ' + e.getMessage()
+      );
+    }
+  }
+
+  @TestVisible
+  private static final String FEATURE_EPIC_DENIED =
+    'Only someone with the Feature an epic on the public board permission can change the ' +
+    'featured epic. Nothing was changed.';
+
+  private static void requireFeaturePermission() {
+    if (!canFeatureEpic()) {
+      throw handled(FEATURE_EPIC_DENIED);
+    }
+  }
+
+  /**
+   * An AuraHandledException whose message Apex can read too. Without setMessage, getMessage()
+   * answers "Script-thrown exception" in a test and in a debug log, which hid the cause of a
+   * failure in build 10 step 3's first validation.
+   */
+  private static AuraHandledException handled(String message) {
+    AuraHandledException e = new AuraHandledException(message);
+    e.setMessage(message);
+    return e;
+  }
+
   /** A record's source by its label, for a sentence. */
   private static String sourceNameFor(Work_Item__c item) {
     String label = BoardSourceRules.forSystem(item.External_System__c).label;
@@ -454,6 +525,12 @@ public with sharing class WorkItemBoardController {
     return FeatureManagement.checkPermission(OPEN_RECORD_PERMISSION);
   }
 
+  /** Whether the running user may change the featured epic: the button, and the methods. */
+  @TestVisible
+  private static Boolean canFeatureEpic() {
+    return FeatureManagement.checkPermission(FEATURE_EPIC_PERMISSION);
+  }
+
   /** The stored title limit, capped at 255 - the most either source takes as a title. */
   @TestVisible
   private static final Integer TITLE_MAX = Math.min(
@@ -593,6 +670,9 @@ public with sharing class WorkItemBoardController {
     /** Whether the running user has Portfolio_HQ_Open_Record: the card's Open record link. */
     @AuraEnabled
     public Boolean canOpenRecord { get; set; }
+    /** Whether the running user has Portfolio_HQ_Feature_Epic: the epic card's button. Build 10. */
+    @AuraEnabled
+    public Boolean canFeatureEpic { get; set; }
     /** The title limit saveDetails enforces, so the card can say so before it sends. */
     @AuraEnabled
     public Integer titleMaxLength { get; set; }

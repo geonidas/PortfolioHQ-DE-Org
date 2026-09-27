@@ -125,6 +125,7 @@ private class FeaturedEpicServiceTest {
     );
 
     Assert.isFalse(result.saved);
+    Assert.isFalse(result.refused, 'Already as asked: news, not an error.');
     Assert.areEqual(
       nameOf('EPIC-A') +
       ' is already featured on the public board. Nothing was changed.',
@@ -175,6 +176,47 @@ private class FeaturedEpicServiceTest {
     Assert.isNull(FeaturedEpicService.read());
   }
 
+  /**
+   * The board's Remove (build 10 step 3): clears only the epic it was pressed on, so a tab left
+   * open after another epic was featured cannot undo that choice.
+   */
+  @IsTest
+  static void removingAnEpicClearsOnlyIfItIsStillTheFeaturedOne() {
+    FeaturedEpicService.feature(idOf('EPIC-A'));
+    FeaturedEpicService.feature(idOf('EPIC-B'));
+    Integer rows = Limits.getDmlRows();
+
+    FeaturedEpicService.Result stale = FeaturedEpicService.clear(
+      idOf('EPIC-A')
+    );
+
+    Assert.isFalse(stale.saved);
+    Assert.isFalse(stale.refused);
+    Assert.areEqual(
+      nameOf('EPIC-A') +
+        ' is not featured on the public board, so nothing was changed. ' +
+        nameOf('EPIC-B') +
+        ' is.',
+      stale.message
+    );
+    Assert.areEqual(rows, Limits.getDmlRows(), 'Nothing written.');
+    Assert.areEqual(idOf('EPIC-B'), FeaturedEpicService.read());
+
+    FeaturedEpicService.Result removed = FeaturedEpicService.clear(
+      idOf('EPIC-B')
+    );
+    Assert.isTrue(removed.saved, removed.message);
+    Assert.isNull(FeaturedEpicService.read());
+
+    FeaturedEpicService.Result none = FeaturedEpicService.clear(idOf('EPIC-B'));
+    Assert.isFalse(none.saved);
+    Assert.areEqual(
+      'No epic is featured, so nothing was changed.',
+      none.message
+    );
+    Assert.isTrue(FeaturedEpicService.clear((Id) null).refused);
+  }
+
   // ---------- refused, with a reason ----------
 
   @IsTest
@@ -190,6 +232,7 @@ private class FeaturedEpicServiceTest {
     );
 
     Assert.isFalse(story.saved);
+    Assert.isTrue(story.refused, 'A refusal the board shows as an error.');
     Assert.areEqual(
       nameOf('STORY') +
       ' is not an epic (its type is Story). Only an epic can be featured on the public board.',

@@ -6,6 +6,8 @@ import getBoardData from "@salesforce/apex/WorkItemBoardController.getBoardData"
 import changeStatus from "@salesforce/apex/WorkItemBoardController.changeStatus";
 import saveDetails from "@salesforce/apex/WorkItemBoardController.saveDetails";
 import retryPush from "@salesforce/apex/WorkItemBoardController.retryPush";
+import featureEpic from "@salesforce/apex/WorkItemBoardController.featureEpic";
+import unfeatureEpic from "@salesforce/apex/WorkItemBoardController.unfeatureEpic";
 import {
   DEFAULT_COLUMNS,
   columnsFrom,
@@ -30,7 +32,8 @@ import {
   countLabel,
   epicViewCountLabel,
   sourceName,
-  syncNote
+  syncNote,
+  FEATURED_LABEL_INTERNAL
 } from "c/boardModel";
 
 const DONE = "Done";
@@ -305,6 +308,9 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
           retry: true,
           drag: this.canDrag,
           openRecord: !!this.board.canOpenRecord,
+          // Build 10: the epic card's Feature / Remove button. Portfolio_HQ_Feature_Epic, checked
+          // again by the controller.
+          featureEpic: !!this.board.canFeatureEpic,
           titleMax: this.board.titleMaxLength,
           priorityOptions: this.board.priorityOptions || []
         }
@@ -361,7 +367,12 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
    */
   rebuildEpics(epics, items) {
     const entries = [
-      ...epics.map((epic) => epicModel(epic, { key: `epic-${epic.id}` })),
+      ...epics.map((epic) =>
+        epicModel(epic, {
+          key: `epic-${epic.id}`,
+          featuredLabel: FEATURED_LABEL_INTERNAL
+        })
+      ),
       // Epics keep their order (decision 7); the cards passing through sort, after them.
       ...sortCards(
         items
@@ -539,6 +550,33 @@ export default class WorkItemBoard extends NavigationMixin(LightningElement) {
       if (result.pushQueued) {
         await refreshApex(this.boardResult);
       }
+    } catch (error) {
+      this.feedback = { key, tone: "error", message: this.readError(error) };
+    }
+  }
+
+  /**
+   * The open epic card's Feature or Remove (build 10). The controller writes the featured epic's
+   * setting and nothing else - no work item, so nothing is pushed - and answers in words: a
+   * refusal, such as an epic that is not public, is shown as an error on the card. The board then
+   * refreshes itself, because Change Data Capture does not fire for a custom setting: this board
+   * sees the change at once, and other open tabs on their next refresh (decision 14). Remove sends
+   * the epic it was pressed on, and changes nothing if another epic was featured meanwhile.
+   */
+  async handleFeature(event) {
+    const { key, feature } = event.detail;
+    const epicId = this.recordIdFor(key);
+    this.feedback = { key, busy: true };
+    try {
+      const result = feature
+        ? await featureEpic({ epicId })
+        : await unfeatureEpic({ epicId });
+      this.feedback = {
+        key,
+        tone: result.refused ? "error" : "ok",
+        message: result.message
+      };
+      await refreshApex(this.boardResult);
     } catch (error) {
       this.feedback = { key, tone: "error", message: this.readError(error) };
     }

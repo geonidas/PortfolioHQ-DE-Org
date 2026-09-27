@@ -1319,4 +1319,147 @@ private class WorkItemBoardControllerTest {
       board.epics.size()
     );
   }
+
+  // ---------- featuring an epic from the board (build 10 step 3) ----------
+
+  @IsTest
+  static void theFeatureButtonFollowsTheCustomPermission() {
+    User developer = boardUser('phqfeat', true);
+    User other = boardUser('phqnofe', false);
+
+    WorkItemBoardController.BoardData board;
+    Boolean otherMayFeature;
+    Test.startTest();
+    System.runAs(developer) {
+      board = WorkItemBoardController.getBoardData(null);
+    }
+    System.runAs(other) {
+      otherMayFeature = WorkItemBoardController.canFeatureEpic();
+    }
+    Test.stopTest();
+
+    Assert.isTrue(
+      board.canFeatureEpic,
+      'Portfolio_HQ_Developer carries ' +
+        WorkItemBoardController.FEATURE_EPIC_PERMISSION +
+        ', so its holder sees the button.'
+    );
+    Assert.isFalse(otherMayFeature, 'A profile does not grant it.');
+  }
+
+  /**
+   * Through the board's own methods, as a user holding the permission set: feature, replace, a
+   * Remove pressed on a card that is no longer the featured one, and a Remove that clears. No push
+   * is queued and no work item is touched at any point.
+   */
+  @IsTest
+  static void theBoardFeaturesReplacesAndRemoves() {
+    User developer = boardUser('phqfeat', true);
+    Project__c project = publicProject('FEAT');
+    List<Work_Item__c> epics = seedEpics(project.Id, 2, 'In Progress');
+    Map<Id, String> names = new Map<Id, String>();
+    for (Work_Item__c e : [SELECT Id, Name FROM Work_Item__c]) {
+      names.put(e.Id, e.Name);
+    }
+    Id a = epics[0].Id;
+    Id b = epics[1].Id;
+
+    FeaturedEpicService.Result first;
+    FeaturedEpicService.Result second;
+    FeaturedEpicService.Result stale;
+    FeaturedEpicService.Result removed;
+    Integer jobs;
+    Test.startTest();
+    jobs = Limits.getQueueableJobs();
+    System.runAs(developer) {
+      first = WorkItemBoardController.featureEpic(a);
+      second = WorkItemBoardController.featureEpic(b);
+      stale = WorkItemBoardController.unfeatureEpic(a);
+      Assert.areEqual(
+        b,
+        FeaturedEpicService.read(),
+        'A stale Remove changes nothing.'
+      );
+      removed = WorkItemBoardController.unfeatureEpic(b);
+    }
+    Assert.areEqual(jobs, Limits.getQueueableJobs(), 'No push was queued.');
+    Test.stopTest();
+
+    Assert.isTrue(first.saved, first.message);
+    Assert.isTrue(second.saved, second.message);
+    Assert.isTrue(
+      second.message.contains('in place of ' + names.get(a)),
+      second.message
+    );
+    Assert.isFalse(stale.saved);
+    Assert.isFalse(stale.refused, 'Already as asked: news, not an error.');
+    Assert.areEqual(
+      names.get(a) +
+        ' is not featured on the public board, so nothing was changed. ' +
+        names.get(b) +
+        ' is.',
+      stale.message
+    );
+    Assert.isTrue(removed.saved, removed.message);
+    Assert.isNull(FeaturedEpicService.read());
+    for (Work_Item__c e : [
+      SELECT Sync_Status__c, Pending_Push_Fields__c
+      FROM Work_Item__c
+    ]) {
+      Assert.isNull(e.Pending_Push_Fields__c, 'Nothing staged.');
+      Assert.areEqual('Pending', e.Sync_Status__c, 'As seeded: untouched.');
+    }
+  }
+
+  @IsTest
+  static void aRefusalComesBackAsAResultWithItsReason() {
+    User developer = boardUser('phqfeat', true);
+    Project__c project = publicProject('FEAT');
+    Work_Item__c story = seedItems(1, project.Id, 'To Do')[0];
+
+    FeaturedEpicService.Result result;
+    Test.startTest();
+    System.runAs(developer) {
+      result = WorkItemBoardController.featureEpic(story.Id);
+    }
+    Test.stopTest();
+
+    Assert.isFalse(result.saved);
+    Assert.isTrue(result.refused, 'Shown as an error on the card.');
+    Assert.isTrue(result.message.contains('is not an epic'), result.message);
+  }
+
+  /** The permission is the rule, not the hidden button: both methods refuse without it. */
+  @IsTest
+  static void withoutThePermissionNeitherMethodChangesAnything() {
+    User other = boardUser('phqnofe', false);
+    Project__c project = publicProject('FEAT');
+    List<Work_Item__c> epics = seedEpics(project.Id, 1, 'In Progress');
+    FeaturedEpicService.feature(epics[0].Id);
+
+    List<String> messages = new List<String>();
+    Test.startTest();
+    System.runAs(other) {
+      try {
+        WorkItemBoardController.featureEpic(epics[0].Id);
+      } catch (AuraHandledException e) {
+        messages.add(e.getMessage());
+      }
+      try {
+        WorkItemBoardController.unfeatureEpic(epics[0].Id);
+      } catch (AuraHandledException e) {
+        messages.add(e.getMessage());
+      }
+    }
+    Test.stopTest();
+
+    Assert.areEqual(
+      new List<String>{
+        WorkItemBoardController.FEATURE_EPIC_DENIED,
+        WorkItemBoardController.FEATURE_EPIC_DENIED
+      },
+      messages
+    );
+    Assert.areEqual(epics[0].Id, FeaturedEpicService.read(), 'Still featured.');
+  }
 }

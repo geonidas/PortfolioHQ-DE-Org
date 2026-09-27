@@ -149,3 +149,66 @@
 .record-link {
   color: var(--board-link);
 }
+
+/* Build 10. The featured indicator: words in the ink colour inside a full border, where every
+   other chip on the card is quiet. Not the accent, which already means source. */
+.featured {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 6px;
+  border: 1px solid var(--board-ink);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--board-ink);
+}
+.star {
+  font-size: 0.6875rem;
+}
+
+/* The open card's button and its outcome, as on the task card. */
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.action-row {
+  margin: 0;
+}
+.btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--board-ink);
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--board-surface);
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+}
+.feedback {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.feedback:empty {
+  display: none;
+}
+.feedback-error {
+  color: var(--board-danger);
+}

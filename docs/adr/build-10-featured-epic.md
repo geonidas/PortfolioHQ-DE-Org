@@ -293,3 +293,53 @@ summary and the handoff.
   the site guest user. The page load and a poll 30 seconds later each ran
   `PublicBoardController.getPublicBoardData`. `storedId()` returned the epic's Id, and the
   platform's limit line read "Number of SOQL queries: 1 out of 100" both times.
+
+---
+
+## Built in step 3
+
+- **The controller.** `featureEpic(Id)` and `unfeatureEpic(Id)` are new methods, not arguments to
+  `saveDetails`. Both check `Portfolio_HQ_Feature_Epic` before anything else, so the permission is
+  the rule and the hidden button is only presentation. The board learns whether to show the button
+  from a new `BoardData.canFeatureEpic`. Both methods build their errors with `setMessage`, so Apex
+  can read the reason: without it, a test sees only "Script-thrown exception", which hid a real
+  failure in step 3's first validation.
+- **Remove names its epic, and a stale one changes nothing.** The spec's clear takes no argument,
+  and on a button that would be a bug: a tab left open after another epic was featured, elsewhere
+  or by the script, would still show its epic as featured, and pressing Remove there would remove
+  the other one. `unfeatureEpic` sends the epic the button was pressed on, and
+  `FeaturedEpicService.clear(Id)` clears only if that epic is still the featured one. Otherwise it
+  writes nothing and names the epic that is featured. The argument-free `clear()` stays, for the
+  script.
+- **A result says which of three things happened.** `FeaturedEpicService.Result` gains `refused`,
+  so there are three outcomes: written; refused, with the reason; and unchanged, because things
+  are already as asked. The card shows a refusal, such as an epic that is not public, as an error.
+  The other two are news.
+- **The indicator.** It is on `boardEpicCard`, drawn when the payload's `isFeatured` is true and
+  the board passes its words, from `boardModel`: `FEATURED_LABEL_INTERNAL`, "Featured on the public
+  board", and `FEATURED_LABEL_PUBLIC`, "Featured", which step 4 passes. So the public board shows
+  nothing new until step 4. The indicator is a bordered chip in the ink colour, not the accent,
+  since the accent already means source. It sits under the meta line, with a decorative star that
+  screen readers skip. The card's header is `aria-describedby` the indicator, so reaching the card
+  by keyboard announces it.
+- **The button.** It appears only in the open epic card, with the ability, and before Open record,
+  matching the task card, whose Open record link comes last. Its label, "Feature on public board"
+  or "Remove from public board", follows the payload. While the call runs it is `aria-disabled`,
+  a `role="status"` line says "Saving…", and then it says what the server said. The board refreshes
+  its own data after every answer, because Change Data Capture does not fire for a custom setting.
+  Task cards, in either view, never have the button.
+- **The setting is written in explicit system mode, which corrects step 1.** The first run of the
+  board's methods as a user holding `Portfolio_HQ_Developer`, rather than as the admin, failed with
+  "Access to entity 'Featured_Epic__c' denied". A throwaway test in a check-only validation
+  separated the cases, as a Standard User holding the set:
+  - Reading the setting: allowed.
+  - A plain `insert`: refused.
+  - The same `insert` from a `without sharing` class: refused.
+  - `Database.insert(..., AccessLevel.SYSTEM_MODE)`: allowed.
+  - A `customSettingAccesses` grant on the set changed nothing.
+
+  So plain DML on a custom setting is checked against the running user, unlike DML on a custom
+  object. `FeaturedEpicService` now writes through one method in explicit system mode, which is
+  what step 1's comment had already claimed. No grant was added: the custom permission, checked by
+  the controller, remains what authorises the write. Every step 1 test had run as the admin, who
+  can customise the application and so passes either way.

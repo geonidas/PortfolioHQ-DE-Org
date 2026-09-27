@@ -18,18 +18,36 @@
  * Nothing public writes it.
  */
 public with sharing class FeaturedEpicService {
-  /** What a set or clear did, in words a board can show. */
+  /**
+   * What a set or clear did, in words a board can show. Three outcomes: written; refused, because
+   * the request cannot be met and the message says why; and unchanged, because things are already
+   * as asked. The board shows a refusal as an error and the other two as news.
+   */
   public class Result {
-    /** True when the setting was written. False for a refusal and for "nothing to change". */
+    /** True when the setting was written. */
     @AuraEnabled
     public Boolean saved { get; private set; }
+    /** True when the request could not be met. Build 10 step 3, for the board's tone. */
+    @AuraEnabled
+    public Boolean refused { get; private set; }
     @AuraEnabled
     public String message { get; private set; }
 
-    private Result(Boolean saved, String message) {
+    private Result(Boolean saved, Boolean refused, String message) {
       this.saved = saved;
+      this.refused = refused;
       this.message = message;
     }
+  }
+
+  private static Result written(String message) {
+    return new Result(true, false, message);
+  }
+  private static Result refused(String message) {
+    return new Result(false, true, message);
+  }
+  private static Result unchanged(String message) {
+    return new Result(false, false, message);
   }
 
   /**
@@ -98,38 +116,30 @@ public with sharing class FeaturedEpicService {
    * cannot be featured, and then nothing is written and the featured epic stays as it was.
    *
    * The epic is read in the caller's mode, so a user cannot feature what they cannot see. The
-   * setting is written in system mode: the custom permission the controller checks is what
-   * authorises the write, and no user is granted the setting itself.
+   * setting is written in system mode, explicitly (see write): the custom permission the
+   * controller checks is what authorises the write, and no user is granted the setting itself.
    */
   public static Result feature(Id epicId) {
     if (epicId == null) {
-      return new Result(
-        false,
-        'No epic was supplied, so nothing was featured.'
-      );
+      return refused('No epic was supplied, so nothing was featured.');
     }
     if (epicId.getSObjectType() != Work_Item__c.SObjectType) {
-      return new Result(
-        false,
-        'That is not a work item, so it cannot be featured.'
-      );
+      return refused('That is not a work item, so it cannot be featured.');
     }
     Id current = storedId();
     Map<Id, Work_Item__c> rows = lookUp(new Set<Id>{ epicId, current });
     Work_Item__c epic = rows.get(epicId);
     if (epic == null) {
-      return new Result(
-        false,
+      return refused(
         'That work item is not available to you. It may have been deleted.'
       );
     }
     String reason = whyNot(epic);
     if (reason != null) {
-      return new Result(false, reason);
+      return refused(reason);
     }
     if (epicId == current) {
-      return new Result(
-        false,
+      return unchanged(
         epic.Name +
         ' is already featured on the public board. Nothing was changed.'
       );
@@ -140,11 +150,10 @@ public with sharing class FeaturedEpicService {
       setting.SetupOwnerId = UserInfo.getOrganizationId();
     }
     setting.Epic_Id__c = String.valueOf(epicId);
-    upsert setting;
+    write(setting);
 
     Work_Item__c replaced = current == null ? null : rows.get(current);
-    return new Result(
-      true,
+    return written(
       epic.Name +
         ' is featured on the public board' +
         (replaced == null ? '' : ', in place of ' + replaced.Name) +
@@ -152,20 +161,49 @@ public with sharing class FeaturedEpicService {
     );
   }
 
-  /** Features nothing. The public board then opens on its Epics view (decision 7). */
+  /**
+   * Features nothing, whichever epic was featured: the clear script. The public board then opens
+   * on its Epics view (decision 7).
+   */
   public static Result clear() {
+    return clearIf(null);
+  }
+
+  /**
+   * Features nothing, but only if this epic is still the featured one: the internal board's
+   * Remove button. A board left open after another epic was featured - in another tab, or by the
+   * script - must not remove that choice by pressing Remove on the epic it still shows as
+   * featured. Then nothing is written, and the message names the epic that is featured.
+   */
+  public static Result clear(Id epicId) {
+    if (epicId == null) {
+      return refused('No epic was supplied, so nothing was changed.');
+    }
+    return clearIf(epicId);
+  }
+
+  private static Result clearIf(Id expected) {
     Featured_Epic__c setting = Featured_Epic__c.getOrgDefaults();
     if (setting.Id == null || String.isBlank(setting.Epic_Id__c)) {
-      return new Result(false, 'No epic is featured, so nothing was changed.');
+      return unchanged('No epic is featured, so nothing was changed.');
     }
     Id current = storedId();
+    if (expected != null && expected != current) {
+      Map<Id, Work_Item__c> rows = lookUp(new Set<Id>{ expected, current });
+      Work_Item__c asked = rows.get(expected);
+      Work_Item__c featured = current == null ? null : rows.get(current);
+      return unchanged(
+        (asked == null ? 'That epic' : asked.Name) +
+          ' is not featured on the public board, so nothing was changed.' +
+          (featured == null ? '' : ' ' + featured.Name + ' is.')
+      );
+    }
     Work_Item__c was = current == null
       ? null
       : lookUp(new Set<Id>{ current }).get(current);
     setting.Epic_Id__c = null;
-    update setting;
-    return new Result(
-      true,
+    write(setting);
+    return written(
       (was == null ? 'The featured epic' : was.Name) +
       ' is no longer featured on the public board. Open public boards show that within about 30 seconds.'
     );
@@ -199,6 +237,23 @@ public with sharing class FeaturedEpicService {
         '\'s project is not public, so the public board cannot show it. Make the project public, then feature it.';
     }
     return null;
+  }
+
+  /**
+   * Writes the setting in system mode, and says so. Plain DML on a custom setting is checked
+   * against the running user - unlike DML on a custom object - and refused with "Access to entity
+   * 'Featured_Epic__c' denied" for anyone who cannot customise the application, even from a
+   * without sharing class and even with the setting granted in a permission set. Only an explicit
+   * AccessLevel.SYSTEM_MODE skips the check. Found in build 10 step 3, when the board's methods
+   * first ran as a user holding Portfolio_HQ_Developer rather than as the admin; every step 1 test
+   * had run as the admin, which passes either way.
+   */
+  private static void write(Featured_Epic__c setting) {
+    if (setting.Id == null) {
+      Database.insert(setting, AccessLevel.SYSTEM_MODE);
+    } else {
+      Database.update(setting, AccessLevel.SYSTEM_MODE);
+    }
   }
 
   private static Map<Id, Work_Item__c> lookUp(Set<Id> ids) {
