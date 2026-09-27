@@ -421,6 +421,16 @@ every 30 seconds would spend a real share of it on its own. The method is `cache
 `scope='global'`, so it is not cached on the CDN and every poll reaches the server - that is what
 makes the 30 seconds true, and why the idle cap matters.
 
+**The featured epic reaches an anonymous visitor as answers, never as an id** (build 10). The
+public payload says which epic is featured with `PublicEpic.isFeatured`, and which cards belong to
+it with `PublicCard.inEpic` and `inFeaturedEpic`. Apex works these out from `EpicRollup`, against
+the rows the visitor's query returned, so an epic the visitor cannot see is none. The build
+prompt proposed publishing the epic's Salesforce Id; step 0 declined, because no public DTO
+carries one and `PublicBoardControllerTest` bans the `"Id"` key. Resolving it costs no query:
+`FeaturedEpicService.resolveAmong` reads the cached setting and the rows already loaded. A
+featured epic keeps its card past the three-Done cap, and its work stays in the public Tasks view
+after it is Done, for as long as it is featured.
+
 **The guest's readable fields are asserted exactly.** `GuestAccessTest.theBoardGuestReadsExactlyTheseFields`
 lists every field `Portfolio_HQ_Guest` grants; before build 08 the suite only forbade four named
 fields, so a new grant failed nothing. Granting the guest a field now fails that test and
@@ -881,6 +891,24 @@ EOF
 Expect **exactly one SOQL query** in that debug log's limit block. Ancestry and child counts are
 computed in memory; a per-epic query would put the guest page one busy project away from the
 governor limit.
+
+**Counting the queries an anonymous visitor costs, as the visitor** (build 10 step 2). A run as
+the owner is not proof of what the guest gets (invariant 8). Trace the site guest user for a few
+minutes with the org's `SFDC_DevConsole` debug level, then load the board logged out. The trace
+expires on its own:
+
+```bash
+sf data create record --use-tooling-api -o MyScratchOrg --sobject TraceFlag --values "TracedEntityId=<guest user id> LogType=USER_DEBUG DebugLevelId=<SFDC_DevConsole id> StartDate=<now, UTC> ExpirationDate=<now + 20 min, UTC>"
+```
+
+Each call leaves two `ApexLog` rows for the guest. The small one, operation
+`/webruntime/api/apex/execute`, holds only the class loading. The call itself is in the large one
+beside it, whose operation reads `UniversalPerfLogger`. Grep it for `SOQL_EXECUTE_BEGIN` and
+`Number of SOQL queries`. The guest's id:
+
+```bash
+sf data query -o MyScratchOrg -q "SELECT Id FROM User WHERE UserType = 'Guest' AND IsActive = true"
+```
 
 The seed script is the way to get a board worth looking at after a rebuild, and it now also plants
 a **canary**: a work item flagged public under a _private_ project. It must never render. If it

@@ -38,7 +38,12 @@ public with sharing class PublicBoardController {
       for (Work_Item__c record : records) {
         numberById.put(record.Id, record.Name);
       }
-      EpicRollup rollup = new EpicRollup(records);
+      // Build 10. The featured epic, resolved against these rows - so an epic the visitor cannot
+      // see is none - from a cached setting, with no second query (invariant 2).
+      EpicRollup rollup = new EpicRollup(
+        records,
+        FeaturedEpicService.resolveAmong(records)
+      );
 
       PublicBoardData board = new PublicBoardData();
       board.items = new List<PublicCard>();
@@ -62,7 +67,7 @@ public with sharing class PublicBoardController {
           projectLabels.add(record.Project__r.Short_Name__c);
         }
         if (rollup.keptInPublicTaskView(record)) {
-          board.items.add(toCard(record, numberById));
+          board.items.add(toCard(record, numberById, rollup));
         }
       }
 
@@ -97,12 +102,14 @@ public with sharing class PublicBoardController {
     );
     epic.sourceLabel = rules.label;
     epic.accentToken = rules.accentToken;
+    epic.isFeatured = source.isFeatured;
     return epic;
   }
 
   private static PublicCard toCard(
     Work_Item__c record,
-    Map<Id, String> numberById
+    Map<Id, String> numberById,
+    EpicRollup rollup
   ) {
     PublicCard card = new PublicCard();
     // Salesforce ids are deliberately not published. The auto number is a stable,
@@ -138,6 +145,11 @@ public with sharing class PublicBoardController {
     // WorkItemPriority, read from the picklist, so the client never compares a name.
     card.priority = WorkItemPriority.labelOf(record.Priority__c);
     card.priorityRank = WorkItemPriority.rankOf(record.Priority__c);
+    // Build 10: membership as the epic's card counts it, worked out here so the client never
+    // walks a hierarchy. Answers, not identifiers: the visitor learns which cards the featured
+    // epic's line covers, and nothing that names or addresses a record.
+    card.inEpic = rollup.epicOf(record.Id) != null;
+    card.inFeaturedEpic = rollup.inFeaturedEpic(record.Id);
     return card;
   }
 
@@ -219,6 +231,23 @@ public with sharing class PublicBoardController {
     @AuraEnabled
     public Integer priorityRank { get; set; }
 
+    /**
+     * Whether this card rolls up into an epic, as EpicRollup counts it. Build 10 step 2, added
+     * with the key-set assertion failing first. The public Tasks view filters epic work by the
+     * featured epic and leaves everything else alone (ADR build-10, decisions 5 and 6), so it has
+     * to know which is which. False for flat work and for orphans.
+     */
+    @AuraEnabled
+    public Boolean inEpic { get; set; }
+
+    /**
+     * Whether the epic this card rolls up into is the featured one. Build 10 step 2, with inEpic.
+     * A boolean rather than the epic's identity: no public card or epic carries a Salesforce id,
+     * and publishing one to say which epic is featured would be the first (step 0, question 1).
+     */
+    @AuraEnabled
+    public Boolean inFeaturedEpic { get; set; }
+
     // lastSyncedAt was here until build 08 step 5. The card's "Updated" line was its only
     // reader and the redesign removes that line; the board-level lastSyncedAt stays for the
     // header. Removing a field is a narrowing, and the key-set assertion recorded it.
@@ -250,5 +279,13 @@ public with sharing class PublicBoardController {
     public String sourceLabel { get; set; }
     @AuraEnabled
     public String accentToken { get; set; }
+
+    /**
+     * Whether this is the epic the public board features. Build 10 step 2, added with the key-set
+     * assertion failing first. It drives the indicator, and it is how the client finds the title
+     * and source for the Tasks view's line - no identifier needed. At most one epic carries true.
+     */
+    @AuraEnabled
+    public Boolean isFeatured { get; set; }
   }
 }

@@ -252,7 +252,11 @@ private class PublicBoardControllerTest {
       // Without them the source filter cannot place an epic and it would be the one card
       // with no accent. A label to render and a token name, never a colour.
       'sourceLabel',
-      'accentToken'
+      'accentToken',
+      // Build 10 step 2, added after this assertion failed and named it. Whether this is the
+      // epic the public board features: the indicator, and how the Tasks view's line finds its
+      // title and source. A boolean, so the epic still carries no identifier.
+      'isFeatured'
     };
     Assert.areEqual(
       expected,
@@ -496,7 +500,13 @@ private class PublicBoardControllerTest {
       // Build 09 step 5, added after this assertion failed and named both. The priority a
       // public card shows, and the number both boards sort on so no client compares a name.
       'priority',
-      'priorityRank'
+      'priorityRank',
+      // Build 10 step 2, added after this assertion failed and named both. Whether the card
+      // rolls up into an epic, and whether into the featured one - answers Apex worked out, so
+      // the Tasks view can filter epic work without the client walking a hierarchy, and without
+      // publishing the Salesforce id the build prompt proposed (step 0, question 1).
+      'inEpic',
+      'inFeaturedEpic'
     };
     Assert.areEqual(
       expected,
@@ -1074,5 +1084,190 @@ private class PublicBoardControllerTest {
         'The number the client sorts on; none has none, and sorts last.'
       );
     }
+  }
+
+  // ---------- the featured epic (build 10 step 2) ----------
+
+  private static void featureDirectly(Id epicId) {
+    // The setting itself, as the service or a hand edit leaves it: this class tests what the
+    // public board makes of a stored Id, including one the service would have refused.
+    Featured_Epic__c setting = Featured_Epic__c.getOrgDefaults();
+    if (setting.Id == null) {
+      setting.SetupOwnerId = UserInfo.getOrganizationId();
+    }
+    setting.Epic_Id__c = epicId;
+    upsert setting;
+  }
+
+  private static PublicBoardController.PublicCard cardNumbered(
+    PublicBoardController.PublicBoardData board,
+    Id recordId
+  ) {
+    String wanted = [SELECT Name FROM Work_Item__c WHERE Id = :recordId].Name;
+    for (PublicBoardController.PublicCard card : board.items) {
+      if (card.recordNumber == wanted) {
+        return card;
+      }
+    }
+    return null;
+  }
+
+  private static Integer featuredCount(
+    PublicBoardController.PublicBoardData board
+  ) {
+    Integer n = 0;
+    for (PublicBoardController.PublicEpic e : board.epics) {
+      if (e.isFeatured == true) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  @IsTest
+  static void theFeaturedEpicIsMarkedAndItsWorkFlagged() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c featured = epic(open.Id, true, 'In Progress');
+    Work_Item__c other = epic(open.Id, true, 'In Progress');
+    Work_Item__c child = item(open.Id, true, 'To Do', 'Story', featured.Id);
+    Work_Item__c grandchild = item(open.Id, true, 'To Do', 'Task', child.Id);
+    Work_Item__c otherChild = item(open.Id, true, 'To Do', 'Story', other.Id);
+    Work_Item__c orphan = item(open.Id, true, 'To Do', 'Story', null);
+    flatItem(open.Id, 'To Do', 'Flat');
+    update new Work_Item__c(Id = featured.Id, Title__c = 'The featured one');
+    FeaturedEpicService.feature(featured.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.areEqual(1, featuredCount(board), 'One featured epic at most.');
+    Assert.isTrue(epicsByTitle(board).get('The featured one').isFeatured);
+
+    Assert.isTrue(cardNumbered(board, child.Id).inEpic);
+    Assert.isTrue(cardNumbered(board, child.Id).inFeaturedEpic);
+    Assert.isTrue(
+      cardNumbered(board, grandchild.Id).inFeaturedEpic,
+      'As the card counts it: two hops down is in (step 0, question 2).'
+    );
+    Assert.isTrue(cardNumbered(board, otherChild.Id).inEpic);
+    Assert.isFalse(cardNumbered(board, otherChild.Id).inFeaturedEpic);
+    Assert.isFalse(cardNumbered(board, orphan.Id).inEpic);
+    Assert.isFalse(cardNumbered(board, orphan.Id).inFeaturedEpic);
+    Assert.isFalse(
+      cardTitled(board, 'Flat').inEpic,
+      'Flat work is in no epic.'
+    );
+    Assert.isFalse(cardTitled(board, 'Flat').inFeaturedEpic);
+  }
+
+  @IsTest
+  static void withNoEpicFeaturedNothingIsMarked() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c theEpic = epic(open.Id, true, 'In Progress');
+    Work_Item__c child = item(open.Id, true, 'To Do', 'Story', theEpic.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.areEqual(0, featuredCount(board));
+    Assert.isFalse(board.epics[0].isFeatured, 'False, never null.');
+    Assert.isTrue(
+      cardNumbered(board, child.Id).inEpic,
+      'Membership is still said: the Tasks view needs it to hide epic work (decision 7).'
+    );
+    Assert.isFalse(cardNumbered(board, child.Id).inFeaturedEpic);
+  }
+
+  /**
+   * Resolved against the rows the visitor can see: a stored Id for a private epic, or an epic
+   * under a private project, reads as none and says nothing about the record.
+   */
+  @IsTest
+  static void aFeaturedEpicTheVisitorCannotSeeIsNone() {
+    Project__c open = project(true, 'OPEN');
+    Project__c shut = project(false, 'SHUT');
+    Work_Item__c hidden = epic(open.Id, false, 'In Progress');
+    Work_Item__c visible = epic(open.Id, true, 'In Progress');
+    Work_Item__c child = item(open.Id, true, 'To Do', 'Story', visible.Id);
+    Work_Item__c underShut = epic(shut.Id, true, 'In Progress');
+
+    for (Id stored : new List<Id>{ hidden.Id, underShut.Id }) {
+      featureDirectly(stored);
+      PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+      Assert.areEqual(0, featuredCount(board), 'Stored ' + stored);
+      Assert.isFalse(cardNumbered(board, child.Id).inFeaturedEpic);
+    }
+  }
+
+  /**
+   * The owner's answer to step 0's question 3: featured and Done, it keeps its card and its work
+   * stays in the Tasks view. Another Done epic's work leaves as before.
+   */
+  @IsTest
+  static void aFeaturedDoneEpicKeepsItsCardAndItsWork() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c featured = epic(open.Id, true, 'Done');
+    Work_Item__c other = epic(open.Id, true, 'Done');
+    Work_Item__c underFeatured = item(
+      open.Id,
+      true,
+      'Done',
+      'Story',
+      featured.Id
+    );
+    Work_Item__c underOther = item(open.Id, true, 'To Do', 'Story', other.Id);
+    for (Integer i = 0; i < 4; i++) {
+      epic(open.Id, true, 'Done');
+    }
+    update new Work_Item__c(Id = featured.Id, Title__c = 'Featured and done');
+    FeaturedEpicService.feature(featured.Id);
+
+    Test.startTest();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Test.stopTest();
+
+    Assert.isTrue(
+      epicsByTitle(board).containsKey('Featured and done'),
+      'Listed, however many finished epics are newer.'
+    );
+    Assert.isTrue(epicsByTitle(board).get('Featured and done').isFeatured);
+    Assert.isNotNull(
+      cardNumbered(board, underFeatured.Id),
+      'Its work stays while it is featured.'
+    );
+    Assert.isTrue(cardNumbered(board, underFeatured.Id).inFeaturedEpic);
+    Assert.isNull(
+      cardNumbered(board, underOther.Id),
+      'Another finished epic\'s work leaves, as before build 10.'
+    );
+  }
+
+  /** Invariant 2, with the setting populated: reading it costs the visitor no query. */
+  @IsTest
+  static void oneQueryWithAnEpicFeatured() {
+    Project__c open = project(true, 'OPEN');
+    Work_Item__c featured = epic(open.Id, true, 'In Progress');
+    item(open.Id, true, 'To Do', 'Story', featured.Id);
+    flatItem(open.Id, 'To Do', 'Flat');
+    FeaturedEpicService.feature(featured.Id);
+
+    Test.startTest();
+    Integer before = Limits.getQueries();
+    PublicBoardController.PublicBoardData board = PublicBoardController.getPublicBoardData();
+    Integer used = Limits.getQueries() - before;
+    Test.stopTest();
+
+    Assert.areEqual(
+      1,
+      featuredCount(board),
+      'The setting was read, so the count below measured a real read of it.'
+    );
+    Assert.areEqual(
+      1,
+      used,
+      'Reading the featured epic must not add a query (invariant 2).'
+    );
   }
 }

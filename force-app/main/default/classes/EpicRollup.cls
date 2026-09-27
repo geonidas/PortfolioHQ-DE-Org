@@ -26,17 +26,27 @@ public with sharing class EpicRollup {
   // epic is not under itself, and leaving it out is what stops one counting towards its own
   // children.
   private final Map<Id, Id> epicIdByItemId = new Map<Id, Id>();
+  // Build 10. The epic the public board features, when it is one of these rows, or null.
+  private final Id featuredEpicId;
 
   /** One epic card's worth: the epic and the counts of what rolls up into it. */
   public class Epic {
     public Work_Item__c record { get; private set; }
     public Integer totalChildren { get; private set; }
     public Integer completedChildren { get; private set; }
+    /** Build 10: whether this is the epic the public board features. */
+    public Boolean isFeatured { get; private set; }
 
-    private Epic(Work_Item__c record, Integer total, Integer completed) {
+    private Epic(
+      Work_Item__c record,
+      Integer total,
+      Integer completed,
+      Boolean isFeatured
+    ) {
       this.record = record;
       this.totalChildren = total;
       this.completedChildren = completed;
+      this.isFeatured = isFeatured;
     }
   }
 
@@ -46,8 +56,21 @@ public with sharing class EpicRollup {
    *                there, and the item reads as having no epic.
    */
   public EpicRollup(List<Work_Item__c> records) {
+    this(records, null);
+  }
+
+  /**
+   * @param featuredEpicId the featured epic as the caller resolved it (FeaturedEpicService), or
+   *                       null. Ignored unless it is an epic among the rows, so an Id the caller
+   *                       did not load features nothing.
+   */
+  public EpicRollup(List<Work_Item__c> records, Id featuredEpicId) {
     this.records = records == null ? new List<Work_Item__c>() : records;
     this.byId = new Map<Id, Work_Item__c>(this.records);
+    this.featuredEpicId = featuredEpicId != null &&
+      isEpic(byId.get(featuredEpicId))
+      ? featuredEpicId
+      : null;
     for (Work_Item__c record : this.records) {
       if (
         !isEpic(record) &&
@@ -74,13 +97,24 @@ public with sharing class EpicRollup {
   }
 
   /**
+   * Build 10: whether an item rolls up into the featured epic. Membership as the epic's card
+   * counts it - every item whose nearest epic this is, not only its direct children (ADR
+   * build-10, decision 4, as the owner's answer to step 0's question 2 settled it).
+   */
+  public Boolean inFeaturedEpic(Id itemId) {
+    Id epicId = epicIdByItemId.get(itemId);
+    return epicId != null && epicId == featuredEpicId;
+  }
+
+  /**
    * Whether the public task view keeps this card.
    *
    * - An epic: never. The epic view owns epics; an epic is not a task.
    * - Work from a flat source: always. It has nothing to belong to, and hiding it the moment it
    *   is finished would make completing something look like deleting it.
    * - Work under an epic: while the epic is still in flight, whatever its own status, so a
-   *   finished task stays visible for as long as the epic it belongs to is open.
+   *   finished task stays visible for as long as the epic it belongs to is open. Work under the
+   *   featured epic stays after it is Done too, for as long as it is featured (build 10).
    * - Unparented work from a source that has epics: while it is unfinished. Finished orphans
    *   would otherwise pile into exactly the unbounded Done column the two views exist to avoid.
    */
@@ -95,13 +129,15 @@ public with sharing class EpicRollup {
     if (epicId == null) {
       return record.Status__c != DONE;
     }
-    return byId.get(epicId).Status__c != DONE;
+    return byId.get(epicId).Status__c != DONE || epicId == featuredEpicId;
   }
 
   /**
    * Epic cards: active ones first, in the order loaded, then at most the three most recently
    * updated completed ones - an unbounded list of finished epics is the same failure as an
-   * unbounded Done column.
+   * unbounded Done column. The featured epic is listed wherever it falls, so a featured epic
+   * moved to Done keeps its card - and its indicator and Remove button - however many finished
+   * epics are newer (build 10, the owner's answer to step 0's question 3).
    *
    * A descendant counts towards the epic it resolves to, not towards its immediate parent, so a
    * subtask two hops down still counts. On the public board the counts include public rows only,
@@ -143,17 +179,28 @@ public with sharing class EpicRollup {
 
     List<Epic> result = new List<Epic>();
     for (Work_Item__c record : active) {
-      result.add(
-        new Epic(record, totalByEpic.get(record.Id), doneByEpic.get(record.Id))
-      );
+      result.add(toEpic(record, totalByEpic, doneByEpic));
     }
-    for (Integer i = 0; i < completed.size() && i < COMPLETED_EPIC_LIMIT; i++) {
+    for (Integer i = 0; i < completed.size(); i++) {
       Work_Item__c record = completed[i];
-      result.add(
-        new Epic(record, totalByEpic.get(record.Id), doneByEpic.get(record.Id))
-      );
+      if (i < COMPLETED_EPIC_LIMIT || record.Id == featuredEpicId) {
+        result.add(toEpic(record, totalByEpic, doneByEpic));
+      }
     }
     return result;
+  }
+
+  private Epic toEpic(
+    Work_Item__c record,
+    Map<Id, Integer> totalByEpic,
+    Map<Id, Integer> doneByEpic
+  ) {
+    return new Epic(
+      record,
+      totalByEpic.get(record.Id),
+      doneByEpic.get(record.Id),
+      record.Id == featuredEpicId
+    );
   }
 
   /**

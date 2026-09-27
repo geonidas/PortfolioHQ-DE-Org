@@ -1216,4 +1216,107 @@ private class WorkItemBoardControllerTest {
       Assert.areEqual(i + 1, board.priorityOptions[i].rank);
     }
   }
+
+  // ---------- the featured epic (build 10 step 2) ----------
+
+  private static List<Work_Item__c> seedEpics(
+    Id projectId,
+    Integer count,
+    String status
+  ) {
+    List<Work_Item__c> epics = TestDataFactory.createWorkItems(
+      count,
+      projectId,
+      false
+    );
+    for (Work_Item__c e : epics) {
+      e.Type__c = 'Epic';
+      e.Status__c = status;
+      e.Is_Public__c = true;
+    }
+    insert epics;
+    return epics;
+  }
+
+  private static Project__c publicProject(String shortName) {
+    Project__c project = seedProject(shortName);
+    project.Is_Public__c = true;
+    update project;
+    return project;
+  }
+
+  @IsTest
+  static void theBoardSaysWhichEpicIsFeaturedAtNoExtraQuery() {
+    Project__c project = publicProject('FEAT');
+    List<Work_Item__c> epics = seedEpics(project.Id, 2, 'In Progress');
+    FeaturedEpicService.feature(epics[0].Id);
+
+    Test.startTest();
+    Integer before = Limits.getQueries();
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    Integer used = Limits.getQueries() - before;
+    Test.stopTest();
+
+    Assert.areEqual(epics[0].Id, board.featuredEpicId);
+    Assert.areEqual(2, board.epics.size());
+    for (WorkItemBoardController.BoardEpic e : board.epics) {
+      Assert.areEqual(e.id == epics[0].Id, e.isFeatured, 'Epic ' + e.id);
+    }
+    Assert.areEqual(
+      2,
+      used,
+      'Items and project, as before: the setting is read from the cache.'
+    );
+  }
+
+  /** The indicator here never claims what the public board cannot show. */
+  @IsTest
+  static void anEpicThePublicBoardCannotShowIsNotFeaturedHereEither() {
+    Project__c project = publicProject('FEAT');
+    List<Work_Item__c> epics = seedEpics(project.Id, 1, 'In Progress');
+
+    WorkItemBoardController.BoardData none = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    Assert.isNull(none.featuredEpicId, 'None featured.');
+    Assert.isFalse(none.epics[0].isFeatured, 'False, never null.');
+
+    FeaturedEpicService.feature(epics[0].Id);
+    update new Work_Item__c(Id = epics[0].Id, Is_Public__c = false);
+    WorkItemBoardController.BoardData unpublished = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+    Assert.isNull(unpublished.featuredEpicId);
+    Assert.isFalse(unpublished.epics[0].isFeatured);
+  }
+
+  /**
+   * Featured and Done, past the cap of three finished epics: still listed, so step 3's Remove
+   * button stays reachable (step 0, question 3).
+   */
+  @IsTest
+  static void aFeaturedDoneEpicKeepsItsCardHere() {
+    Project__c project = publicProject('DONE');
+    List<Work_Item__c> epics = seedEpics(project.Id, 5, 'Done');
+    FeaturedEpicService.feature(epics[4].Id);
+
+    WorkItemBoardController.BoardData board = WorkItemBoardController.getBoardData(
+      project.Id
+    );
+
+    Boolean listed = false;
+    for (WorkItemBoardController.BoardEpic e : board.epics) {
+      if (e.id == epics[4].Id) {
+        listed = e.isFeatured;
+      }
+    }
+    Assert.isTrue(listed, 'The featured epic is listed, and marked.');
+    Assert.isTrue(
+      board.epics.size() <= 4,
+      'Three finished epics plus the featured one at most: ' +
+      board.epics.size()
+    );
+  }
 }

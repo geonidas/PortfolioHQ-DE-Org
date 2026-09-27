@@ -38,6 +38,12 @@ public with sharing class PublicWorkItemSelector {
         Due_Date__c,
         // Build 09: the priority a card shows and sorts by. Same query, same one-query budget.
         Priority__c,
+        // Build 10: the two flags the WHERE clause requires, read so FeaturedEpicService applies
+        // the same rule here as everywhere else when it resolves the featured epic. Never
+        // published - no DTO carries either - and already on the guest's grant, so this widens
+        // nothing (GuestAccessTest pins both).
+        Is_Public__c,
+        Project__r.Is_Public__c,
         // Read, never published as it is. The board asks BoardSourceRules about this system
         // and sends the answers - a label from Board_Source__mdt, an accent token, whether its
         // work condenses into epics - rather than the picklist value.

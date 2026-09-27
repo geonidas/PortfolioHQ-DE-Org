@@ -260,3 +260,36 @@ summary and the handoff.
   the controller's business (step 3): it checks the permission, and the scripts are run by an admin.
 - **`scripts/apex/set-featured-epic.apex`** and **`scripts/apex/clear-featured-epic.apex`**. The
   build spec put them in `scripts/`; they sit in `scripts/apex/` beside every other Apex script.
+
+---
+
+## Built in step 2
+
+- **What the payloads carry.** Internal: `BoardData.featuredEpicId`, as the spec said, and
+  `BoardEpic.isFeatured`. Public, per question 1: `PublicEpic.isFeatured`, and on `PublicCard`,
+  `inEpic` (the card rolls up into an epic) and `inFeaturedEpic` (into the featured one). That is
+  three public keys and no identifier. Both epic DTOs use the same property, so `boardEpicCard`
+  reads one name from either board. The public board gains no board-level key: the client finds
+  the featured epic as the one epic with `isFeatured`, and at most one has it.
+- **Resolution with no query.** `FeaturedEpicService.resolveAmong(rows)` reads the cached setting
+  and looks for the Id among the rows the controller already loaded, applying `canBeFeatured`. So
+  the public board resolves against public rows only, and an epic the visitor cannot see is none.
+  Both selectors now also select `Is_Public__c` and `Project__r.Is_Public__c`, so the rule reads
+  the same fields everywhere. The public query's WHERE clause already required both, and the guest
+  already reads both. Neither is on any DTO.
+- **`EpicRollup` takes the featured Id.** It ignores the Id unless it is an epic among the rows.
+  `epics()` keeps the three most recent Done epics exactly as before, and adds the featured epic
+  wherever it falls. `keptInPublicTaskView` keeps work under the featured epic after it is Done.
+  `inFeaturedEpic(itemId)` is membership as the card counts it (question 2), and `Epic.isFeatured`
+  marks the card.
+- **`GuestAccessTest` did not fail first, and did not need to.** The build spec expected it to
+  fail when the DTO changed. It pins the fields the guest can read, and those did not change. What
+  it gains instead is the assertion that decision 1's notes called for: the site guest holds no
+  custom setting, custom metadata or custom permission grant on any set it is assigned, its
+  profile's included. That assertion was proved by planting `Portfolio_HQ_Feature_Epic` on
+  `Portfolio_HQ_Guest` in a check-only validation. The guest licence accepted the grant, and the
+  assertion failed, naming it.
+- **The guest reads the setting with no grant.** Proved live and logged out, with a debug trace on
+  the site guest user. The page load and a poll 30 seconds later each ran
+  `PublicBoardController.getPublicBoardData`. `storedId()` returned the epic's Id, and the
+  platform's limit line read "Number of SOQL queries: 1 out of 100" both times.

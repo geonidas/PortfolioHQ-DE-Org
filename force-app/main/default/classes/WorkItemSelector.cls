@@ -26,7 +26,10 @@ public with sharing class WorkItemSelector {
     // Build 08 step 8: whether a Failed record has anything left to send again.
     'Pending_Push_Fields__c, ' +
     // Build 09: what saveDetails compares a priority edit against, and what the cards show.
-    'Priority__c';
+    'Priority__c, ' +
+    // Build 10: whether an epic can be the one the public board features - the same rule the
+    // public board applies (FeaturedEpicService.canBeFeatured).
+    'Is_Public__c, Project__r.Is_Public__c';
 
   /**
    * One query, whether or not a project was supplied.

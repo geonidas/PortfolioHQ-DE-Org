@@ -55,8 +55,7 @@ public with sharing class FeaturedEpicService {
   /**
    * The featured epic, or null when none is set or the stored Id no longer resolves to one that
    * can be featured. One query, and only when something is stored. For scripts and checks: the
-   * boards resolve against the rows they have already loaded, so the public board spends no
-   * query on this.
+   * boards use resolveAmong, against the rows they have already loaded.
    */
   public static Id read() {
     Id stored = storedId();
@@ -65,6 +64,25 @@ public with sharing class FeaturedEpicService {
     }
     Work_Item__c row = lookUp(new Set<Id>{ stored }).get(stored);
     return row != null && canBeFeatured(row) ? stored : null;
+  }
+
+  /**
+   * The featured epic among rows a board has already loaded, or null. No query: the setting is
+   * cached and the rows are in memory, which is how both boards read it and the public board stays
+   * at one query (invariant 2). Resolved against what the caller loaded, so on the public board an
+   * epic the visitor cannot see is none. Each row needs the fields canBeFeatured reads.
+   */
+  public static Id resolveAmong(List<Work_Item__c> rows) {
+    Id stored = storedId();
+    if (stored == null || rows == null) {
+      return null;
+    }
+    for (Work_Item__c row : rows) {
+      if (row.Id == stored) {
+        return canBeFeatured(row) ? stored : null;
+      }
+    }
+    return null;
   }
 
   /**

@@ -37,10 +37,17 @@ public with sharing class WorkItemBoardController {
       for (Work_Item__c item : items) {
         board.items.add(toCard(item));
       }
+      // Build 10. The featured epic, resolved against the rows this board loaded by the rule the
+      // public board applies, so the indicator here never claims what the public board cannot
+      // show. From a cached setting: no query.
+      Id featuredEpicId = FeaturedEpicService.resolveAmong(items);
       board.epics = new List<BoardEpic>();
-      for (EpicRollup.Epic epic : new EpicRollup(items).epics()) {
+      for (
+        EpicRollup.Epic epic : new EpicRollup(items, featuredEpicId).epics()
+      ) {
         board.epics.add(toEpic(epic));
       }
+      board.featuredEpicId = featuredEpicId;
       board.itemCount = items.size();
       board.projectId = projectId;
       board.projectLabel = ProjectSelector.labelFor(project);
@@ -111,6 +118,7 @@ public with sharing class WorkItemBoardController {
     );
     epic.sourceLabel = rules.label;
     epic.accentToken = rules.accentToken;
+    epic.isFeatured = source.isFeatured;
     return epic;
   }
 
@@ -594,6 +602,13 @@ public with sharing class WorkItemBoardController {
      */
     @AuraEnabled
     public List<WorkItemPriority.Option> priorityOptions { get; set; }
+    /**
+     * The epic the public board features, or null for none - including a stored epic that no
+     * longer resolves, or one this board did not load. Build 10. Internal only: the public payload
+     * says the same thing with isFeatured and publishes no id.
+     */
+    @AuraEnabled
+    public Id featuredEpicId { get; set; }
   }
 
   /**
@@ -677,6 +692,9 @@ public with sharing class WorkItemBoardController {
     public String sourceLabel { get; set; }
     @AuraEnabled
     public String accentToken { get; set; }
+    /** Whether this is the featured epic, as on PublicEpic: one property for both boards. */
+    @AuraEnabled
+    public Boolean isFeatured { get; set; }
   }
 
   /**

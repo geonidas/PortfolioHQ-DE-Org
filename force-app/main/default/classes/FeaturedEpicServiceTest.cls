@@ -345,6 +345,62 @@ private class FeaturedEpicServiceTest {
     Assert.areEqual(idOf('EPIC-A'), FeaturedEpicService.read());
   }
 
+  // ---------- resolving among rows a board already loaded (step 2) ----------
+
+  private static List<Work_Item__c> boardRows() {
+    return [
+      SELECT
+        Id,
+        Name,
+        Type__c,
+        Is_Public__c,
+        Project__c,
+        Project__r.Is_Public__c
+      FROM Work_Item__c
+    ];
+  }
+
+  @IsTest
+  static void resolvingAmongLoadedRowsUsesTheSameRuleAndNoQuery() {
+    Id epic = idOf('EPIC-A');
+    FeaturedEpicService.feature(epic);
+    List<Work_Item__c> rows = boardRows();
+
+    Integer queries = Limits.getQueries();
+    Id resolved = FeaturedEpicService.resolveAmong(rows);
+    Assert.areEqual(
+      queries,
+      Limits.getQueries(),
+      'The boards resolve with no query: the public board has one to spend, and it is spent.'
+    );
+    Assert.areEqual(epic, resolved);
+
+    update new Work_Item__c(Id = epic, Is_Public__c = false);
+    Assert.isNull(
+      FeaturedEpicService.resolveAmong(boardRows()),
+      'The rule that refuses a private epic reads one back as none.'
+    );
+  }
+
+  @IsTest
+  static void anEpicTheCallerDidNotLoadResolvesToNone() {
+    FeaturedEpicService.feature(idOf('EPIC-A'));
+    List<Work_Item__c> withoutIt = new List<Work_Item__c>();
+    for (Work_Item__c row : boardRows()) {
+      if (row.Id != idOf('EPIC-A')) {
+        withoutIt.add(row);
+      }
+    }
+
+    Assert.isNull(FeaturedEpicService.resolveAmong(withoutIt));
+    Assert.isNull(FeaturedEpicService.resolveAmong(null));
+  }
+
+  @IsTest
+  static void nothingStoredResolvesToNone() {
+    Assert.isNull(FeaturedEpicService.resolveAmong(boardRows()));
+  }
+
   // ---------- the guards: never a work item, never a push ----------
 
   /**

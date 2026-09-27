@@ -380,4 +380,51 @@ private class GuestAccessTest {
       'No custom entity access should be granted to the guest set.'
     );
   }
+
+  /**
+   * Build 10. The public board reads the featured epic through PublicBoardController, whose Apex
+   * reads the custom setting with no grant to the guest - proved live, logged out, in build 10
+   * step 2 - so the guest is granted none, and cannot read the setting any other way. Nor does it
+   * hold any custom permission: Portfolio_HQ_Feature_Epic is what lets the internal controller
+   * change what the public board features, and Portfolio_HQ_Open_Record belongs to the internal
+   * board too.
+   *
+   * Checked on both guest permission sets by name, which holds on any org, and on every set the
+   * site guest is actually assigned - its profile's own included - when a site exists.
+   */
+  @IsTest
+  static void theGuestHoldsNoSettingAndNoCustomPermission() {
+    Set<Id> guestSets = new Set<Id>();
+    for (PermissionSet named : [
+      SELECT Id
+      FROM PermissionSet
+      WHERE Name IN ('Portfolio_HQ_Guest', 'Jira_Webhook_Guest')
+    ]) {
+      guestSets.add(named.Id);
+    }
+    for (PermissionSetAssignment held : [
+      SELECT PermissionSetId
+      FROM PermissionSetAssignment
+      WHERE Assignee.UserType = 'Guest' AND Assignee.IsActive = TRUE
+    ]) {
+      guestSets.add(held.PermissionSetId);
+    }
+    Assert.isTrue(
+      guestSets.size() >= 2,
+      'Both guest permission sets should exist.'
+    );
+
+    List<SetupEntityAccess> grants = [
+      SELECT Parent.Name, SetupEntityType, SetupEntityId
+      FROM SetupEntityAccess
+      WHERE
+        ParentId IN :guestSets
+        AND SetupEntityType IN ('CustomEntityDefinition', 'CustomPermission')
+    ];
+    Assert.isTrue(
+      grants.isEmpty(),
+      'The site guest holds a custom setting, custom metadata or custom permission grant: ' +
+      grants
+    );
+  }
 }
