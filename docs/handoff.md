@@ -859,11 +859,16 @@ curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed
 # card opened first
 node scripts/capture-public-board.mjs docs/build-08/screenshots <label> [WI-0005]
 
-# ...and whether it is accessible to one: axe-core over nine states - both sorts at both sizes
-# since build 09 - (colour contrast included, which the Jest gate cannot check), and a keyboard
-# walkthrough at both sizes. Exits 1 on a problem in the board, or on any Apex request made while
-# the sort changes; the site template's own "Skip to Main" link is reported, not failed
-node scripts/audit-public-board.mjs [focus-screenshot.png]
+# ...and whether it is accessible to one: axe-core over fourteen states - both sorts at both sizes
+# since build 09, and since build 10 the featured epic in Tasks, its source filtered out, none in
+# Epics and none in Tasks, at both sizes - (colour contrast included, which the Jest gate cannot
+# check), and a keyboard walkthrough at both sizes. Build 10 states check what they show, and at
+# 375px that the sentence fits below the toolbar. Exits 1 on a problem in the board, a state
+# showing the wrong thing, or any Apex request made while a sort, view or source changes; the
+# site template's own "Skip to Main" link is reported, not failed. It CHANGES ORG DATA: it features
+# WI-0000, then none, through FeaturedEpicService as you, and puts back the exact value it found,
+# even on failure. --shots=<dir> saves each build 10 state, the 375px ones by device emulation
+node scripts/audit-public-board.mjs [focus-screenshot.png] [--shots=<dir>]
 
 # Whether Jira and Asana still offer the priorities Field_Mapping__mdt maps (read-only callouts):
 # DOPP's priority scheme and its default, and the Asana project's Priority field and options

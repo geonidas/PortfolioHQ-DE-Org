@@ -515,6 +515,67 @@ export function bySource(list, source) {
   return (list || []).filter((entry) => entry.sourceLabel === source);
 }
 
+// ---------- the featured epic (build 10) ----------
+
+/** The public Tasks view's sentence with no epic featured (ADR build-10, decision 7). */
+export const NO_FEATURED_EPIC_NOTE =
+  "No epic is featured right now, so no epic tasks are shown.";
+
+/**
+ * The epic the payload marks as featured, or null. Apex resolved it, and at most one epic carries
+ * isFeatured: the client finds it, never works it out.
+ */
+export function featuredEpicOf(epics) {
+  return (epics || []).find((epic) => epic && epic.isFeatured === true) || null;
+}
+
+/**
+ * The view a visit opens on (decisions 7 and 8): Tasks when an epic is featured, Epics when none
+ * is. On load only - a poll never moves a visitor between views (decision 9).
+ */
+export function openingView(epics) {
+  return featuredEpicOf(epics) ? VIEW_TASKS : VIEW_EPICS;
+}
+
+/**
+ * The cards the public Tasks view keeps (decisions 5 and 6). Only work that belongs to an epic is
+ * filtered, and it stays only when its epic is the featured one - with none featured, no epic
+ * work. Work in no epic, flat or orphaned, passes untouched: its rules were settled before build
+ * 10 and are applied by the server. Membership is the payload's, as the epic's card counts it.
+ */
+export function featuredTaskCards(items) {
+  return (items || []).filter(
+    (item) => item.inEpic !== true || item.inFeaturedEpic === true
+  );
+}
+
+/**
+ * What the Tasks view says about the featured epic, one sentence at a time (decisions 6, 7, 11):
+ *
+ * - featured, its source shown: "Showing tasks from" and its title;
+ * - featured, its source filtered out: where its tasks are, by the source's own label;
+ * - none featured: that no epic tasks are shown.
+ *
+ * @param epic   the featured epic from the payload, or null
+ * @param source the Source filter's value, ALL_SOURCES for all
+ */
+export function featuredNote(epic, source) {
+  if (!epic) {
+    return { kind: "none", text: NO_FEATURED_EPIC_NOTE };
+  }
+  const label = epic.sourceLabel || null;
+  if (source && label && source !== label) {
+    return {
+      kind: "source",
+      text: `The featured epic's tasks are under ${label}. Choose ${label} or All sources to see them.`
+    };
+  }
+  return {
+    kind: "featured",
+    text: `Showing tasks from ${epic.title || "Untitled epic"}`
+  };
+}
+
 /**
  * A selected source that has no records left - after a refresh, say - falls back to all sources,
  * rather than leaving the select showing a value it no longer offers over an empty board.

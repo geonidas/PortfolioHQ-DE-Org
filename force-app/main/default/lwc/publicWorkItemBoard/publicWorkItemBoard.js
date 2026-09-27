@@ -22,7 +22,12 @@ import {
   keptSource,
   formatInstant,
   countLabel,
-  epicViewCountLabel
+  epicViewCountLabel,
+  FEATURED_LABEL_PUBLIC,
+  featuredEpicOf,
+  featuredNote,
+  featuredTaskCards,
+  openingView
 } from "c/boardModel";
 
 const DONE = "Done";
@@ -71,8 +76,14 @@ export default class PublicWorkItemBoard extends LightningElement {
   isLoading = true;
 
   // What is on screen: which view, which source, and which card is open. Display state only -
-  // see handleViewChange.
+  // see handleViewChange. Build 10: the view is chosen once, from the first payload - Tasks when
+  // an epic is featured, Epics when none is (decisions 7 and 8) - and after that only by the
+  // visitor. A poll that finds a different featured epic never moves them (decision 9).
   view = VIEW_TASKS;
+  _viewChosen = false;
+  /** Build 10: the featured epic from the payload, and what the Tasks view says about it. */
+  featuredEpic = null;
+  note = null;
   /** Build 09. Display state, like the view: a new visit opens on Due date (decision 8). */
   sort = DEFAULT_SORT;
   source = ALL_SOURCES;
@@ -200,6 +211,10 @@ export default class PublicWorkItemBoard extends LightningElement {
       this.errorMessage = undefined;
       this.isLoading = false;
       this.lastCheckedAt = new Date();
+      if (!this._viewChosen) {
+        this.view = openingView(result.data.epics);
+        this._viewChosen = true;
+      }
       this.rebuild();
     } else if (result.error) {
       this.board = undefined;
@@ -291,6 +306,18 @@ export default class PublicWorkItemBoard extends LightningElement {
     return `Nothing from ${this.source} here.`;
   }
 
+  /**
+   * Build 10. The Tasks view's sentence about the featured epic, and nothing in the Epics view,
+   * where the epic's own card carries the indicator. The element is always there and only its
+   * words change, so a screen reader hears the sentence once when it appears or changes - on
+   * switching to Tasks, or when a poll finds another featured epic - and not on every poll.
+   */
+  get featuredNoteText() {
+    return this.isTaskView && this.note ? this.note.text : "";
+  }
+  get featuredNoteKind() {
+    return this.isTaskView && this.note ? this.note.kind : "hidden";
+  }
   // Everything the epic view shows: the epics, plus the cards the toggle leaves alone. A board
   // with no epics but some flat work is not an empty epic view.
   get epicCount() {
@@ -344,13 +371,19 @@ export default class PublicWorkItemBoard extends LightningElement {
     this.sourceChoices = sourceOptions(items, epics);
     this.source = keptSource(this.source, this.sourceChoices);
     const shownItems = bySource(items, this.source);
+    // Build 10. Found among all the epics, not the filtered ones: a Source filter that hides the
+    // featured epic is exactly when the Tasks view has to say where its tasks went.
+    this.featuredEpic = featuredEpicOf(epics);
+    this.note = featuredNote(this.featuredEpic, this.source);
 
     this.rebuildEpics(bySource(epics, this.source), shownItems);
 
     // Sorted before the layout, which keeps order both when it buckets by column and when it
     // nests children under a parent - so top-level cards sort, and children within their parent.
+    // Build 10: of the work that belongs to an epic, only the featured epic's stays; the rest of
+    // the Tasks view is exactly build 09's.
     const cards = sortCards(
-      shownItems.map((item) => this.toCard(item)),
+      featuredTaskCards(shownItems).map((item) => this.toCard(item)),
       this.sort
     );
     this.taskCards = cards;
@@ -396,7 +429,10 @@ export default class PublicWorkItemBoard extends LightningElement {
     // is rebuilt whole from each payload, so a positional key is stable for exactly as long as
     // it needs to be.
     this.epicCards = epics.map((epic, index) =>
-      epicModel(epic, { key: `epic-${index}` })
+      epicModel(epic, {
+        key: `epic-${index}`,
+        featuredLabel: FEATURED_LABEL_PUBLIC
+      })
     );
 
     // Cards the view does not transform, shown identically in both views. A pass-through card

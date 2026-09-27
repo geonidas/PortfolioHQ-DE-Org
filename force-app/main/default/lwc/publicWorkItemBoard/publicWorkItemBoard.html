@@ -62,6 +62,16 @@
         onsortchange={handleSortChange}
       ></c-board-toolbar>
 
+      <!-- Build 10. After the toolbar, so it never moves it. Always present, empty outside the
+           Tasks view: a status region announces its words when they change, once. -->
+      <p
+        class="featured-note"
+        role="status"
+        data-featured-note={featuredNoteKind}
+      >
+        {featuredNoteText}
+      </p>
+
       <template lwc:if={isTaskView}>
         <template lwc:if={isTaskViewEmpty}>
           <div class="state" data-empty="tasks">
@@ -72,11 +82,10 @@
               </p>
             </template>
             <template lwc:else>
+              <!-- Build 10: an empty Tasks view no longer means every epic is complete - epic
+                   work shows only under the featured epic, and the sentence above says which. -->
               <p class="state-title">No open work right now.</p>
-              <p class="state-detail">
-                Every epic on this board is complete. Switch to Epics to see
-                them.
-              </p>
+              <p class="state-detail">Switch to Epics to see the epics.</p>
             </template>
           </div>
         </template>

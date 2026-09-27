@@ -343,3 +343,70 @@ summary and the handoff.
   what step 1's comment had already claimed. No grant was added: the custom permission, checked by
   the controller, remains what authorises the write. Every step 1 test had run as the admin, who
   can customise the application and so passes either way.
+
+---
+
+## Built in step 4
+
+- **Four pure functions in `boardModel`**, so no board has to work anything out:
+  - `featuredEpicOf(epics)` finds the one epic the payload marks.
+  - `openingView(epics)` answers Tasks when an epic is featured, Epics otherwise (decisions 7
+    and 8).
+  - `featuredTaskCards(items)` drops only epic work that is not the featured epic's (decisions 5
+    and 6). Work in no epic passes untouched.
+  - `featuredNote(epic, source)` gives the Tasks view's one sentence: "Showing tasks from" and the
+    title; "The featured epic's tasks are under Jira. Choose Jira or All sources to see them.",
+    naming the source by the payload's label; or "No epic is featured right now, so no epic tasks
+    are shown." An untitled epic is named "Untitled epic", as its card is.
+- **The view is chosen once.** `publicWorkItemBoard` picks it from the first payload that arrives
+  and never again. A poll that finds a different featured epic, or none, changes the sentence, the
+  cards and the indicator, and leaves the visitor where they are (decision 9).
+- **One status region, whose words change.** The sentence is a `<p role="status">` placed after the
+  toolbar, so it never moves it. It is present in both views and empty in Epics. Because the
+  element stays put and only its text changes, a screen reader announces it once when it appears
+  or changes, and a poll that finds nothing new announces nothing. It is text, not a control, so
+  the toolbar-control guard is unchanged.
+- **The empty Tasks view no longer claims every epic is complete.** Build 09 said so because, then,
+  an empty Tasks view meant exactly that. Now epic work shows only under the featured epic, so the
+  claim would often be false. It reads "No open work right now. Switch to Epics to see the epics.",
+  and the sentence above it says why.
+- **The public indicator** is "Featured", through `FEATURED_LABEL_PUBLIC` on the same
+  `boardEpicCard`.
+- **39 existing tests assumed the Tasks default.** Their fixtures feature no epic, so the board now
+  opens on Epics. Each was changed to say which view it tests, as a visitor would choose it:
+  - 27 tests, and the portrait tests' shared `loaded()` helper, switch to Tasks after loading.
+  - Two tests of the default itself now assert Epics.
+  - One test I missed in the first pass got the same switch.
+
+  None had its assertions weakened.
+
+- **Flat work is pinned, not only compared.** Every combination - featured, none and unresolved, by
+  view, by source - checks that flat work is laid out as build 09 laid it out. At first that
+  compared against the same payload stripped of build 10's fields. Planting a defect showed the
+  flaw: the baseline renders through the same component, so a defect in shared code moves both
+  sides at once. The layout is now also pinned explicitly - WI-0015 in To Do and WI-0019 in Done,
+  keyed `item-` in the Epics view as build 09 keyed them. A planted "drop finished flat work" in
+  the Epics view fails six cells.
+- **The audit sets the featured epic itself, and puts it back.** Which epic is featured is org
+  data, so `audit-public-board.mjs` features WI-0000, and then none, through
+  `FeaturedEpicService`, run as the owner through the CLI. It restores the exact value it found,
+  even on failure. Build 09's nine states run with WI-0000 featured, which gives them the Tasks
+  view they were written for. There are five new states: featured with the source excluded, and
+  none in Epics and none in Tasks, at both sizes. Each checks what it shows, not only that axe is
+  quiet. At 375px the checks measure that the sentence fits the screen and sits below the toolbar,
+  and that the page does not scroll sideways. A view or source change must send nothing to Apex,
+  as a sort must not. Each featured state runs in its own fresh browser.
+- **Live, logged out, after the republish:**
+  - All 14 states: zero axe violations in the board, the right content, and no Apex request while
+    watched states were set up.
+  - The keyboard walkthrough: 15 stops at desktop width and 17 at 375px, all ringed.
+  - The request watcher, proved by a Refresh click: 0 requests for a view change, 0 for a source
+    change, 1 for Refresh.
+  - A page left open on Tasks while the featured epic was cleared by script: the sentence changed
+    after 21 seconds, and the view stayed Tasks. Featured again: 29 seconds, still Tasks
+    (decision 9, acceptance criterion 7).
+- **Noticed, not changed.** At 375px the portrait arrows float at the vertical middle of the
+  screen (`sticky`, 50vh, since build 08). The featured epic's four-line sentence pushes the
+  column down, so at first the "In Progress" heading sits under the left arrow. It moves as the
+  page scrolls, and build 09's capture shows the arrows over a card in the same way. It is a
+  carried item, not a regression of this build.

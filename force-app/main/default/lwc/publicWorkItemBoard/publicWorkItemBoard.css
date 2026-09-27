@@ -76,6 +76,21 @@
 .toolbar {
   margin-bottom: 16px;
 }
+/* Build 10. A sentence, not a banner: ink on the page with a quiet rule to its left, so it reads
+   as part of the view rather than as an alert. It wraps at any width and never moves the
+   toolbar above it. */
+.featured-note {
+  margin: -4px 0 16px;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--board-line);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--board-ink);
+  overflow-wrap: anywhere;
+}
+.featured-note:empty {
+  display: none;
+}
 
 .column {
   display: flex;

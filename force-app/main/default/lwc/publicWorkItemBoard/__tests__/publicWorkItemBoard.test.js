@@ -122,6 +122,11 @@ async function choose(el, name, value) {
   await flush();
 }
 const setView = (el, view) => choose(el, "view", view);
+/**
+ * Build 10: a visit opens on Epics when no epic is featured (ADR build-10, decision 7), and most
+ * fixtures here feature none. Tests of the Tasks view switch to it first, as a visitor would.
+ */
+const showTasks = (el) => setView(el, "tasks");
 const setSource = (el, source) => choose(el, "source", source);
 
 /**
@@ -203,6 +208,7 @@ describe("c-public-work-item-board", () => {
       board([card({ recordNumber: "WI-0001", status: "To Do" })])
     );
     await flush();
+    await showTasks(element);
 
     const rendered = cards(element);
     expect(rendered).toHaveLength(1);
@@ -218,6 +224,7 @@ describe("c-public-work-item-board", () => {
     const element = mount({ columns: "Backlog,Shipping" });
     getPublicBoardData.emit(board([card({ status: "Backlog" })]));
     await flush();
+    await showTasks(element);
 
     expect(columnNames(element)).toEqual(["Backlog", "Shipping"]);
     expect(columnNames(element)).not.toContain("To Do");
@@ -227,6 +234,7 @@ describe("c-public-work-item-board", () => {
     const element = mount();
     getPublicBoardData.emit(board([card()]));
     await flush();
+    await showTasks(element);
 
     expect(columnNames(element)).toEqual(["To Do", "In Progress", "Done"]);
   });
@@ -235,6 +243,7 @@ describe("c-public-work-item-board", () => {
     const element = mount();
     getPublicBoardData.emit(board([card({ title: null })]));
     await flush();
+    await showTasks(element);
 
     const fallback = heading(cards(element)[0]);
     expect(fallback.textContent).toBe("DOPP-17");
@@ -247,6 +256,7 @@ describe("c-public-work-item-board", () => {
     // The Apex flattens Unspecified to null, so the component never sees the sentinel.
     getPublicBoardData.emit(board([card({ type: null })]));
     await flush();
+    await showTasks(element);
 
     expect(
       cards(element)[0].shadowRoot.querySelector("[data-type]")
@@ -257,6 +267,7 @@ describe("c-public-work-item-board", () => {
     const element = mount();
     getPublicBoardData.emit(board([card({ syncStatus: "Pending" })]));
     await flush();
+    await showTasks(element);
 
     expect(
       cards(element)[0].shadowRoot.querySelector("[data-sync]").textContent
@@ -281,6 +292,7 @@ describe("c-public-work-item-board", () => {
       ])
     );
     await flush();
+    await showTasks(element);
 
     const nested = element.shadowRoot.querySelector(
       '[data-column="To Do"] .children'
@@ -296,6 +308,7 @@ describe("c-public-work-item-board", () => {
       board([card({ recordNumber: "WI-0003", parentNumber: null })])
     );
     await flush();
+    await showTasks(element);
 
     expect(cards(element)).toHaveLength(1);
     // Saying "parent not shown" would reveal that a withheld record exists.
@@ -306,6 +319,7 @@ describe("c-public-work-item-board", () => {
     const element = mount({ columns: "To Do,Done" });
     getPublicBoardData.emit(board([card({ status: "In Progress" })]));
     await flush();
+    await showTasks(element);
 
     const other = element.shadowRoot.querySelector('[data-region="other"]');
     expect(other).not.toBeNull();
@@ -352,17 +366,18 @@ describe("c-public-work-item-board", () => {
     // Empty, because the Apex method takes no parameters. Give the wire a reactive config
     // and this fails - which is the point: a config is the only thing that could refetch.
     expect(configOnLoad).toEqual({});
-    expect(cards(element)).toHaveLength(1);
-    expect(epicCards(element)).toHaveLength(0);
-
-    await setView(element, "epics");
-
+    // Build 10: no epic is featured, so the visit opens on Epics (decision 7).
     expect(epicCards(element)).toHaveLength(1);
     expect(cards(element)).toHaveLength(0);
 
     await setView(element, "tasks");
 
     expect(cards(element)).toHaveLength(1);
+    expect(epicCards(element)).toHaveLength(0);
+
+    await setView(element, "epics");
+
+    expect(epicCards(element)).toHaveLength(1);
     // Unchanged across both switches. getPublicBoardData takes no parameters, so the
     // component holds no wire config it could vary even if it wanted to.
     expect(getPublicBoardData.getLastConfig()).toEqual(configOnLoad);
@@ -373,11 +388,12 @@ describe("c-public-work-item-board", () => {
     getPublicBoardData.emit(board([card()], [epic()]));
     await flush();
 
-    expect(filter(element, "view").value).toBe("tasks");
-
-    await setView(element, "epics");
-
+    // Build 10: no epic is featured, so the visit opens on Epics (decision 7).
     expect(filter(element, "view").value).toBe("epics");
+
+    await setView(element, "tasks");
+
+    expect(filter(element, "view").value).toBe("tasks");
   });
 
   it("gives each view its own empty state", async () => {
@@ -385,6 +401,7 @@ describe("c-public-work-item-board", () => {
     // Epics exist, so the board is not globally empty - but no task is visible.
     getPublicBoardData.emit(board([], [epic({ status: "In Progress" })]));
     await flush();
+    await showTasks(element);
 
     const taskEmpty = element.shadowRoot.querySelector('[data-empty="tasks"]');
     expect(taskEmpty).not.toBeNull();
@@ -429,6 +446,7 @@ describe("c-public-work-item-board", () => {
       )
     );
     await flush();
+    await showTasks(element);
 
     const taskColumns = columnNames(element);
     await setView(element, "epics");
@@ -553,6 +571,7 @@ describe("c-public-work-item-board", () => {
     const element = mount();
     getPublicBoardData.emit(board([card()]));
     await flush();
+    await showTasks(element);
 
     // Build 06 added a view toggle, build 08 a Refresh button, two filters and a disclosure on
     // each card, so "no controls at all" is no longer the right assertion - but the guarantee
@@ -589,6 +608,7 @@ describe("c-public-work-item-board card freshness", () => {
     const element = mount();
     getPublicBoardData.emit(board([card()]));
     await flush();
+    await showTasks(element);
 
     const text = cards(element)[0].shadowRoot.textContent;
     expect(text).not.toContain("Updated");
@@ -609,6 +629,7 @@ describe("c-public-work-item-board card freshness", () => {
       ])
     );
     await flush();
+    await showTasks(element);
 
     const titles = cards(element).map((c) => heading(c).textContent);
     expect(titles).toContain("Superbadge: Apex Specialist");
@@ -649,6 +670,7 @@ describe("c-public-work-item-board card freshness", () => {
       )
     );
     await flush();
+    await showTasks(element);
 
     // Task view: both cards, no epic cards.
     expect(cards(element)).toHaveLength(2);
@@ -709,6 +731,7 @@ describe("c-public-work-item-board card freshness", () => {
       board([flatCard({})], [epic({ title: "Guest board" })])
     );
     await flush();
+    await showTasks(element);
 
     const buttons = () =>
       describeControls(
@@ -782,6 +805,7 @@ describe("c-public-work-item-board open cards", () => {
       ])
     );
     await flush();
+    await showTasks(element);
     expect(expanded(element)).toStrictEqual(["false", "false"]);
 
     header(cards(element)[0]).click();
@@ -811,6 +835,7 @@ describe("c-public-work-item-board open cards", () => {
       ])
     );
     await flush();
+    await showTasks(element);
     const child = cards(element).find(
       (c) => c.shadowRoot.querySelector("article").dataset.key === "WI-0003"
     );
@@ -833,6 +858,7 @@ describe("c-public-work-item-board open cards", () => {
     const element = mount();
     getPublicBoardData.emit(board([card({ parentNumber: null })]));
     await flush();
+    await showTasks(element);
 
     header(cards(element)[0]).click();
     await flush();
@@ -848,6 +874,7 @@ describe("c-public-work-item-board open cards", () => {
       board([card({ recordNumber: "WI-0001", projectLabel: "PHQ" })], [epic()])
     );
     await flush();
+    await showTasks(element);
     header(cards(element)[0]).click();
     await flush();
     await expect(element).toBeAccessible();
@@ -914,6 +941,7 @@ describe("c-public-work-item-board portrait", () => {
       ])
     );
     await flush();
+    await showTasks(element);
     await flush();
     return element;
   }
@@ -1019,6 +1047,7 @@ describe("c-public-work-item-board portrait", () => {
     const element = mount({ columns: "Backlog,Doing" });
     getPublicBoardData.emit(board([card({ status: "Backlog" })]));
     await flush();
+    await showTasks(element);
     await flush();
 
     expect(position(element)).toBe("Backlog, 1 of 2");
@@ -1102,6 +1131,7 @@ describe("c-public-work-item-board filters and header", () => {
     const element = mount();
     getPublicBoardData.emit(mixed());
     await flush();
+    await showTasks(element);
     expect(total(element)).toBe("3 items");
 
     await setSource(element, "Asana");
@@ -1162,6 +1192,7 @@ describe("c-public-work-item-board filters and header", () => {
       )
     );
     await flush();
+    await showTasks(element);
 
     // Jira has an epic but no open task on this board.
     await setSource(element, "Jira");
@@ -1176,6 +1207,7 @@ describe("c-public-work-item-board filters and header", () => {
     const element = mount();
     getPublicBoardData.emit(mixed());
     await flush();
+    await showTasks(element);
     await setSource(element, "Asana");
 
     getPublicBoardData.emit(
@@ -1410,6 +1442,7 @@ describe("c-public-work-item-board priority (build 09)", () => {
       ])
     );
     await flush();
+    await showTasks(element);
     const [withOne, without] = cards(element);
     expect(
       withOne.shadowRoot.querySelector("[data-priority]").textContent
@@ -1484,6 +1517,7 @@ describe("c-public-work-item-board sorting (build 09)", () => {
     const element = mount();
     getPublicBoardData.emit(board(mixed()));
     await flush();
+    await showTasks(element);
     expect(order(element)).toStrictEqual([
       "WI-0003",
       "WI-0004",
@@ -1506,6 +1540,7 @@ describe("c-public-work-item-board sorting (build 09)", () => {
     const element = mount();
     getPublicBoardData.emit(board(mixed()));
     await flush();
+    await showTasks(element);
     await sortBy(element, "priority");
 
     getPublicBoardData.emit(board(mixed()));
@@ -1546,6 +1581,7 @@ describe("c-public-work-item-board sorting (build 09)", () => {
       ])
     );
     await flush();
+    await showTasks(element);
     const nested = () =>
       Array.from(
         element.shadowRoot.querySelectorAll(
@@ -1595,5 +1631,371 @@ describe("c-public-work-item-board sorting (build 09)", () => {
     await flush();
     await sortBy(element, "priority");
     await expect(element).toBeAccessible();
+  });
+});
+
+// Build 10 step 4. The featured epic: the view a visit opens on, what the Tasks view keeps and
+// says, the indicator, and that polls never move the visitor. Apex decides who is featured and
+// who belongs to it; these fixtures are what it sends in each state.
+describe("c-public-work-item-board featured epic (build 10)", () => {
+  afterEach(() => {
+    while (document.body.firstChild) {
+      document.body.removeChild(document.body.firstChild);
+    }
+    jest.clearAllMocks();
+  });
+
+  const SOURCES = ["", "Jira", "Asana"];
+
+  /**
+   * The payload in one of three states. "unresolved" is a featured Id that no longer resolves -
+   * here the epic was retyped to a Story, as a Jira delivery would do it - so Apex sends no
+   * featured epic, the old epic arrives as a task, and its work is in no epic any more.
+   */
+  function payload(state) {
+    const featuredA = state === "featured";
+    const featuredB = state === "featuredB";
+    const epics = [
+      epic({
+        title: "Integration app",
+        status: "In Progress",
+        totalChildren: 2,
+        completedChildren: 0,
+        isFeatured: featuredA
+      }),
+      epic({
+        title: "Other epic",
+        status: "In Progress",
+        totalChildren: 1,
+        completedChildren: 0,
+        isFeatured: featuredB
+      })
+    ];
+    const retyped = state === "unresolved";
+    const items = [
+      card({
+        recordNumber: "WI-0002",
+        title: "Child of the integration app",
+        status: "To Do",
+        inEpic: !retyped,
+        inFeaturedEpic: featuredA
+      }),
+      card({
+        recordNumber: "WI-0003",
+        title: "Grandchild of the integration app",
+        status: "In Progress",
+        parentNumber: "WI-0002",
+        inEpic: !retyped,
+        inFeaturedEpic: featuredA
+      }),
+      card({
+        recordNumber: "WI-0010",
+        title: "Child of the other epic",
+        status: "In Progress",
+        inEpic: true,
+        inFeaturedEpic: featuredB
+      }),
+      card({
+        recordNumber: "WI-0012",
+        title: "An orphan from a source with epics",
+        status: "To Do",
+        inEpic: false,
+        inFeaturedEpic: false
+      }),
+      flatCard({
+        recordNumber: "WI-0015",
+        title: "Atomic Habits",
+        status: "To Do",
+        inEpic: false,
+        inFeaturedEpic: false
+      }),
+      flatCard({
+        recordNumber: "WI-0019",
+        title: "How the internet works",
+        status: "Done",
+        inEpic: false,
+        inFeaturedEpic: false
+      })
+    ];
+    if (retyped) {
+      // What was the featured epic, now a Story, in no epic itself.
+      epics.shift();
+      items.push(
+        card({
+          recordNumber: "WI-0000",
+          title: "Integration app",
+          status: "In Progress",
+          inEpic: false,
+          inFeaturedEpic: false
+        })
+      );
+    }
+    return board(items, epics);
+  }
+
+  /** The same payload as build 09 would have received it: none of build 10's fields. */
+  function asBuild09(data) {
+    const strip = (entry) => {
+      const copy = { ...entry };
+      delete copy.isFeatured;
+      delete copy.inEpic;
+      delete copy.inFeaturedEpic;
+      return copy;
+    };
+    return {
+      ...data,
+      items: data.items.map(strip),
+      epics: data.epics.map(strip)
+    };
+  }
+
+  const note = (el) => el.shadowRoot.querySelector("[data-featured-note]");
+  const shownNumbers = (el) =>
+    cards(el)
+      .map((c) => c.shadowRoot.querySelector("article").dataset.key)
+      .sort();
+  /** Every flat card on screen, by column and in order: what must not change. */
+  const flatLayout = (el) =>
+    Array.from(el.shadowRoot.querySelectorAll("[data-board-column]")).map(
+      (col) => [
+        col.dataset.column || col.dataset.epicColumn,
+        Array.from(col.querySelectorAll("c-board-card"))
+          .map((c) => c.shadowRoot)
+          .filter((root) => {
+            const label = root.querySelector("[data-source]");
+            return !!label && label.textContent === "Asana";
+          })
+          .map((root) => root.querySelector("article").dataset.key)
+      ]
+    );
+  const indicators = (el) =>
+    epicCards(el).map((c) => {
+      const mark = c.shadowRoot.querySelector("[data-featured]");
+      return [
+        c.shadowRoot.querySelector(".heading").textContent,
+        mark ? mark.textContent : null
+      ];
+    });
+
+  async function load(data, view, source) {
+    const element = mount();
+    getPublicBoardData.emit(data);
+    await flush();
+    if (view) {
+      await setView(element, view);
+    }
+    if (source !== undefined) {
+      await setSource(element, source);
+    }
+    return element;
+  }
+
+  // ---------- the view a visit opens on (decisions 7 and 8) ----------
+
+  it("opens on Tasks with an epic featured, and on Epics with none or an unresolved one", async () => {
+    expect(filter(await load(payload("featured")), "view").value).toBe("tasks");
+    expect(filter(await load(payload("none")), "view").value).toBe("epics");
+    expect(filter(await load(payload("unresolved")), "view").value).toBe(
+      "epics"
+    );
+  });
+
+  // ---------- every combination (decisions 5, 6, 7, 11, 12) ----------
+
+  const EXPECTED_TASKS = {
+    featured: {
+      "": ["WI-0002", "WI-0003", "WI-0012", "WI-0015", "WI-0019"],
+      Jira: ["WI-0002", "WI-0003", "WI-0012"],
+      Asana: ["WI-0015", "WI-0019"]
+    },
+    none: {
+      "": ["WI-0012", "WI-0015", "WI-0019"],
+      Jira: ["WI-0012"],
+      Asana: ["WI-0015", "WI-0019"]
+    },
+    unresolved: {
+      "": ["WI-0000", "WI-0002", "WI-0003", "WI-0012", "WI-0015", "WI-0019"],
+      Jira: ["WI-0000", "WI-0002", "WI-0003", "WI-0012"],
+      Asana: ["WI-0015", "WI-0019"]
+    }
+  };
+  const SHOWING = "Showing tasks from Integration app";
+  const SOURCE_NOTE =
+    "The featured epic's tasks are under Jira. Choose Jira or All sources to see them.";
+  const NONE_NOTE =
+    "No epic is featured right now, so no epic tasks are shown.";
+  const EXPECTED_NOTE = {
+    featured: { "": SHOWING, Jira: SHOWING, Asana: SOURCE_NOTE },
+    none: { "": NONE_NOTE, Jira: NONE_NOTE, Asana: NONE_NOTE },
+    unresolved: { "": NONE_NOTE, Jira: NONE_NOTE, Asana: NONE_NOTE }
+  };
+
+  const STATES = ["featured", "none", "unresolved"];
+  const cells = (view) =>
+    STATES.flatMap((state) => SOURCES.map((source) => [state, view, source]));
+
+  /**
+   * Flat work, card for card and column for column, as build 09 laid it out. Pinned, because a
+   * baseline rendered by the same component moves with it: build 09 put WI-0015 in To Do and
+   * WI-0019 in Done, in both views - keyed "item-" in the Epics view, as build 09 keyed a card
+   * passing through - and nothing for a Jira filter. Then compared with the same payload stripped
+   * of build 10's fields, mounted only after this board is gone: the test wire adapter hands every
+   * emit to every mounted board, and the stripped payload would overwrite this one.
+   */
+  async function expectFlatWorkAsInBuild09(element, state, view, source) {
+    const key = (n) => (view === "epics" ? `item-${n}` : n);
+    const flat = flatLayout(element);
+    expect(flat).toStrictEqual([
+      ["To Do", source === "Jira" ? [] : [key("WI-0015")]],
+      ["In Progress", []],
+      ["Done", source === "Jira" ? [] : [key("WI-0019")]]
+    ]);
+    document.body.removeChild(element);
+    const baseline = await load(asBuild09(payload(state)), view, source);
+    expect(flat).toStrictEqual(flatLayout(baseline));
+  }
+
+  it.each(cells("tasks"))(
+    "%s, %s view, source '%s': the right cards and sentence, flat work as in build 09",
+    async (state, view, source) => {
+      const element = await load(payload(state), view, source);
+      expect(shownNumbers(element)).toStrictEqual(
+        EXPECTED_TASKS[state][source]
+      );
+      expect(note(element).textContent.trim()).toBe(
+        EXPECTED_NOTE[state][source]
+      );
+      await expectFlatWorkAsInBuild09(element, state, view, source);
+    }
+  );
+
+  it.each(cells("epics"))(
+    "%s, %s view, source '%s': no sentence, the indicator on the featured epic, flat work as in build 09",
+    async (state, view, source) => {
+      const element = await load(payload(state), view, source);
+      expect(note(element).textContent.trim()).toBe("");
+      const shownWithIndicator =
+        state === "featured" && source !== "Asana"
+          ? [["Integration app", "★Featured"]]
+          : [];
+      expect(indicators(element).filter(([, mark]) => mark)).toStrictEqual(
+        shownWithIndicator
+      );
+      await expectFlatWorkAsInBuild09(element, state, view, source);
+    }
+  );
+
+  // ---------- polls (decision 9) ----------
+
+  it("follows a different featured epic on a poll without changing the view", async () => {
+    const element = await load(payload("featured"));
+    expect(filter(element, "view").value).toBe("tasks");
+    expect(shownNumbers(element)).toContain("WI-0002");
+
+    getPublicBoardData.emit(payload("featuredB"));
+    await flush();
+    expect(filter(element, "view").value).toBe("tasks");
+    expect(note(element).textContent.trim()).toBe(
+      "Showing tasks from Other epic"
+    );
+    expect(shownNumbers(element)).toStrictEqual([
+      "WI-0010",
+      "WI-0012",
+      "WI-0015",
+      "WI-0019"
+    ]);
+
+    getPublicBoardData.emit(payload("none"));
+    await flush();
+    expect(filter(element, "view").value).toBe("tasks");
+    expect(note(element).textContent.trim()).toBe(NONE_NOTE);
+
+    await setView(element, "epics");
+    getPublicBoardData.emit(payload("featured"));
+    await flush();
+    expect(filter(element, "view").value).toBe("epics");
+    expect(indicators(element)).toStrictEqual([
+      ["Integration app", "★Featured"],
+      ["Other epic", null]
+    ]);
+  });
+
+  it("stays on Epics when a poll first finds a featured epic", async () => {
+    const element = await load(payload("none"));
+    expect(filter(element, "view").value).toBe("epics");
+
+    getPublicBoardData.emit(payload("featured"));
+    await flush();
+
+    expect(filter(element, "view").value).toBe("epics");
+    expect(indicators(element)[0]).toStrictEqual([
+      "Integration app",
+      "★Featured"
+    ]);
+  });
+
+  // ---------- the sentence: plain, and announced once ----------
+
+  it("keeps one status region, and changes only its words", async () => {
+    const element = await load(payload("featured"));
+    const region = note(element);
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.textContent.trim()).toBe(SHOWING);
+
+    // A poll with nothing new leaves the words alone, so nothing is announced again.
+    getPublicBoardData.emit(payload("featured"));
+    await flush();
+    expect(note(element)).toBe(region);
+    expect(region.textContent.trim()).toBe(SHOWING);
+
+    await setView(element, "epics");
+    expect(note(element)).toBe(region);
+    expect(region.textContent.trim()).toBe("");
+
+    await setView(element, "tasks");
+    expect(note(element)).toBe(region);
+    expect(region.textContent.trim()).toBe(SHOWING);
+  });
+
+  it("sits after the toolbar, and is text, not a control", async () => {
+    const element = await load(payload("featured"));
+    const toolbarEl = toolbar(element);
+    expect(
+      toolbarEl.compareDocumentPosition(note(element)) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(note(element).tagName).toBe("P");
+    expect(note(element).querySelector("a, button, [tabindex]")).toBeNull();
+  });
+
+  it("says Tasks is empty without claiming every epic is complete", async () => {
+    const element = await load(
+      board([card({ inEpic: true, inFeaturedEpic: false })], [epic()]),
+      "tasks"
+    );
+    const empty = element.shadowRoot.querySelector('[data-empty="tasks"]');
+    expect(empty.textContent).toContain("No open work right now.");
+    expect(empty.textContent).not.toContain("complete");
+    expect(note(element).textContent.trim()).toBe(NONE_NOTE);
+  });
+
+  it("names an untitled featured epic in words, not an identifier", async () => {
+    const data = payload("featured");
+    data.epics[0].title = null;
+    const element = await load(data);
+    expect(note(element).textContent.trim()).toBe(
+      "Showing tasks from Untitled epic"
+    );
+  });
+
+  // ---------- accessibility ----------
+
+  it("is accessible featured in Tasks, with none in Tasks, with the source note, and in Epics", async () => {
+    await expect(await load(payload("featured"))).toBeAccessible();
+    await expect(await load(payload("none"), "tasks")).toBeAccessible();
+    await expect(
+      await load(payload("featured"), "tasks", "Asana")
+    ).toBeAccessible();
+    await expect(await load(payload("featured"), "epics")).toBeAccessible();
   });
 });
