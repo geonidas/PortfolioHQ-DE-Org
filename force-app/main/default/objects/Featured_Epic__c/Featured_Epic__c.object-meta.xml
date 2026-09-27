@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customSettingsType>Hierarchy</customSettingsType>
+    <description>The epic the public board features (build 10). Hierarchy, and only the org default is used, so there is one featured epic by construction. Epic_Id__c holds the Work_Item__c Id as text, because a custom setting cannot hold a lookup. Written only by FeaturedEpicService - from the internal board&apos;s button, behind Portfolio_HQ_Feature_Epic, or from scripts/apex/set-featured-epic.apex. Read by both board controllers with no query. Data, not metadata: it does not deploy, and a new org features nothing until the owner sets it. An Id that no longer resolves to a public epic under a public project reads as none.</description>
+    <enableFeeds>false</enableFeeds>
+    <label>Featured Epic</label>
+    <visibility>Protected</visibility>
+</CustomObject>

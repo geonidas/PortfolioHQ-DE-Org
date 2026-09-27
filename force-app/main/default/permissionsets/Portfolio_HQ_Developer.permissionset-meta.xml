@@ -2,9 +2,13 @@
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
     <customPermissions>
         <enabled>true</enabled>
+        <name>Portfolio_HQ_Feature_Epic</name>
+    </customPermissions>
+    <customPermissions>
+        <enabled>true</enabled>
         <name>Portfolio_HQ_Open_Record</name>
     </customPermissions>
-    <description>Full CRUD and field access on Project__c, Work_Item__c, Integration_Log__c, Webhook_Event__c and Webhook_Secret__c, plus the Jira credential principal. View All on the two webhook objects, whose Private model hides them. Only set granting Secret__c.</description>
+    <description>CRUD and field access on Project__c, Work_Item__c, Integration_Log__c, Webhook_Event__c and Webhook_Secret__c (the only set granting Secret__c). View All on the webhook objects. Jira and Asana principals. Board permissions Open_Record and Feature_Epic.</description>
     <externalCredentialPrincipalAccesses>
         <enabled>true</enabled>
         <externalCredentialPrincipal>Asana_Token-PAT1</externalCredentialPrincipal>

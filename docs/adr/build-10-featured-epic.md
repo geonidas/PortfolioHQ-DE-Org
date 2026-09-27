@@ -107,6 +107,10 @@ other Id is refused with a reason.
 **Note from step 0.** An epic that is not public is still an epic, so it would be accepted. The
 public board could never show it (question 4).
 
+**Amended by the owner's answer to question 4.** The server accepts an epic the public board can
+show: the epic and its project both public. Anything else is refused with a reason that says which
+condition failed. Reading back uses the same rule (decision 7).
+
 ## 4. Membership comes from `EpicRollup`
 
 **Decision.** Membership comes from `EpicRollup`: an epic's direct children, as its card counts
@@ -118,6 +122,10 @@ is an ordinary card and is not marked as a subtask anywhere. There is one, WI-00
 is private and sits under WI-0009, which has no epic. It shows on the internal board today, nested
 under WI-0009. Whichever reading is chosen, this build **only removes cards** from the public Tasks
 view. No card that is hidden today becomes visible.
+
+**Settled by the owner's answer to question 2.** Membership is as the card counts it:
+`EpicRollup.epicOf`, every item whose nearest epic ancestor is this epic. "Direct children" is not
+the rule. Under a featured epic, the Tasks view shows exactly the number on its card.
 
 ## 5. Flat items are unchanged
 
@@ -141,6 +149,11 @@ featured epic, the next Jira delivery for `DOPP-15` carrying its issue type turn
 silently treated as none. That is correct under this decision, and worth knowing before choosing
 it.
 
+**Widened by the owner's answer to question 4.** A featured epic that has been made private, or
+whose project has, is also treated as none: the rule for reading back is the rule for setting
+(decision 3). The stored Id stays in the setting until the owner features another epic or clears
+it, so making the epic public again brings it back.
+
 ## 8. Featured: the public board opens in Tasks
 
 **Decision.** With an epic featured, the public board opens in the Tasks view.
@@ -157,6 +170,12 @@ Tasks view's content. It never switches the view the visitor is on.
 **Note from step 0.** Two rules from earlier builds meet this one (question 3). Tasks under a
 finished epic never reach an anonymous visitor (`EpicRollup.keptInPublicTaskView`, build 07). And
 only the three most recently updated Done epics get a card (`COMPLETED_EPIC_LIMIT`, build 06).
+
+**Settled by the owner's answer to question 3.** While an epic is featured it is exempt from both:
+it keeps its card however many Done epics are newer, and its tasks stay in the public Tasks view
+after it is Done. Every other finished epic is capped and withheld as before. The featured epic
+can also be set while already Done. The exemption changes what the payloads carry, so it lands in
+step 2 with them.
 
 ## 11. A Source filter that excludes the featured epic's source says so
 
@@ -179,7 +198,10 @@ for a custom setting.
 
 ---
 
-## Questions for the owner, raised at step 0
+## Questions raised at step 0, and the owner's answers
+
+**Answered 2026-09-26: the owner took the recommendation on all five.** Each answer is written
+into the decision it amends, above.
 
 **1. What identifies the featured epic on the public payload.** The step 2 spec says both payloads
 carry `featuredEpicId`, the epic's Id. The public payload publishes no Salesforce id today:
@@ -217,3 +239,24 @@ set refuses it with a reason, as decision 3 refuses a non-epic. Both epics are p
 build is scoped not to make. **Recommended:** leave it as the carried open item and re-check after
 the move to the Developer Edition org, where the hierarchy arrives by delivery in whatever order
 Jira sends it. That is where an unresolved parent is likely.
+
+**Where each answer lands.** Question 1: step 2 (payloads and the key-set assertion) and step 4
+(the public client). Question 2: step 2, since membership is computed by Apex. Question 3: step 2
+(`EpicRollup`). Question 4: step 1 (the service). Question 5: the carried open items, in step 5's
+summary and the handoff.
+
+---
+
+## Built in step 1
+
+- **`Featured_Epic__c`**: a hierarchy custom setting with Protected visibility. Only its org default
+  is used. **`Epic_Id__c`** is Text(18), holding the epic's Id, and blank means none.
+- **`Portfolio_HQ_Feature_Epic`**: a custom permission in `Portfolio_HQ_Developer`, the internal
+  permission set.
+- **`FeaturedEpicService`**: `storedId()` (no query), `read()` (the stored Id if it still resolves,
+  otherwise null), `feature(Id)` and `clear()`. The rule for what can be featured is one method,
+  used by both set and read. `EpicRollup.isEpic` is the definition of an epic, and `EpicRollup`
+  itself now uses it too. The service writes the setting's row and nothing else. Who may call it is
+  the controller's business (step 3): it checks the permission, and the scripts are run by an admin.
+- **`scripts/apex/set-featured-epic.apex`** and **`scripts/apex/clear-featured-epic.apex`**. The
+  build spec put them in `scripts/`; they sit in `scripts/apex/` beside every other Apex script.

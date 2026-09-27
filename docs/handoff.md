@@ -42,14 +42,15 @@ three card components of builds 04-07 are gone; both boards share `boardCard`, `
 
 None of this survives an org rebuild, and none of it is visible in the repo.
 
-| Thing                     | Value / where                                                                                                                                                                                                                                                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scratch org alias         | `MyScratchOrg`                                                                                                                                                                                                                                                                                                      |
-| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                                                                                                                                                                       |
-| Webhook signing secret    | `Integration_Secret__mdt` records, `Is_Active__c = true`. Jira's is **`Jira_Webhook`**, created in Setup. Asana's is `Webhook_<resource gid>`, promoted by script. `customMetadata/Integration_Secret.*` is gitignored and forceignored on purpose; since build 08 every other custom metadata record is in source. |
-| Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                                                                                                                             |
-| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                                                                                                                           |
-| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                                                                                                                               |
+| Thing                     | Value / where                                                                                                                                                                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scratch org alias         | `MyScratchOrg`                                                                                                                                                                                                                                                                                                             |
+| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                                                                                                                                                                              |
+| Webhook signing secret    | `Integration_Secret__mdt` records, `Is_Active__c = true`. Jira's is **`Jira_Webhook`**, created in Setup. Asana's is `Webhook_<resource gid>`, promoted by script. `customMetadata/Integration_Secret.*` is gitignored and forceignored on purpose; since build 08 every other custom metadata record is in source.        |
+| Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                                                                                                                                    |
+| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                                                                                                                                  |
+| Featured epic             | The org default of the `Featured_Epic__c` custom setting (build 10), holding one epic's Id. Data, so it never deploys: set it with the internal board's button or `scripts/apex/set-featured-epic.apex`, clear it with `clear-featured-epic.apex`. None featured as of build 10 step 1; the org default row exists, blank. |
+| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                                                                                                                                      |
 
 ### Scheduled jobs — manual, not metadata
 
@@ -109,6 +110,9 @@ sf org assign permset --name <Name> --on-behalf-of "<username>" --target-org MyS
 is the only thing that shows the internal board's Open record link (build 08 step 7). A profile
 does not grant it - not even System Administrator's - so an admin without the permission set sees
 no link. The link gates nothing; the record page applies the user's own access.
+
+It carries a second, **`Portfolio_HQ_Feature_Epic`** (build 10): the only thing allowed to set or
+clear the featured epic from the internal board. Like the first, no profile grants it.
 
 ### The two sites, and which one does what
 
@@ -749,6 +753,10 @@ SyncFields`. The one-line form of the same call compiles. Hold the result in a l
   as the stored value counts as newer - and is harmless there only because the echo carries the
   values already held.
 - `@TestVisible` does not expose members to anonymous Apex.
+- **A `@TestSetup` method is counted as a test in a run's summary.** The org writes an
+  `ApexTestResult` row for it, so `sf apex run test` reports one more test than there are test
+  methods, while the per-test list in the same JSON leaves it out. `FeaturedEpicServiceTest` (build 10) is the first class here with one: the run after it read 481 for 480 tests. Count methods, or
+  subtract the setup rows, before reporting a number.
 - Apex only type-checks server-side. Nothing is verified until it deploys.
 
 **Page layouts.** Deploys create fields but do not place them on layouts. This made

@@ -50,12 +50,22 @@ public with sharing class EpicRollup {
     this.byId = new Map<Id, Work_Item__c>(this.records);
     for (Work_Item__c record : this.records) {
       if (
-        record.Type__c != EPIC &&
+        !isEpic(record) &&
         BoardSourceRules.condensesIntoEpics(record.External_System__c)
       ) {
         epicIdByItemId.put(record.Id, epicAncestorOf(record));
       }
     }
+  }
+
+  /**
+   * Whether a row is an epic: what the Epics view makes a card of, what the others roll up into,
+   * and - since build 10 - the only kind of row the public board can feature (ADR build-10,
+   * decision 3). One definition, so the featured epic and the Epics view cannot disagree about
+   * what an epic is.
+   */
+  public static Boolean isEpic(Work_Item__c record) {
+    return record != null && record.Type__c == EPIC;
   }
 
   /** The epic an item rolls up into, or null when it has none or its source is flat. */
@@ -75,7 +85,7 @@ public with sharing class EpicRollup {
    *   would otherwise pile into exactly the unbounded Done column the two views exist to avoid.
    */
   public Boolean keptInPublicTaskView(Work_Item__c record) {
-    if (record.Type__c == EPIC) {
+    if (isEpic(record)) {
       return false;
     }
     if (!BoardSourceRules.condensesIntoEpics(record.External_System__c)) {
@@ -106,7 +116,7 @@ public with sharing class EpicRollup {
     List<Work_Item__c> completed = new List<Work_Item__c>();
 
     for (Work_Item__c record : records) {
-      if (record.Type__c != EPIC) {
+      if (!isEpic(record)) {
         continue;
       }
       // Seeded at zero so an epic with no children reports 0 of 0 rather than null.
@@ -167,7 +177,7 @@ public with sharing class EpicRollup {
       if (node == null) {
         return null;
       }
-      if (node.Type__c == EPIC) {
+      if (isEpic(node)) {
         return node.Id;
       }
       cursor = node.Parent_Work_Item__c;

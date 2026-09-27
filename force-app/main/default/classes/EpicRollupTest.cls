@@ -72,4 +72,22 @@ private class EpicRollupTest {
       'An epic is not a task.'
     );
   }
+
+  /**
+   * Build 10: the one definition of an epic, which the featured epic is checked against as well
+   * as the Epics view. A type, and nothing about status, source or visibility.
+   */
+  @IsTest
+  static void anEpicIsARowTypedEpicAndNothingElse() {
+    Assert.isTrue(EpicRollup.isEpic(new Work_Item__c(Type__c = 'Epic')));
+    Assert.isTrue(
+      EpicRollup.isEpic(new Work_Item__c(Type__c = 'Epic', Status__c = 'Done'))
+    );
+    Assert.isFalse(EpicRollup.isEpic(new Work_Item__c(Type__c = 'Story')));
+    Assert.isFalse(
+      EpicRollup.isEpic(new Work_Item__c(Type__c = 'Unspecified'))
+    );
+    Assert.isFalse(EpicRollup.isEpic(new Work_Item__c()));
+    Assert.isFalse(EpicRollup.isEpic(null));
+  }
 }
