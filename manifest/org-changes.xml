@@ -48,12 +48,18 @@
         <name>GlobalValueSet</name>
     </types>
     <types>
+        <members>Asana_Personal</members>
         <members>Jira_Classic</members>
         <name>NamedCredential</name>
     </types>
     <types>
+        <members>Asana_Token</members>
         <members>Jira_Token</members>
         <name>ExternalCredential</name>
+    </types>
+    <types>
+        <members>Webhook_Event_Subscriber</members>
+        <name>PlatformEventSubscriberConfig</name>
     </types>
     <types>
         <members>Project__c</members>

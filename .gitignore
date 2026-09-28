@@ -55,3 +55,11 @@ force-app/main/default/customMetadata/Integration_Secret.*
 
 # Commit message drafts, written per build step. Ephemeral - not part of the source.
 .commit-messages/
+
+# Staged deploy projects written by scripts/build-org.mjs, one folder per target. Rebuilt every run.
+build/.out/
+
+# Build targets name real orgs, Jira sites and projects, and a copy target pulls in test records.
+# They stay on the machine that runs them; only the *.example.json templates are shared.
+build/targets/*.json
+!build/targets/*.example.json

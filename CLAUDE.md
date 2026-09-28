@@ -48,6 +48,9 @@ guest board. This file is the short version.
 - Deploy freely with `--source-dir`; retrieve only through `manifest/org-changes.xml`. A full
   retrieve churns formatting. After scoped deploys run
   `sf project reset tracking --target-org MyScratchOrg --no-prompt`.
+- Any org other than the scratch org is built with `node scripts/build-org.mjs <target>`
+  (`build/targets/`, `docs/deploying-to-an-org.md`): plan by default, `--validate`, `--deploy`.
+  It stages rewritten copies; never hand-edit org-bound values in `force-app` for another org.
 - Deploying an LWC does not update the public site. Republish:
   `sf community publish --name "Test Professional Site" --target-org MyScratchOrg`.
 - Deploying a permission set does not assign it. See the handoff for the assignments.

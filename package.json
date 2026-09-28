@@ -14,6 +14,7 @@
     "prettier:verify": "prettier --check \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\"",
     "tour": "node scripts/code-tour.mjs",
     "tour:check": "node scripts/code-tour.mjs --check",
+    "build:org": "node scripts/build-org.mjs",
     "prepare": "husky || true",
     "precommit": "lint-staged"
   },

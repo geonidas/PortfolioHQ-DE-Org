@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PlatformEventSubscriberConfig xmlns="http://soap.sforce.com/2006/04/metadata">
+    <batchSize>200</batchSize>
+    <masterLabel>Webhook Event Subscriber</masterLabel>
+    <numPartitions>1</numPartitions>
+    <partitionKey>EventUuid</partitionKey>
+    <platformEventConsumer>WebhookEventReceivedTrigger</platformEventConsumer>
+    <user>test-vuqbitgj0ulq@example.com</user>
+</PlatformEventSubscriberConfig>

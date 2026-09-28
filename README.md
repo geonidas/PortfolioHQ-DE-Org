@@ -56,6 +56,10 @@ npm run tour:check
 sf project retrieve start -x manifest/org-changes.xml --target-org MyScratchOrg
 ```
 
+To build the whole project into another org - the development org, or a fresh one with its own
+Jira, Asana and webhooks - use `node scripts/build-org.mjs <target>`; see
+[docs/deploying-to-an-org.md](docs/deploying-to-an-org.md).
+
 Some of the setup is org state rather than source: the Jira and Asana credentials, the webhook
 registrations and their secrets, the scheduled sweeper and nightly purge, permission set
 assignments, and which epic is featured. The handoff lists each one and how to restore it on a new

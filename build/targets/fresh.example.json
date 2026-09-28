@@ -1,0 +1,26 @@
+{
+  "description": "Template for an org that starts empty: no records copied, its own webhooks and tokens, and optionally its own Jira site and Asana workspace. Copy to <name>.json and fill in.",
+  "org": "<org alias>",
+  "jiraBaseUrl": "https://<your-site>.atlassian.net",
+  "siteEmailSender": null,
+  "customMetadata": "build/overrides/<name>/customMetadata",
+  "data": {
+    "mode": "fresh",
+    "projects": [
+      {
+        "name": "Portfolio HQ",
+        "shortName": "PHQ",
+        "system": "Jira",
+        "key": "<Jira project key>",
+        "public": true
+      },
+      {
+        "name": "Learning",
+        "shortName": "Learning",
+        "system": "Asana",
+        "key": "<Asana project gid>",
+        "public": false
+      }
+    ]
+  }
+}
