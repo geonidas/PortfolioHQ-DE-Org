@@ -83,13 +83,14 @@ small SFDX project under `build/.out/<target>/`. `force-app` is never edited: th
 metadata to one org are rewritten in the staged copy, and each rewrite must match exactly what it
 expects or the run stops.
 
-| Rewritten in the staged copy                                            | With                                    |
-| ----------------------------------------------------------------------- | --------------------------------------- |
-| `sites/Test_Professional_Site`: site admin, guest record default owner  | the deploying admin                     |
-| `PlatformEventSubscriberConfigs/Webhook_Event_Subscriber`: running user | the deploying admin                     |
-| `networks/Test Professional Site`: email sender                         | `siteEmailSender`, or the admin's email |
-| `namedCredentials/Jira_Classic`: URL                                    | `jiraBaseUrl`                           |
-| `sharingRules/*`: guest user                                            | the target's guest nickname             |
+| Rewritten in the staged copy                                                             | With                                                                                      |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `sites/Test_Professional_Site`: site admin, guest record default owner                   | the deploying admin                                                                       |
+| `PlatformEventSubscriberConfigs/Webhook_Event_Subscriber`: running user                  | the deploying admin                                                                       |
+| `networks/Test Professional Site`: email sender                                          | `siteEmailSender`, or the admin's email                                                   |
+| `namedCredentials/Jira_Classic`: URL                                                     | `jiraBaseUrl`                                                                             |
+| `sharingRules/*`: guest user                                                             | the target's guest nickname                                                               |
+| `profiles/Test Professional Site Profile`: Account field, layout and record type entries | removed: the Account customisations are not deployed, and the guest never reaches Account |
 
 **Not deployed**, though in source: the scratch org template's leftovers (the B2B buyer profile,
 partner reports, dashboards and report types, the report-export security policy, the `Developer`

@@ -234,6 +234,19 @@ function stageOf(file) {
 
 // ---------- rewrites: the values that bind metadata to one org ----------
 
+const GUEST_PROFILE_FILE = new RegExp(
+  `^profiles/${GUEST_PROFILE}\\.profile-meta\\.xml$`
+);
+
+/**
+ * One whole <tag>...</tag> element containing `inside`, with the line it sits on. The tempered
+ * token keeps a match inside a single element rather than spanning from one into the next.
+ */
+function xmlBlock(tag, inside) {
+  const body = `(?:(?!</${tag}>)[\\s\\S])*?`;
+  return new RegExp(`\\n[ \\t]*<${tag}>${body}${inside}${body}</${tag}>`, "g");
+}
+
 /**
  * Each rewrite names the file it applies to, what it replaces and with what. It must match the
  * expected number of times, or the build stops - the alternative is a file quietly deploying
@@ -267,7 +280,20 @@ function rewritesFor(context) {
       pattern: /<emailSenderAddress>[^<]*<\/emailSenderAddress>/g,
       count: 1,
       value: `<emailSenderAddress>${context.emailSender}</emailSenderAddress>`
-    }
+    },
+    // The guest profile names the early Account customisations this build does not deploy - its
+    // fields, record types and layouts - and a profile deploy refuses a name the org lacks. The
+    // guest must never reach Account in any case (GuestAccessTest), so the blocks are dropped.
+    ...[
+      ["fieldPermissions", "<field>Account\\.", 3],
+      ["layoutAssignments", "<layout>Account-", 4],
+      ["recordTypeVisibilities", "<recordType>Account\\.", 3]
+    ].map(([tag, inside, count]) => ({
+      file: GUEST_PROFILE_FILE,
+      pattern: xmlBlock(tag, inside),
+      count,
+      value: ""
+    }))
   ];
   if (target.jiraBaseUrl) {
     list.push({
