@@ -1,0 +1,214 @@
+@import "c/boardTheme";
+
+:host {
+  display: block;
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 8px 16px;
+  background: var(--board-paper);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+  overflow: hidden;
+  font-family: var(--board-font);
+  color: var(--board-ink);
+}
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--card-accent);
+}
+.title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.disclosure {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.disclosure:hover .heading {
+  text-decoration: underline;
+}
+.disclosure:focus-visible,
+.record-link:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* The build 06 carry-over: an epic title ran to four lines in a column. Two, as on every card,
+   and all of it once the card is open. */
+.heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.heading.is-open {
+  display: block;
+}
+.chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 6px 2px 0 4px;
+  border-right: 2px solid var(--board-quiet);
+  border-bottom: 2px solid var(--board-quiet);
+  transform: rotate(45deg);
+}
+.is-expanded .chevron {
+  margin-top: 9px;
+  transform: rotate(-135deg);
+}
+.is-fallback {
+  font-weight: 500;
+  color: var(--board-quiet);
+}
+.meta {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
+}
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.source {
+  font-weight: 600;
+  color: var(--card-accent-text);
+}
+/* Quiet, like every chip: the column already says where the epic is. */
+.chip {
+  padding: 0 6px;
+  border: 1px solid var(--board-line);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--board-quiet);
+  white-space: nowrap;
+}
+/* Quiet on Line: a second colour on a card would dilute the accent. */
+.track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--board-line);
+  overflow: hidden;
+}
+.bar {
+  height: 100%;
+  background: var(--board-quiet);
+}
+.count {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
+}
+
+.card.is-expanded {
+  padding-left: 18px;
+  border-color: var(--board-quiet);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--board-ink) 14%, transparent);
+}
+.card.is-expanded::before {
+  width: 6px;
+}
+.details[hidden] {
+  display: none;
+}
+.record-row {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.record-link {
+  color: var(--board-link);
+}
+
+/* Build 10. The featured indicator: words in the ink colour inside a full border, where every
+   other chip on the card is quiet. Not the accent, which already means source. */
+.featured {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 6px;
+  border: 1px solid var(--board-ink);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--board-ink);
+}
+.star {
+  font-size: 0.6875rem;
+}
+
+/* The open card's button and its outcome, as on the task card. */
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.action-row {
+  margin: 0;
+}
+.btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--board-ink);
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--board-surface);
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+}
+.feedback {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.feedback:empty {
+  display: none;
+}
+.feedback-error {
+  color: var(--board-danger);
+}

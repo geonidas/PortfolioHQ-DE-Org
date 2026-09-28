@@ -1,0 +1,104 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "3 · Inbound: a webhook becomes a record",
+  "description": "A delivery from Jira or Asana, followed from an anonymous POST to an upserted work item. The\nendpoint runs as the site's guest user and does almost nothing; the work happens later, as another\nuser, in a transaction that is allowed to call out.\n\nConcepts: Apex REST on a Salesforce Site, the guest user, HMAC signatures, protected custom\nmetadata, platform events and their running user, publish-after-commit, record ownership and\nsharing, Scheduled Apex.",
+  "nextTour": "4 · Two adapters behind one interface",
+  "steps": [
+    {
+      "file": "force-app/main/default/classes/JiraWebhookResource.cls",
+      "pattern": "@RestResource\\(urlMapping='/v1/webhook/jira'\\)",
+      "title": "Why does the endpoint parse nothing?",
+      "description": "The Jira webhook's endpoint verifies the signature over the raw bytes, inserts one\n`Webhook_Event__c` row, and answers. No JSON parsing, no business logic, no callouts, no reads of\nany other object. Everything downstream happens off that row, in another transaction, as another\nuser.\n\nA body is stored only once its signature has proved it came from Jira. A rejected request leaves a\nfingerprint instead - its size, a digest prefix and the signature offered - which is enough to\nrecognise a flood and roughly six hundred times less than a stored body would let an anonymous\ncaller write.\n\n**Concept.** A Salesforce Site exposes Apex REST resources to unauthenticated callers, who run as the\nsite's guest user with that user's deliberately small permissions.\n\n**Failure mode.** Deserialising unauthenticated input inside the guest's transaction is attack\nsurface the endpoint has no use for, and any work done here is work an anonymous caller can make the\norg do.\n\n**Pattern: Stage, then act.** The only thing done in the untrusted context is recording that a\ndelivery arrived. Acting on it is somebody else's job."
+    },
+    {
+      "file": "force-app/main/default/classes/WebhookSignature.cls",
+      "pattern": "return Crypto\\.verifyHMac\\(",
+      "title": "Why is the signature checked over the raw bytes?",
+      "description": "The HMAC-SHA256 of the request body is computed with the shared secret and compared with the\nsignature header by `Crypto.verifyHMac`. The verifier only ever sees a `Blob`, never a parsed\nobject, because parsing and re-serialising a payload changes whitespace and key order, which changes\nthe digest and fails every signature. The platform's comparison is used rather than string equality\nso that timing leaks nothing.\n\nA missing body, a missing header, a missing secret, malformed hex and any exception are all a\nrejection, never a bypass. The header is found case-insensitively, as HTTP requires and Apex's map\nof headers does not.\n\n**Concept.** A webhook signature is an HMAC of the body under a secret both sides hold; only a\nholder of the secret can produce one that verifies.\n\n**Pattern: Fail closed.** Every input that is missing or unreadable means \"reject\", and there is no\nbranch in which something not being configured skips the check."
+    },
+    {
+      "file": "force-app/main/default/classes/JiraWebhookResource.cls",
+      "pattern": "// One response for every rejection reason\\.",
+      "title": "Why does every rejection look the same?",
+      "description": "Status codes are chosen for what they make the sender do. A non-2xx asks Jira to retry, so 500 is\nkept for the one case where retrying helps: the delivery could not be recorded. A payload that will\nlater be ignored still gets 200, because there is nothing to retry. A bad signature gets 401, and so\ndoes every other rejection - a caller must not be able to tell \"wrong signature\" from \"this org has\nno secret configured\".\n\nAsana adds a clock: a response slower than ten seconds counts as a failed delivery, and a day of\nfailures deletes the webhook. That is another reason these endpoints only record.\n\n**Pattern: Answer for the caller's next move.** A response is a request to the sender - retry, or\ndon't - and the one it gets should be the one it ought to act on."
+    },
+    {
+      "file": "force-app/main/default/classes/WebhookSecretStore.cls",
+      "pattern": "Two halves, because the platform forces them apart\\.",
+      "title": "Where does the signing secret live, if the guest can't read records?",
+      "description": "A site guest can insert a custom object row and can never read one back: not its own, not in system\nmode, not through a `without sharing` class. In build 07, object access, field-level security and\nView All were granted in turn, and each only moved the error along. So a secret lives in two places.\nAsana's registration handshake stages it in `Webhook_Secret__c`, insert only. Verification reads\nprotected custom metadata, `Integration_Secret__mdt`, which Apex can read as any user. A script run\nby an admin carries the value across.\n\nInsert only is also the safer rule: the endpoint is unauthenticated, and an upsert would let anyone\nwho knows a resource id replace a live secret with their own. No method here is `@AuraEnabled`, and\nthe secret goes into a local variable and into `verifyHMac`, never into a log.\n\n**Concept.** Custom metadata types are deployable configuration records; protected ones can be read\nby Apex in the org but not queried out of it by a user.\n\n**Failure mode.** A secret kept in a custom object field verifies in every test, because tests run as\nthe admin, and fails every live delivery.\n\n**Pattern: Fail closed.** `IntegrationSecretService` returns null for a missing, inactive or blank\nsecret alike, and null means reject."
+    },
+    {
+      "file": "force-app/main/default/objects/Webhook_Event_Received__e/Webhook_Event_Received__e.object-meta.xml",
+      "pattern": "<publishBehavior>PublishAfterCommit</publishBehavior>",
+      "title": "Why does a platform event sit between the endpoint and the processor?",
+      "description": "Its only job is to change who is running. The `Webhook_Event__c` insert trigger publishes one event\nper verified row, carrying nothing but the row's id, and the subscriber trigger runs as the\nplatform's process user - Automated Process, or the user a `PlatformEventSubscriberConfig` names -\nnever as the guest.\n\nThe event is published after commit, so the subscriber never chases a row whose insert rolled back,\nand it carries only the id, so the payload stays on one durable row.\n\n**Concept.** Platform events are publish-and-subscribe inside the org. A subscriber trigger runs in\nits own transaction, as the subscriber's configured user, not as the publisher.\n\n**Failure mode.** A queueable enqueued from the guest's transaction would still run as the guest,\nwith none of the access processing needs. And the subscriber's user is also whose credentials a\ncallout uses: Automated Process cannot be granted Asana's, which is why the subscriber config, and\nthe sweeper later in this tour, name a real user.\n\n**Pattern: Know who your code runs as.** The hop exists for its running user, not for decoupling.\n\n**Pattern: Stage, then act.** The staged row is the durable record, and the event only says where\nit is."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "System\\.enqueueJob\\(new WorkItemInboundQueueable\\(eventIds\\)\\);",
+      "title": "Why does the subscriber only enqueue?",
+      "description": "The subscriber is a trigger, and Apex refuses a callout made from a trigger. The Asana adapter must\ncall out while it parses, to fetch the task, so the subscriber hands the batch to\n`WorkItemInboundQueueable` and does nothing else - for every system, Jira included, which gains only\nthe latency of a queued job. It is the shape the outbound path has always had.\n\n**Failure mode.** This is how the first live Asana delivery failed: `Callout from triggers are\ncurrently not supported`, the delivery left staged and nothing created, while every test stayed\ngreen, because every test called `process` directly. Tour 7 has the test that now runs the real\npath.\n\n**Pattern: Vendor at the edge.** Enqueueing only the systems that hydrate would mean shared code\nknowing which adapters call out, which is the knowledge the adapter seam exists to keep out of it."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundQueueable.cls",
+      "pattern": "AND Processing_Status__c = :DeliveryStatus\\.PENDING",
+      "title": "Why does the queueable re-read the deliveries?",
+      "description": "The job carries ids, not rows, and re-reads them with `Processing_Status__c = Pending` and a valid\nsignature in the WHERE clause. Between the publish and this job, a delivery can be retired by\nanother run - superseded in a batch, or applied by the sweeper - and the WHERE clause is what makes\nsure it is applied at most once, whatever happened in between.\n\n**Pattern: Make replays harmless.** The job decides from the state of the row now, not from what it\nwas handed."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "List<Delivery> parsed = parseAll\\(rows, logs\\);",
+      "title": "Why is the whole batch parsed before anything is written?",
+      "description": "The processor's first act is to parse the batch, one adapter call per source system, and it writes\nnothing until every call has returned. Every outcome, every log row an adapter buffered and every\nupsert is collected and written afterwards.\n\nAn adapter may call out from `parseInbound`, and Asana's does. Any DML earlier in the transaction\nwould make that callout fail with `You have uncommitted work pending` - for Asana deliveries only,\nwith an error that never mentions Asana. One call per system also lets an adapter deduplicate the\ntasks a batch mentions and fetch them in bulk.\n\n**Failure mode.** The ordering happened to be safe before Asana, and nothing enforced it, so the rule\nis written on the interface, in `CLAUDE.md` and in the handoff. An innocent-looking status update\nadded at the top of `process` would break Asana and nothing else.\n\n**Pattern: Remote calls before local writes.** The same rule as the outbound push, arrived at from\nthe other direction."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "Map<String, Delivery> newestByExternalId = new Map<String, Delivery>\\(\\);",
+      "title": "Why does only the newest delivery per issue apply?",
+      "description": "A batch can hold several deliveries about one issue. Only the newest, by the issue's own update\ntime, is applied; the rest are retired as Ignored with `Ignore_Reason__c = Superseded`, so a bulk\nbatch can never apply an older state last. The ordering key is the time the issue changed, which\nthe adapter reads from the issue itself, not the time the event fired, which on a redelivery is\nlater than both.\n\nIgnored means two things, and the reason field says which: Superseded (a newer delivery won) or Not\nApplicable (the adapter had nothing to say about the resource). Retention rules read the value.\n\n**Pattern: Make replays harmless.** Order is recovered from the data, not from arrival.\n\n**Pattern: One flag, one meaning.** Before the reason field, telling the two kinds of Ignored apart\nmeant string-matching an error message, which breaks the day somebody rewords it."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "change\\.remoteUpdated <= current\\.Remote_Last_Modified__c",
+      "title": "How does the timestamp check stop echoes and duplicates?",
+      "description": "The durable half of loop prevention: a delivery that is not strictly newer than\n`Remote_Last_Modified__c` changes nothing and is marked Ignored. That one comparison covers the\necho of our own push, a duplicate and an out-of-order delivery, without needing to know which it\nis.\n\nSince build 09 a push stamps `Remote_Last_Modified__c` with the source's own time for what it wrote,\nso the late echo of an earlier push is older than the stamp and is retired. Before that, it briefly\nreverted the field and marked it Synced - seen on WI-0003, High then none saved 49 seconds apart.\nThe stamp is the source's clock, so no skew between two clocks enters the comparison.\n\n**Concept.** A Datetime field stores whole seconds, while both sources send milliseconds, so a value\nparsed from a payload never equals the one stored from the same payload. Here that is harmless: an\necho in the same second as the stored value counts as newer, and it carries the values already held.\n\n**Pattern: One guard per path.** This is the third of the three loop guards, the one that works\nacross transactions."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "if \\(pending\\.contains\\(SyncField\\.STATUS\\)\\) \\{",
+      "title": "Why does inbound leave pending fields alone?",
+      "description": "A field listed in `Pending_Push_Fields__c` keeps Salesforce's value, and the sync fields are left\nalone until nothing is pending. The delivery still applies everything else, and its row says what\nwas held back.\n\nA delivery that lands between a user's save and the push is genuinely newer than anything held, so\nthe timestamp check lets it through. A refused change is held the same way, so it keeps showing\nFailed with its reason until somebody acts on it.\n\n**Failure mode.** Applying it would undo the edit and mark the record Synced, and the push would then\nfind the record already agreeing and send nothing - a status change lost, with no error anywhere.\n\n**Pattern: One owner per piece of work.** Until a push settles it, the local edit owns the field,\nand inbound does not write over it."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "if \\(String\\.isNotBlank\\(change\\.title\\)\\) \\{",
+      "title": "Why is a field written only when the payload carries it?",
+      "description": "A title, type, parent or project is assigned only when the delivery carries one; the dates, the\ndescription and the priority are written, null included, exactly when their carried flag is set.\nMost deliveries are status transitions whose payloads carry nothing else.\n\nAn issue type that is present with a blank name counts as absent, not as unmapped. The vendor's raw\ntype word goes into `Source_Type__c`, which is on no DTO and no guest grant, while `Type__c` stays a\nrestricted picklist - so free text never reaches the public board, and \"which types are really in\nuse\" is a GROUP BY rather than a guess.\n\n**Failure mode.** Writing a null through would blank a known title or type on every status-only\ndelivery.\n\n**Pattern: Absent is not empty.** The processor trusts the adapter's distinction and never writes a\nvalue the delivery did not carry."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "Id owner = integrationOwnerId\\(\\);",
+      "title": "Why are owner and visibility set on creation only?",
+      "description": "When inbound creates a record it sets two things it never sets again. The owner: the processor runs\nas Automated Process, so everything it creates would be owned by Automated Process, and guest\nsharing rules do not share records owned by that user - measured by reassigning one record, which\ntook the guest from 2 of 6 public records to 3 of 6. And `Is_Public__c`, inherited from the\nrecord's project, because the project is where that decision lives.\n\nCreation only, both of them: an existing record keeps its owner, and an item unpublished by hand is\nnot republished by the next delivery. A record whose project resolves to nothing is created private.\nIf no owner resolves, a log row says so. (The owner is found by profile name, which is brittle; a\nnamed integration user is an open item in the handoff.)\n\n**Concept.** Record ownership drives sharing: a sharing rule grants access to records by who owns\nthem or by criteria on the record.\n\n**Failure mode.** Either one missing, and every newly synced issue is invisible on the public board,\nwith no error anywhere.\n\n**Pattern: Know who your code runs as.** The running user leaks into the data it creates, as the\nowner, and the owner decides who can see it.\n\n**Pattern: Fail closed.** When the project is unknown, the record defaults to private."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "a move\\. Follow it, and log both keys\\.",
+      "title": "What happens when an issue moves project?",
+      "description": "Three cases, written out in the code: no link yet, assign it; linked to a different key, follow the\nmove and log both keys; the same key, write nothing. A move whose new key resolves to no project,\nor to two, keeps the link it has and logs - nulling a working link over a failed lookup would hide\nthe record rather than correct it.\n\n**Failure mode.** The rule this replaced, \"an existing link is never overridden\", protected links\nmade by hand and froze stale ones in the same breath. On the guest path it failed open: an issue\nmoved in Jira from a public project to a private one kept pointing at the public one, and the public\nboard, whose only check of the project's flag is a WHERE clause (tour 5), kept showing it to\nanonymous visitors.\n\n**Pattern: Name every case.** One general rule covered three situations and was wrong for one of\nthem; listing the cases is what exposed it."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundProcessor.cls",
+      "pattern": "private static void resolveParents\\(",
+      "title": "Why are parents linked in a second pass?",
+      "description": "A batch can carry a child and its parent in either order, so links are made after every record in\nthe batch exists. Resolving during the first pass would miss a parent not yet inserted - and would\ndo so intermittently, depending on payload order, the worst kind of failure to debug.\n\nNo stub records. A parent Salesforce has never seen leaves the link null and writes a log row\nnaming both sides; a stub would be a titleless card on the board, bought for a link the child's\nnext delivery makes anyway. The cost is recorded as an open item: nothing back-fills the link when\nthe parent arrives later. A record naming itself as its own parent is refused, because a cycle of\nlength one is still a cycle to anything that walks ancestors.\n\n**Pattern: Surface, don't drop.** A reference that cannot be resolved does not fail the delivery or\ndisappear; it leaves a row saying exactly what is missing."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemInboundSweeper.cls",
+      "pattern": "private static final Integer MAX_ATTEMPTS = 3;",
+      "title": "What picks up the deliveries nobody finished?",
+      "description": "Every fifteen minutes, deliveries still Pending after five quiet minutes are handed to the same\nqueueable again, up to three times, and then retired as Ignored, Not Applicable. Before this class,\n\"left Pending for the next run\" was an intention with no mechanism: Asana's story events (comments,\nsection changes) and batches that ran out of callouts sat Pending for ever.\n\nThe retry count is written before the enqueue, so a job that dies cannot take its own retry budget\nwith it. The five quiet minutes keep the sweeper off rows the fast path is still working on.\nScheduled Apex cannot call out, so the sweeper enqueues rather than processing - and the job runs as\nwhoever scheduled it, which is how an Asana callout made from here gets its credential. It is four\ncron jobs, at :00, :15, :30 and :45, because Salesforce cron rejects a list in the minutes field.\n\n**Concept.** Scheduled Apex runs as the user who scheduled it, and cannot make callouts.\n\n**Pattern: Bound everything that grows.** A retry has a ceiling, and the query that finds work has a\nlimit, so the set of Pending rows has a maximum size rather than a trend.\n\n**Pattern: Know who your code runs as.** Schedule it as a user without the Asana grant and every\nsweep ends in `We couldn't access the credential(s)`."
+    }
+  ]
+}

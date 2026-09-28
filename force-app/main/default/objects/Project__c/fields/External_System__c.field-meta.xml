@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_System__c</fullName>
+    <description>System of record this project is synced from. Backed by the External_System global value set.</description>
+    <label>External System</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetName>External_System</valueSetName>
+    </valueSet>
+</CustomField>

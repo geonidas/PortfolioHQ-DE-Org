@@ -1,0 +1,113 @@
+/**
+ * Everything Portfolio HQ asks of the system that owns a work item, in both directions.
+ *
+ * No vendor vocabulary appears here or in the types it exchanges. Jira's workflow names,
+ * transition ids, payload shape and URL paths live inside the implementing class and nowhere
+ * else, so adding an Asana adapter is a new class rather than an edit to callers.
+ */
+public interface IWorkItemAdapter {
+  /**
+   * Push the fields that changed in Salesforce to the external system - exactly those, with the
+   * item's current values, and nothing else.
+   *
+   * Only what changed, because the alternative overwrites the source: sending an unchanged due
+   * date alongside a new title would silently undo a due date somebody just changed over there.
+   * Replaced updateStatus in build 08, when title and dates became pushable; a status is now one
+   * field among four, and keeps whatever path the source needs for it (Jira's transitions,
+   * Asana's section move plus completion flag).
+   *
+   * Each part is attempted on its own merits, so a refused status transition does not stop a
+   * title from landing, and the result's confirmedFields says which parts the source accepted.
+   * The caller clears exactly those from Pending_Push_Fields__c. A field this source cannot hold
+   * - a start date on a source without start dates - is refused as BAD_REQUEST without a
+   * callout. Never throws for a business outcome.
+   *
+   * At most three callouts per item; WorkItemSyncService chunks on that.
+   *
+   * @param item    the work item with its current values, carrying a qualified External_Id__c
+   * @param changed the fields to push; empty means nothing to do
+   */
+  SyncResult push(Work_Item__c item, Set<SyncField> changed);
+
+  /**
+   * Status changes currently reachable from the item's present state.
+   *
+   * @param externalId qualified external id, e.g. jira:10023
+   * @return           reachable transitions, empty if the item is terminal
+   * @throws AdapterException on a technical failure, so an empty list unambiguously means
+   *                          "nowhere to go" rather than "the call broke"
+   */
+  List<TransitionOption> fetchAvailableTransitions(String externalId);
+
+  /**
+   * Turn a batch of raw inbound deliveries into vendor-neutral changes.
+   *
+   * The payload shape is the vendor's business, so parsing lives here rather than in the
+   * processor that applies the result. Never throws: a payload that cannot be applied comes back
+   * with `failure` set, and the processor fails that one delivery and carries on with the rest.
+   *
+   * ---------------------------------------------------------------------------------------
+   * NO DML MAY HAVE HAPPENED IN THE TRANSACTION BEFORE THIS IS CALLED.
+   *
+   * An implementation is allowed to call out from here, and one does. Jira's payloads are fat
+   * and need nothing; Asana's name a resource and an action and carry neither the task's title
+   * nor its section, so the task has to be fetched. Apex refuses a callout once a transaction
+   * holds uncommitted DML - "You have uncommitted work pending" - so any DML issued earlier in
+   * the transaction breaks this call. It breaks it for Asana only, with an error that never
+   * mentions Asana, which is why the rule is written here rather than trusted to ordering.
+   * ---------------------------------------------------------------------------------------
+   *
+   * The batch is the unit because the granularity is what makes hydration affordable: one
+   * adapter call per delivery batch can deduplicate the resources it needs and fetch them a few
+   * at a time, where a call per event could only ever fetch one at a time and would fail half
+   * way through a loop the caller cannot resume.
+   *
+   * Each returned change carries the `sourceEventId` of the delivery it was read from; that is
+   * how the caller correlates results, and it is the reason the returned list need not be the
+   * same length as the input. An event the adapter could not turn into anything at all is
+   * simply absent, and the caller leaves its row staged for another run. An event whose payload
+   * is unusable comes back present, with `failure` set, so the caller can retire it.
+   *
+   * @param events deliveries carrying at least Id and Raw_Payload__c, all from one system
+   * @return       zero or more changes, each naming the event it came from
+   */
+  List<InboundChange> parseInbound(List<Webhook_Event__c> events);
+
+  /**
+   * Translate a status name as the external system spells it into our normalized
+   * Work_Item__c.Status__c vocabulary.
+   *
+   * The inverse direction already lives in the adapter, and both must read from one table -
+   * two tables drift, and drift here means inbound and outbound disagree about what a status
+   * means. An unrecognised remote status returns Unspecified rather than throwing, which is
+   * the same catch-all behaviour the outbound path relies on.
+   *
+   * @param remoteStatusName status name from the external system, e.g. Jira's 'Resolved'
+   * @return                 a Work_Item__c.Status__c value, never null
+   */
+  String normalizeStatus(String remoteStatusName);
+
+  /**
+   * Translate an issue type as the external system spells it into our normalized
+   * Work_Item__c.Type__c vocabulary.
+   *
+   * Here for the same reason normalizeStatus is: 'Sub-task' and 'Story' are Jira's words, and
+   * a caller that knew them would be a caller that has to change when a second system arrives.
+   * An unrecognised type returns Unspecified rather than throwing - Type__c is a restricted
+   * picklist, so a custom issue type must land somewhere, and failing a delivery over a
+   * labelling gap would throw away a status change we asked for.
+   *
+   * @param remoteTypeName issue type name from the external system, e.g. Jira's 'Sub-task'
+   * @return               a Work_Item__c.Type__c value, never null
+   */
+  String normalizeType(String remoteTypeName);
+
+  /**
+   * Hand over the Integration_Log__c rows accumulated since the last drain, and clear the buffer.
+   *
+   * Adapters must not insert these themselves: DML issued between callouts triggers
+   * "You have uncommitted work pending" on the next one. The caller buffers across a whole
+   * chunk and inserts once, after the last callout.
+   */
+  List<Integration_Log__c> drainLogs();
+}

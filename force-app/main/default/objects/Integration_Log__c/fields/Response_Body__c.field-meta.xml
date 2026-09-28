@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Response_Body__c</fullName>
+    <description>Raw response. GUEST-SENSITIVE, the worst offender on this object: Jira responses embed accountId, emailAddress, avatar URLs and internal workflow names. Never expose to a guest permission set.</description>
+    <label>Response Body</label>
+    <length>32768</length>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>5</visibleLines>
+</CustomField>

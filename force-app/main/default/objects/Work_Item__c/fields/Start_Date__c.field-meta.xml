@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Start_Date__c</fullName>
+    <description>The date work is planned to start - what the board calls the assigned date. A Date, not a DateTime: it is a calendar day in both source systems, and a DateTime would shift it across midnight for anyone west of Greenwich. Only sources whose Board_Source__mdt record says Supports_Start_Date__c carry one; Asana on the free tier does not, and Apex refuses one for it. Inbound sync writes it whenever a delivery carries the field, including clearing it.</description>
+    <inlineHelpText>Planned start. Only for sources that support start dates.</inlineHelpText>
+    <label>Start Date</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Date</type>
+</CustomField>

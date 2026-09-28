@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Shows Feature on public board on the internal board&apos;s epic cards; the controller checks it again before setting or clearing the featured epic. Granted through Portfolio_HQ_Developer, never to a site guest. Build 10.</description>
+    <isLicensed>false</isLicensed>
+    <label>Feature an epic on the public board</label>
+</CustomPermission>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GlobalValueSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customValue>
+        <fullName>Jira</fullName>
+        <default>false</default>
+        <label>Jira</label>
+    </customValue>
+    <customValue>
+        <fullName>Asana</fullName>
+        <default>false</default>
+        <label>Asana</label>
+    </customValue>
+    <description>Systems of record that Portfolio HQ syncs work from. Shared by Project__c and Work_Item__c so the two never drift apart.</description>
+    <masterLabel>External System</masterLabel>
+    <sorted>false</sorted>
+</GlobalValueSet>

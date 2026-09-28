@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Sync_Error__c</fullName>
+    <description>Why the last push failed, in words a person can act on - written by WorkItemSyncService when a push fails, cleared when one succeeds or when a new edit is staged. The detail behind it, including the raw response, is in Integration_Log__c. This is what lets a card show Failed with the reason rather than Failed alone. Internal only: on no guest DTO.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>Why the last push to the source system failed. Cleared when a push succeeds.</inlineHelpText>
+    <label>Sync Error</label>
+    <length>255</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

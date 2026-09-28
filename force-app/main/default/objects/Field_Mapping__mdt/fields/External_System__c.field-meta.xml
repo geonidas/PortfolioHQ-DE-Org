@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_System__c</fullName>
+    <description>System this mapping belongs to. A local picklist rather than the External_System global value set, because custom metadata types do not support global value sets - the deploy says &quot;Global picklists are not supported on this object&quot;. The values must therefore be kept in step with the global set by hand; ExternalSystem.cls is the one place the vocabulary is written down, and FieldMappingServiceTest asserts the two agree.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>External System</label>
+    <required>true</required>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Jira</fullName>
+                <default>false</default>
+                <label>Jira</label>
+            </value>
+            <value>
+                <fullName>Asana</fullName>
+                <default>false</default>
+                <label>Asana</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

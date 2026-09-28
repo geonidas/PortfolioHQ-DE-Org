@@ -1,0 +1,44 @@
+<template>
+  <div class={frameClass}>
+    <template lwc:if={showPosition}>
+      <!-- Where the board is: said when a swipe or an arrow lands, not while it moves. -->
+      <p class="position" aria-live="polite" data-position>
+        <span class="assistive">{positionSpoken}</span>
+        <span aria-hidden="true">{positionLabel}</span>
+      </p>
+    </template>
+
+    <template lwc:if={isPortrait}>
+      <!-- A rail with no height that sticks at mid-screen, so the arrows stay in reach however
+           far down a long column the visitor has scrolled. -->
+      <div class="rail">
+        <template lwc:if={hasPrevious}>
+          <button
+            type="button"
+            class="arrow arrow-previous"
+            aria-label={previousLabel}
+            data-arrow="previous"
+            onclick={handlePrevious}
+          >
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+        </template>
+        <template lwc:if={hasNext}>
+          <button
+            type="button"
+            class="arrow arrow-next"
+            aria-label={nextLabel}
+            data-arrow="next"
+            onclick={handleNext}
+          >
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+        </template>
+      </div>
+    </template>
+
+    <div class="track" data-track onscroll={handleScroll}>
+      <slot></slot>
+    </div>
+  </div>
+</template>

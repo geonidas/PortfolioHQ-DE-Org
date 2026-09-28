@@ -12,3 +12,24 @@ package.xml
 **/__tests__/**
 
 node_modules/
+
+# Integration_Secret__mdt RECORDS carry webhook signing secrets, so they never travel in either
+# direction. Narrowed in build 08 from the whole customMetadata/ folder to this one type, in step
+# with .gitignore: other custom metadata records hold no secret and now deploy from source.
+force-app/main/default/customMetadata/Integration_Secret.*
+
+# Stray metadata that earlier retrieves dragged in and build 06 removed from source.
+# Ignored rather than deleted from the org: standard__LightningSales is a STANDARD app that
+# exists in every org and cannot meaningfully be deleted, and the Unified_Cross_Platform_Workflow
+# flexipage and tab are org defaults this project never authored. Ignoring them is what stops
+# the next retrieve pulling all three back - deleting the files alone never did.
+force-app/main/default/applications/standard__LightningSales.app-meta.xml
+force-app/main/default/flexipages/Unified_Cross_Platform_Workflow.flexipage-meta.xml
+force-app/main/default/tabs/Unified_Cross_Platform_Workflow.tab-meta.xml
+
+# Parked for a later build. Both exist in the org and stay there; they are out of source so the
+# read-only board ships without carrying metadata nothing references yet. Jira_Atlassian points
+# at api.atlassian.com (the OAuth-style base URL) while every callout uses Jira_Classic;
+# Jira_Demo_Access grants nothing. Remove these lines when a build starts using them.
+force-app/main/default/namedCredentials/Jira_Atlassian.namedCredential-meta.xml
+force-app/main/default/permissionsets/Jira_Demo_Access.permissionset-meta.xml

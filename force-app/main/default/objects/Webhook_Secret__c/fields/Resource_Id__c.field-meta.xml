@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Resource_Id__c</fullName>
+    <caseSensitive>false</caseSensitive>
+    <description>The vendor&apos;s own identifier for the webhook - for Asana the gid of the resource the webhook watches, which is what every later delivery arrives against. The lookup key, so it is a unique external id: a second active secret for one resource would make verification depend on which row came back first.</description>
+    <externalId>true</externalId>
+    <inlineHelpText>The vendor&apos;s identifier for the webhook, e.g. an Asana resource gid. Deliveries are matched to a secret on this value.</inlineHelpText>
+    <label>Resource Id</label>
+    <length>100</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>

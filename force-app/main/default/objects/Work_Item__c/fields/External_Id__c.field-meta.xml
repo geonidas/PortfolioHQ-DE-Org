@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_Id__c</fullName>
+    <caseSensitive>false</caseSensitive>
+    <description>Namespaced stable ID of the remote record, e.g. jira:10023. Uniqueness in Salesforce is per-field, not per-system, so the system prefix is what keeps a Jira issue ID from colliding with an Asana GID. All upserts key off this field. Not required: unique fields permit multiple nulls, so records can still be created by hand.</description>
+    <externalId>true</externalId>
+    <inlineHelpText>Namespaced remote ID, e.g. jira:10023. Never the issue key - keys change when a project is renamed or an issue is moved.</inlineHelpText>
+    <label>External Id</label>
+    <length>100</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>

@@ -1,0 +1,410 @@
+@import "c/boardTheme";
+
+:host {
+  display: block;
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* 4px of stripe, then the 12px the other sides have. */
+  padding: 8px 12px 8px 16px;
+  background: var(--board-paper);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+  overflow: hidden;
+  font-family: var(--board-font);
+  color: var(--board-ink);
+}
+/* The source accent: the one bold element on a card. */
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--card-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+/* The header is one button: title, sync chip, chevron. It fills the card's width, so the whole
+   top line is the target. */
+.disclosure {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.disclosure:hover .heading {
+  text-decoration: underline;
+}
+.disclosure:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* Two lines, then an ellipsis. A column of cards has to stay comparable in height; the full
+   title is still in the DOM, so a screen reader hears all of it, and an open card shows it. */
+.heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* An unbroken token - a URL, a branch name - wraps instead of widening the column. */
+  overflow-wrap: anywhere;
+}
+.heading.is-open {
+  display: block;
+}
+/* No title synced: an identifier is standing in, and should not look like a name. */
+.is-fallback {
+  font-weight: 500;
+  color: var(--board-quiet);
+}
+.chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 6px 2px 0 4px;
+  border-right: 2px solid var(--board-quiet);
+  border-bottom: 2px solid var(--board-quiet);
+  transform: rotate(45deg);
+}
+.is-expanded .chevron {
+  margin-top: 9px;
+  transform: rotate(-135deg);
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
+}
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+/* The date row (build 09): the dates as one item and the priority badge as another, pushed to
+   the right edge. A wrapping flex row decides its lines from each item's full width before
+   anything shrinks, so a badge with no room beside the dates drops below them instead of making
+   them wrap. Measured live in step 6: a Medium badge is 60px, 68 with its gap. At 1024px a
+   three-date card has 24px spare, and at 375px a two-date one has 61, so those badges drop below;
+   High and Low fit. The dates wrap, or not, exactly as they did before the badge existed. */
+.date-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.date-row .dates {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* Neutral, like every chip: no colour per priority, so it never competes with the accent. */
+.priority {
+  margin-left: auto;
+}
+
+/* Dates wrap on a narrow card, and a separator that starts a line reads as a stray mark. Each
+   date carries its separator centred in a gutter to its left; the line is shifted left by one
+   gutter and clipped there, so a separator at the start of any line falls in the clipped strip and
+   only the ones between dates show. The first date has no separator at all. */
+.dates {
+  gap: 2px 0;
+  margin-left: -14px;
+  clip-path: inset(0 0 0 14px);
+}
+.dates .date {
+  position: relative;
+  padding-left: 14px;
+}
+.source {
+  font-weight: 600;
+  color: var(--card-accent-text);
+}
+.sep {
+  margin: 0 4px;
+}
+.dates .sep {
+  position: absolute;
+  left: 0;
+  width: 14px;
+  margin: 0;
+  text-align: center;
+}
+.overdue {
+  font-weight: 600;
+  color: var(--board-danger);
+}
+
+/* Sentence case, 12px, outlined. The accent is the loudest thing on a card; a chip is not. */
+.chip {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--board-line);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--board-quiet);
+  white-space: nowrap;
+}
+.sync {
+  margin-top: 1px;
+  font-size: 0.75rem;
+}
+.sync-pending {
+  border-color: transparent;
+  background: var(--board-pending-bg);
+  color: var(--board-pending-ink);
+}
+/* The one state that needs action gets the strongest edge. */
+.sync-failed {
+  border-color: var(--board-danger);
+  color: var(--board-danger);
+}
+
+.parent-note {
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px dotted var(--board-line);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+}
+
+/* Open: the card lifts, its border darkens and its stripe widens, so an open card and a
+   focused closed one never look alike. */
+.card.is-expanded {
+  padding-left: 18px;
+  border-color: var(--board-quiet);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--board-ink) 14%, transparent);
+}
+.card.is-expanded::before {
+  width: 6px;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--board-line);
+}
+.details[hidden] {
+  display: none;
+}
+.description {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+/* Each pair is a row of the grid, so a long value wraps under itself, not under its term. */
+.fact {
+  display: contents;
+}
+.facts dt {
+  color: var(--board-quiet);
+}
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.move,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.field-label {
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+}
+.btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--board-ink);
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--board-surface);
+}
+.btn-primary {
+  border-color: var(--board-ink);
+  background: var(--board-ink);
+  color: var(--board-paper);
+}
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--board-ink) 85%, var(--board-paper));
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.btn:focus-visible,
+.field-input:focus-visible,
+.record-link:focus-visible {
+  outline: 2px solid var(--board-ink);
+  outline-offset: 2px;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.field-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--board-field-border);
+  border-radius: 4px;
+  background: var(--board-paper);
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--board-ink);
+}
+.field-input[aria-invalid="true"] {
+  border-color: var(--board-danger);
+}
+/* Empty until there is something to say, and then beside the field it is about. */
+.field-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-danger);
+}
+.field-error:empty {
+  display: none;
+}
+/* A short list, so the select is as wide as its longest choice rather than the whole card. */
+.priority-field {
+  align-self: flex-start;
+}
+.priority-field .field-input {
+  width: auto;
+  min-width: 10rem;
+}
+.field-note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+}
+.feedback {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.feedback:empty {
+  display: none;
+}
+.feedback-error {
+  color: var(--board-danger);
+}
+.record-row {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.record-link {
+  color: var(--board-link);
+}
+
+/* Where a drag starts, on a fine pointer in the landscape layout: the left edge, the full height
+   of the card, and the lines under the header. Both take a grab cursor; hovering the card shows a
+   grip in the edge. Otherwise the edge is not there and the lines are two lines of text. */
+.drag-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.drag-surface[draggable="true"] {
+  cursor: grab;
+}
+.drag-edge {
+  display: none;
+}
+.drag-edge[draggable="true"] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* The stripe and the gutter up to the text, which starts at 16px. */
+  width: 14px;
+  cursor: grab;
+}
+.grip {
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--board-quiet);
+  visibility: hidden;
+}
+.card:hover .drag-edge[draggable="true"] .grip {
+  visibility: visible;
+}
+.card.is-dragging {
+  opacity: 0.45;
+}
+.card.is-busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.retry {
+  margin-left: 8px;
+  min-height: 28px;
+  padding: 2px 10px;
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Supports_Priority__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Whether this source holds a priority that syncs with Priority__c. The internal board offers the priority editor only when this is true; the client never infers it from the source&apos;s name. How the source&apos;s values map is a separate fact and lives in Field_Mapping__mdt rows of type Priority. False by default, so a new source never inherits a capability by accident.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Supports Priority</label>
+    <type>Checkbox</type>
+</CustomField>

@@ -1,0 +1,89 @@
+<template>
+  <article
+    class={cardClass}
+    data-accent={epic.accent}
+    data-key={epic.key}
+    data-status={epic.status}
+    onkeydown={handleKeydown}
+  >
+    <h3 class="title">
+      <button
+        type="button"
+        class="disclosure"
+        aria-expanded={expandedText}
+        aria-controls="details"
+        aria-describedby={featuredDescribedBy}
+        data-disclosure
+        onclick={handleToggle}
+      >
+        <span class={headingClass}>{epic.heading}</span>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
+    </h3>
+
+    <p class="meta" data-meta>
+      <span class="assistive">{epic.metaSpoken}</span>
+      <span class="line" aria-hidden="true">
+        <template lwc:if={epic.hasSourceLabel}>
+          <span class="source" data-source>{epic.sourceLabel}</span>
+        </template>
+        <template lwc:if={epic.hasRecordNumber}>
+          <span class="id">{epic.recordNumber}</span>
+        </template>
+        <span class="chip" data-epic-status>{epic.status}</span>
+      </span>
+    </p>
+
+    <!-- Build 10. Words, read out and drawn, and the header is described by them, so tabbing to
+         the card says it too. The star is decoration. -->
+    <template lwc:if={epic.showFeatured}>
+      <p id="featured" class="featured" data-featured>
+        <span class="star" aria-hidden="true">★</span>
+        <span>{epic.featuredLabel}</span>
+      </p>
+    </template>
+
+    <template lwc:if={epic.hasChildren}>
+      <div class="track" aria-hidden="true">
+        <div class="bar" style={epic.barStyle}></div>
+      </div>
+    </template>
+    <p class="count">{epic.progressLabel}</p>
+
+    <!-- Opening shows the whole title, above. What is added here is the board's to grant: the
+         internal board's Feature or Remove button, then the record link, in that order. -->
+    <div id="details" class="details" hidden={isCollapsed} data-details>
+      <template lwc:if={showFeatureAction}>
+        <p class="action-row">
+          <button
+            type="button"
+            class="btn"
+            data-action="feature"
+            aria-disabled={busyText}
+            onclick={handleFeature}
+          >
+            {featureActionLabel}
+          </button>
+        </p>
+      </template>
+      <template lwc:if={showRecordLink}>
+        <p class="record-row">
+          <a
+            class="record-link"
+            href={recordUrl}
+            aria-label={recordLinkLabel}
+            data-record-link
+            onclick={handleRecordLink}
+            >Open record</a
+          >
+        </p>
+      </template>
+      <template lwc:if={showFeatureAction}>
+        <!-- Announced when it changes: what the button did, in the board's words. -->
+        <p class={feedbackClass} role="status" data-feedback>
+          {feedbackMessage}
+        </p>
+      </template>
+    </div>
+  </article>
+</template>

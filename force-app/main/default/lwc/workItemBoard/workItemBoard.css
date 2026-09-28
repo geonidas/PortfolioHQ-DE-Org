@@ -1,0 +1,172 @@
+@import "c/boardTheme";
+
+:host {
+  display: block;
+}
+/* Landscape and wider: capped and centred, so a wide screen does not stretch three columns into
+   lines too long to read. */
+.board {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 12px;
+  font-family: var(--board-font);
+  color: var(--board-ink);
+}
+.board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--board-line);
+}
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.freshness {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--board-quiet);
+}
+.head-side {
+  display: flex;
+  align-items: baseline;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sep {
+  margin: 0 6px;
+}
+.toolbar {
+  margin-bottom: 16px;
+}
+
+/* Every column as tall as the tallest, so a column is a drop target wherever the board has been
+   scrolled to - not only as far down as its own last card. The layout itself is boardColumns'. */
+.columns {
+  --board-columns-align: stretch;
+}
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--board-surface);
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+}
+/* The status as the data spells it. Sentence case: it is also the word on a Move to button. */
+.col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+  padding: 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.col-count {
+  font-weight: 400;
+  color: var(--board-quiet);
+  font-variant-numeric: tabular-nums;
+}
+.col-empty {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 0.8125rem;
+  color: var(--board-quiet);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--board-line);
+  list-style: none;
+}
+/* Statuses no column accounts for. Marked in Pending's amber: worth a look, not an error. */
+.outside {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px dashed var(--board-pending-ink);
+  border-radius: var(--board-radius);
+  background: var(--board-pending-bg);
+}
+.outside-head {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--board-pending-ink);
+}
+.outside-note {
+  max-width: 62ch;
+  margin: 4px 0 8px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-ink);
+}
+.outside-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.state {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--board-line);
+  border-radius: var(--board-radius);
+  font-size: 0.875rem;
+  color: var(--board-quiet);
+}
+.state-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--board-ink);
+}
+.state-detail,
+.state-hint {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+}
+.state-error {
+  border-color: var(--board-danger);
+}
+.state-error .state-title {
+  color: var(--board-danger);
+}
+
+/* A column that will take the card being dragged. Outlined, not coloured: the accent belongs to
+   sources, and red and amber already mean something. */
+.column[data-drop-target] {
+  outline: 2px dashed var(--board-ink);
+  outline-offset: -2px;
+  background: var(--board-paper);
+}
+.board-message {
+  margin: -8px 0 12px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--board-ink);
+}
+.board-message:empty {
+  display: none;
+}
+.board-message-error {
+  color: var(--board-danger);
+}

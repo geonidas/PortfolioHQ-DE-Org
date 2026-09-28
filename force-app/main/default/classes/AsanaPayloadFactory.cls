@@ -1,0 +1,262 @@
+/**
+ * Asana webhook events and hydrated task objects, for tests.
+ *
+ * Two shapes, because Asana uses two. An EVENT is what the webhook delivers: a resource gid, an
+ * action, and nothing else - no name, no section, no completion flag. A TASK is what the API
+ * returns when that gid is fetched. Keeping them apart in the factory keeps the tests honest
+ * about which half they are exercising.
+ */
+@IsTest
+public class AsanaPayloadFactory {
+  // String values go through JSON.serialize, never String.escapeSingleQuotes. The latter is a
+  // SOQL helper: it emits a backslash before an apostrophe, which is not a valid JSON escape, so
+  // a section called "Someone else's column" produced a body the adapter could not parse - and
+  // the test read that as the membership rule failing.
+  /** Section gids for the learning project, as the mapping table would carry them. */
+  public static final String PROJECT_GID = '1209900000000001';
+  public static final String OTHER_PROJECT_GID = '1209900000000999';
+  public static final String SECTION_UP_NEXT = '1209911111111111';
+  public static final String SECTION_IN_PROGRESS = '1209922222222222';
+  public static final String SECTION_COMPLETED = '1209933333333333';
+  public static final String SECTION_UNMAPPED = '1209944444444444';
+
+  /** The Format enum option a typedTask carries. Mappings key on this, not on the name. */
+  public static final String FORMAT_OPTION_GID = '1209988888888888';
+
+  // Build 09: an enum Priority field and its three options. Made up, in the shape Asana uses.
+  public static final String PRIORITY_FIELD_GID = '1209955500000000';
+  public static final String PRIORITY_HIGH = '1209955500000001';
+  public static final String PRIORITY_MEDIUM = '1209955500000002';
+  public static final String PRIORITY_LOW = '1209955500000003';
+
+  /** One element of the events array, as AsanaWebhookResource stages it. */
+  public static String taskEvent(String taskGid) {
+    return taskEvent(taskGid, 'changed');
+  }
+
+  public static String taskEvent(String taskGid, String action) {
+    return '{"action":"' +
+      action +
+      '","resource":{"gid":"' +
+      taskGid +
+      '","resource_type":"task"},' +
+      '"created_at":"2026-09-19T10:00:00.000Z","user":{"gid":"77","resource_type":"user"}}';
+  }
+
+  /** An event about something that is not a task - Asana sends these on the same webhook. */
+  public static String sectionEvent(String sectionGid) {
+    return '{"action":"changed","resource":{"gid":"' +
+      sectionGid +
+      '","resource_type":"section"},"created_at":"2026-09-19T10:00:00.000Z"}';
+  }
+
+  /** A delivery row, as the endpoint would have staged it. Not inserted - DML before a callout
+   * throws, and the adapter calls out. */
+  public static Webhook_Event__c delivery(String payload) {
+    return new Webhook_Event__c(
+      Source_System__c = ExternalSystem.ASANA,
+      Received_At__c = System.now(),
+      Signature_Valid__c = true,
+      Processing_Status__c = DeliveryStatus.PENDING,
+      Raw_Payload__c = payload
+    );
+  }
+
+  /** A hydrated task in one project and one section. */
+  public static String task(
+    String gid,
+    String name,
+    String sectionGid,
+    String sectionName,
+    Boolean completed,
+    Datetime modifiedAt
+  ) {
+    return task(
+      gid,
+      name,
+      new List<String>{ PROJECT_GID },
+      new List<String>{ sectionGid },
+      new List<String>{ sectionName },
+      completed,
+      modifiedAt,
+      null
+    );
+  }
+
+  /** A hydrated task with a Type custom field. */
+  public static String typedTask(
+    String gid,
+    String name,
+    String sectionGid,
+    String typeValue,
+    Datetime modifiedAt
+  ) {
+    return task(
+      gid,
+      name,
+      new List<String>{ PROJECT_GID },
+      new List<String>{ sectionGid },
+      new List<String>{ 'A section' },
+      false,
+      modifiedAt,
+      typeValue
+    );
+  }
+
+  /**
+   * The general shape. A task sits in several projects with a DIFFERENT SECTION IN EACH, which
+   * is why memberships is an array of pairs and why task.section does not exist - reading the
+   * first entry would take whichever Asana happened to list first.
+   */
+  public static String task(
+    String gid,
+    String name,
+    List<String> projectGids,
+    List<String> sectionGids,
+    List<String> sectionNames,
+    Boolean completed,
+    Datetime modifiedAt,
+    String typeValue
+  ) {
+    List<String> memberships = new List<String>();
+    for (Integer i = 0; i < projectGids.size(); i++) {
+      memberships.add(
+        '{"project":{"gid":"' +
+          projectGids[i] +
+          '","name":"Project ' +
+          i +
+          '"},"section":{"gid":"' +
+          sectionGids[i] +
+          '","name":' +
+          JSON.serialize(sectionNames[i]) +
+          '}}'
+      );
+    }
+    // The learning project's Format field: an ENUM, so it carries both a chosen option gid and
+    // a display value. The gid is what a Type mapping is keyed on; the display value is what
+    // Source_Type__c keeps. A factory that only produced the name would let the adapter look
+    // correct while matching on something no mapping uses.
+    String customFields = typeValue == null
+      ? '[]'
+      : '[{"gid":"1218523733859541","name":"Format","enum_value":{"gid":' +
+        JSON.serialize(FORMAT_OPTION_GID) +
+        ',"name":' +
+        JSON.serialize(typeValue) +
+        '},"display_value":' +
+        JSON.serialize(typeValue) +
+        '}]';
+    return '{"gid":"' +
+      gid +
+      '","resource_type":"task","resource_subtype":"default_task",' +
+      '"name":' +
+      JSON.serialize(name) +
+      ',' +
+      '"completed":' +
+      (completed ? 'true' : 'false') +
+      ',' +
+      '"modified_at":"' +
+      modifiedAt.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss.SSS') +
+      'Z",' +
+      '"memberships":[' +
+      String.join(memberships, ',') +
+      '],' +
+      '"custom_fields":' +
+      customFields +
+      '}';
+  }
+
+  /**
+   * A hydrated task with more fields merged in - created_at, due_on, notes, or anything else a
+   * test needs Asana to have sent. A null value is sent as an explicit null, which is how Asana
+   * answers for a field that was asked for and is empty.
+   */
+  public static String withFields(String taskJson, Map<String, Object> extra) {
+    Map<String, Object> task = (Map<String, Object>) JSON.deserializeUntyped(
+      taskJson
+    );
+    task.putAll(extra);
+    return JSON.serialize(task);
+  }
+
+  /** The Status mappings the learning project needs, as Field_Mapping__mdt rows. */
+  public static List<Field_Mapping__mdt> statusMappings() {
+    return new List<Field_Mapping__mdt>{
+      mapping(
+        FieldMappingService.STATUS,
+        SECTION_UP_NEXT,
+        'Up Next',
+        WorkItemStatus.TO_DO
+      ),
+      mapping(
+        FieldMappingService.STATUS,
+        SECTION_IN_PROGRESS,
+        'In Progress',
+        WorkItemStatus.IN_PROGRESS
+      ),
+      mapping(
+        FieldMappingService.STATUS,
+        SECTION_COMPLETED,
+        'Completed',
+        WorkItemStatus.DONE
+      )
+    };
+  }
+
+  /**
+   * The rows priority needs: a Field row naming which custom field is the priority, found by
+   * gid, and one Priority row per option. No row means none - an empty field is Asana's none.
+   */
+  public static List<Field_Mapping__mdt> priorityMappings() {
+    return new List<Field_Mapping__mdt>{
+      mapping(
+        FieldMappingService.FIELD,
+        PRIORITY_FIELD_GID,
+        'Priority',
+        'Priority__c'
+      ),
+      mapping(FieldMappingService.PRIORITY, PRIORITY_HIGH, 'High', 'High'),
+      mapping(
+        FieldMappingService.PRIORITY,
+        PRIORITY_MEDIUM,
+        'Medium',
+        'Medium'
+      ),
+      mapping(FieldMappingService.PRIORITY, PRIORITY_LOW, 'Low', 'Low')
+    };
+  }
+
+  /**
+   * A task's Priority entry in custom_fields, as Asana answers when asked for gid, name,
+   * display_value and enum_value.gid. A null option is sent as "enum_value": null, which is how
+   * Asana says nothing is chosen.
+   */
+  public static Map<String, Object> priorityField(
+    String optionGid,
+    String display
+  ) {
+    return new Map<String, Object>{
+      'gid' => PRIORITY_FIELD_GID,
+      'name' => 'Priority',
+      'display_value' => display,
+      'enum_value' => optionGid == null
+        ? null
+        : new Map<String, Object>{ 'gid' => optionGid, 'name' => display }
+    };
+  }
+
+  public static Field_Mapping__mdt mapping(
+    String mappingType,
+    String externalValue,
+    String externalLabel,
+    String normalized
+  ) {
+    return new Field_Mapping__mdt(
+      External_System__c = ExternalSystem.ASANA,
+      Mapping_Type__c = mappingType,
+      External_Value__c = externalValue,
+      External_Label__c = externalLabel,
+      Normalized_Value__c = normalized,
+      Is_Active__c = true
+    );
+  }
+}

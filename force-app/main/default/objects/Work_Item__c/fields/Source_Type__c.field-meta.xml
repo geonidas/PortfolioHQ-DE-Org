@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Source_Type__c</fullName>
+    <description>The type string exactly as the external system sent it, before normalisation. Never public: it is absent from every guest DTO and from Portfolio_HQ_Guest, because whatever someone types into Asana would otherwise become a public string - &quot;Reading: Negotiating After a Layoff&quot; is a real leak, and one nobody would notice, because Type__c is not a field anyone thinks of as free text. Its purpose is evidence: SELECT Source_Type__c, COUNT(Id) FROM Work_Item__c WHERE Type__c = &apos;Unspecified&apos; GROUP BY Source_Type__c turns &quot;which types am I actually using&quot; into a query rather than a hunch, and a raw value that shows up often enough earns a place in the restricted picklist.</description>
+    <externalId>false</externalId>
+    <inlineHelpText>What the external system called this item&apos;s type, before mapping. Internal only - never shown to public visitors.</inlineHelpText>
+    <label>Source Type</label>
+    <length>255</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

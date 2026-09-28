@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_Label__c</fullName>
+    <description>What the vendor calls this value, e.g. the Asana section name &quot;Up Next&quot;. A label only: nothing matches on it, because names change. It exists so a person reading the mapping table or a log row can tell which column a gid refers to.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>External Label</label>
+    <length>255</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

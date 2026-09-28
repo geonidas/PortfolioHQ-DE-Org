@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Bundles build 08 removed from source. An org keeps a component after its source is deleted, so
+  every org this branch reaches needs these deleted once: the scratch org at step 6, the
+  development org when the branch merges.
+
+  Step 6: the three cards, replaced by boardCard and boardEpicCard, which both boards share.
+-->
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>publicEpicCard</members>
+        <members>publicWorkItemCard</members>
+        <members>workItemCard</members>
+        <name>LightningComponentBundle</name>
+    </types>
+    <version>67.0</version>
+</Package>

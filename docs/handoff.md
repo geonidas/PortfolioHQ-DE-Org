@@ -1,0 +1,1079 @@
+# Handoff — Portfolio HQ (neoGeoDevOrg)
+
+What a new context window needs and cannot read from the repo. Decisions and their
+reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
+**This file holds only what git does not know: org state, invariants, and traps.**
+
+Current as of **Build 10** (`docs/build-10/summary.md`, and `docs/build-summaries/build-10.md`),
+which closes version 1: the owner features one epic on the public board from a button on its card
+on the internal board. With an epic featured, the public board opens on Tasks and shows that epic's
+work under a sentence naming it; with none, it opens on Epics. Build 09
+(`docs/build-summaries/build-09.md`) gave every work item a priority that syncs both ways, and both
+boards a Sort; build 08 (`docs/build-summaries/build-08.md`) redesigned both boards - source
+accents, View and Source filters, cards that open in place, editing and pushing from the internal
+board, drag-and-drop, Retry, live updates through Change Data Capture, and a public board that
+polls every 30 seconds while someone looks. Builds 01-10 are deployed to the scratch org and
+verified - against live Jira and Asana up to build 09; build 10 calls neither. `feature/first-branch`
+has not been merged to `main` (the development org): see section 3, "Deleting an LWC from source",
+for the one thing that merge must also run. No build used a separate branch after build 08.
+
+Build 07's Asana setup (section 6) is done and live. Class names reflect the refactor after build
+06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`. Older ADRs and summaries use the old
+name.
+
+**What build 10 changed that a reader of build 09 would get wrong.** The public board no longer
+always opens on Tasks: it opens on Epics unless an epic is featured, and its Tasks view shows epic
+work only under the featured epic, with a sentence saying so. Which epic is featured is **data**
+(section 1): it does not deploy, and a new org features nothing. Both payloads carry it, the public
+one as answers and never as an id (section 2). `EpicRollup` takes the featured epic, which keeps
+its card past the three-Done cap and its work after it is Done. The audit now **changes org data**:
+it features WI-0000, then none, and puts back what it found (section 5). Plain DML on a custom
+setting is refused for a non-admin (section 3). And every Apex run's summary now reads one more
+test than there are, because of a `@TestSetup` (section 3).
+
+**What build 09 changed that a reader of build 08 would get wrong.** A push now stamps
+`Remote_Last_Modified__c` with the source's own time for what it wrote, so a Jira push costs one
+more callout - a read of `?fields=updated` - and chunks are 25, not 33 (section 2, loop
+prevention). `saveDetails` has a fifth argument, `priority`, where null means "not sent" and
+blank means none (section 2). `Field_Mapping__mdt.Normalized_Value__c` is no longer required, for
+`Maps_To_Blank__c` rows. The guest reads one more field, `Priority__c`, and both card payloads
+carry `priority` and `priorityRank`. The backfill writes only what differs. The toolbar has three
+controls - View, Source, Sort - and the audit fails if a sort change reaches Apex.
+
+**What build 08 changed that a reader of build 07 would get wrong.** The public board now names
+the vendor (ADR build-08 decision 1). An outbound push sends only the fields its own save staged,
+recorded in `Pending_Push_Fields__c`, not "the status". Inbound never overwrites a field still
+waiting to push. Moving `Sync_Status__c` from Failed to Pending is a retry, from any client. The
+three card components of builds 04-07 are gone; both boards share `boardCard`, `boardEpicCard`,
+`boardToolbar`, `boardColumns`, `boardModel`, `boardLayout` and `boardTheme`.
+
+---
+
+## 1. Org state that is not in source control
+
+None of this survives an org rebuild, and none of it is visible in the repo.
+
+| Thing                     | Value / where                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scratch org alias         | `MyScratchOrg`                                                                                                                                                                                                                                                                                                                                                             |
+| Jira API token            | Pasted by hand into External Credential `Jira_Token`, principal **`Personal Key`**. Username is the Atlassian account email. Never in source.                                                                                                                                                                                                                              |
+| Webhook signing secret    | `Integration_Secret__mdt` records, `Is_Active__c = true`. Jira's is **`Jira_Webhook`**, created in Setup. Asana's is `Webhook_<resource gid>`, promoted by script. `customMetadata/Integration_Secret.*` is gitignored and forceignored on purpose; since build 08 every other custom metadata record is in source.                                                        |
+| Asana PAT                 | External Credential **`Asana_Token`**, principal **`PAT1`**, behind Named Credential `Asana_Personal` (base URL `https://app.asana.com/api/1.0`). Out of source, like `Jira_Atlassian`.                                                                                                                                                                                    |
+| Jira webhook registration | Registered in Jira, event **Issue → updated** only, JQL `project = DOPP`, secret set, "Exclude body" off.                                                                                                                                                                                                                                                                  |
+| Featured epic             | The org default of the `Featured_Epic__c` custom setting (build 10), holding one epic's Id. Data, so it never deploys: set it with the internal board's button or `scripts/apex/set-featured-epic.apex`, clear it with `clear-featured-epic.apex`. None featured at the end of build 10; the org default row exists, blank. Until one is, the public board opens on Epics. |
+| Parked metadata           | Named credential `Jira_Atlassian` and permission set `Jira_Demo_Access` exist in the org and are deliberately out of source (`.forceignore`) until a build uses them.                                                                                                                                                                                                      |
+
+### Scheduled jobs — manual, not metadata
+
+`WorkItemInboundSweeper` runs every 15 minutes via **four** CronTriggers named
+`Work Item Inbound Sweeper :00/:15/:30/:45`. Deploying the class does not create them.
+
+```bash
+sf apex run --file scripts/apex/schedule-inbound-sweeper.apex --target-org MyScratchOrg
+```
+
+**Run that script as a user holding the `Asana_Token-PAT1` external credential grant.** That is
+the mechanism, not a convention: an async job runs as the user who started it and a Queueable
+inherits the user of whatever enqueued it, so the Asana callout inside `WorkItemInboundQueueable`
+is made as whoever ran the script. Schedule it as a user without the grant and every sweep ends in
+`We couldn't access the credential(s)`.
+
+Four jobs rather than one because Salesforce cron rejects a list in the seconds or minutes field -
+`0 0,15,30,45 * * * ?` throws `Seconds and minutes must be specified as integers`. The org allows
+100 scheduled Apex jobs, so four is cheap, but it is four.
+
+The nightly purge is a **fifth** job, scheduled separately:
+
+```bash
+sf apex run --file scripts/apex/schedule-data-purge.apex --target-org MyScratchOrg
+```
+
+`IntegrationDataPurge` holds `Webhook_Event__c` and `Integration_Log__c` at their **50 most
+recent rows each**, at 23:00. **The cron runs in the scheduling user's time zone, not the org's
+and not UTC** - the admin is `America/Los_Angeles`, so this is 11pm Pacific and follows daylight
+saving on its own. Schedule it as a user in another zone and it fires at 11pm in that zone.
+
+It hard-deletes: rows are removed from the recycle bin too, so there is no undelete. It will never
+take a `Webhook_Event__c` still `Pending` - that is work in progress, not history - and Pending
+rows are excluded from the row count as well as the delete, so stuck deliveries cannot push real
+history over the cap.
+
+**What the 50-row cap costs, deliberately.** Rejected-signature rows age out like everything else,
+and they are the only record that unauthenticated traffic reached a public endpoint. Version 2
+archives to a Big Object before deleting; until then the cap is simply the policy.
+
+### Permission set assignments — manual, not metadata
+
+Deploying a permission set does **not** assign it. This has broken the build three
+separate times. Current assignments:
+
+```
+Portfolio_HQ_Developer  -> test-vuqbitgj0ulq@example.com                      (admin)
+Jira_Webhook_Guest      -> test_professional_site@...org.force.com            (site guest)
+Portfolio_HQ_Guest      -> test_professional_site@...org.force.com            (site guest)
+```
+
+```bash
+sf org assign permset --name <Name> --on-behalf-of "<username>" --target-org MyScratchOrg
+```
+
+`Portfolio_HQ_Developer` also carries the custom permission **`Portfolio_HQ_Open_Record`**, which
+is the only thing that shows the internal board's Open record link (build 08 step 7). A profile
+does not grant it - not even System Administrator's - so an admin without the permission set sees
+no link. The link gates nothing; the record page applies the user's own access.
+
+It carries a second, **`Portfolio_HQ_Feature_Epic`** (build 10): the only thing allowed to set or
+clear the featured epic from the internal board. Like the first, no profile grants it.
+
+### The two sites, and which one does what
+
+```
+Test_Professional_Site   /neoGeoTestvforcesite   <- serves Apex REST (the webhook endpoint)
+Test_Professional_Site1  /neoGeoTest             <- LWR site, hosts the public board
+```
+
+**Both share one guest user.** Its `CommunityNickname` is **`Test_Professional_Site`** —
+which is what guest sharing rules reference, and which looks like the wrong site because
+the board lives on `/neoGeoTest`. It is correct. Do not "fix" it.
+
+The webhook endpoint answers only on `/neoGeoTestvforcesite`. `/neoGeoTest` returns a
+302 to login for Apex REST. The public board needs site public access enabled **and the
+site published** — it 302s to login otherwise, including the home page, which is how to
+tell a site-level problem from a page-level one.
+
+### The public board's subtitle — a Builder attribute, empty
+
+`publicWorkItemBoard` exposes a `subtitle` design attribute (build 08 step 6), empty by default,
+so the page shows none. Setting it is a click in Experience Builder, which invariant 9 says must
+be retrieved and committed: after setting it and publishing, retrieve the one view -
+`DigitalExperience:site/Test_Professional_Site1.sfdc_cms__view/Work_Item_Board` - rather than
+adding `DigitalExperience` to `manifest/org-changes.xml`, whose header explains why it stays out.
+Or write the copy into that view's `content.json` beside `columns` and deploy it.
+
+### Sharing models — already correct, do not change
+
+```
+Work_Item__c  internal=ReadWrite  external=Private
+Project__c    internal=ReadWrite  external=Private
+```
+
+External is already Private, which is all guest sharing rules need. **Tightening the
+internal OWD would break internal access**: most work items are owned by Automated
+Process, and `Portfolio_HQ_Developer` holds `viewAllRecords=false` on both objects.
+
+### Demo data
+
+Two projects, one public. 6 of the 14 work items under the public project are flagged public
+(14 since the refactor pass back-filled six that had no project).
+To restore after a rebuild:
+
+```bash
+sf apex run --file scripts/apex/flag-public-demo-data.apex --target-org MyScratchOrg
+```
+
+Deliberately partial — records are left private so "no non-public record leaks" is
+testable. One of them is a child of a public parent.
+
+Build 06 added two things to it. A **hierarchy**, because a flat set of orphans renders the epic
+view empty and that is indistinguishable from a broken one. And the **canary**: `SEED-CANARY`, a
+work item flagged public under the _private_ project, owned by a real user so sharing genuinely
+grants the row. It must never render.
+
+The script **never writes `Status__c`**, and that is load-bearing rather than tidy.
+`WorkItemTriggerHandler` enqueues a real outbound push on any status change to a record carrying an
+`External_Id__c`, so assigning a status here would transition live Jira issues as a side effect of
+seeding demo data. It picks epics from records that already hold the status each role needs. The
+canary carries no `External_Id__c` at all, so it can never be pushed however it is later edited.
+Check `Integration_Log__c` does not grow across a run.
+
+---
+
+## 2. Invariants — breaking these produces silent failure
+
+**`Sync_Status__c = 'Synced'` is illegal when `Status__c = 'Unspecified'`.**
+Validation rule `Sync_Status_Requires_Known_Status`. Inbound hits this whenever Jira
+reports an unmapped status, and handles it by staying `Pending`.
+
+**The outbound push sends only fields `Pending_Push_Fields__c` lists, and nothing else.**
+Since build 08 an adapter is asked to `push(item, Set<SyncField>)` - status, title, start date,
+due date, and since build 09 priority - rather than to move a status. `WorkItemTrigger`'s **before update** adds each changed
+pushable field to `Pending_Push_Fields__c` and marks the record Pending. Remove the staging and
+every push finds nothing to send and reports success while doing nothing.
+
+**`saveDetails` reads a null priority as "not sent", never as "no priority"** (build 09). Its
+fifth argument is the one where null and blank differ: blank clears the priority and pushes each
+source's none (Jira's en dash, Asana's empty field); null leaves the priority alone. The card
+before build 09 calls with four arguments, and so does any board left open in a tab across an
+update - read as none, the missing argument would clear the priority of every record such a card
+saved and push the en dash to Jira, with no error anywhere.
+`WorkItemBoardControllerTest.aNullPriorityLeavesItAloneWhateverElseIsSaved` fails if it changes.
+
+**Each push job sends the fields its own save staged, not every pending field** (build 08 step
+7). `pushChanges` hands the job, per record, the fields that save changed; the job sends those
+that are still pending. Before this, two saves a few seconds apart made two jobs that each sent
+everything pending, and when the second started before the first had written back it sent the
+first save's fields again - seen live on WI-0015. Two exceptions keep a field from being
+stranded: a save on a record that was **Failed** takes over the refused fields (no job holds
+them - the one that was refused has finished), and a job that finds **no other push queued or
+running** (`AsyncApexJob`, one query) sends everything pending, because nothing else can be
+holding a field - which is how a field whose job died after calling out still goes out with the
+next push. `WorkItemSyncService.enqueue(ids)` still exists and sends everything pending;
+`enqueueStaged` is the trigger's. The same field saved twice in quick succession is owned by both
+jobs and can go out twice - deliberately, since the second save may carry a newer value - and if
+the two jobs run at once, the order their callouts land decides what the source ends with. That
+was true before the change too. The write-back re-reads the row
+`FOR UPDATE` and removes only the fields the source confirmed: an edit made while a push was in
+flight stays listed, and a field the source refused stays listed with the reason in
+`Sync_Error__c`. The old rule - Jira skipping its callout for a record marked Synced - is gone;
+nothing reads `Sync_Status__c` to decide whether to push any more.
+
+**Moving `Sync_Status__c` from Failed to Pending is a request to push again** (build 08 step 8).
+`WorkItemTriggerHandler.isRetry`: a record with an `External_Id__c`, something still listed in
+`Pending_Push_Fields__c`, and a save that sets Failed to Pending. The trigger clears
+`Sync_Error__c` and queues a push that takes over what was refused. The board's Retry button calls
+`WorkItemBoardController.retryPush`, which makes exactly that save and nothing else - no
+controller calls the sync service - so **the same edit made on the record page, by an API client
+or by a data load also retries.** Never set Pending by hand on a Failed record unless you mean to
+send it again. The sync's own write-backs and inbound processing run suppressed, so they never
+count as a retry.
+
+**Inbound never overwrites a field that is waiting to push.** A delivery that lands between a
+user's save and the push is genuinely newer than anything held, so the timestamp check lets it
+through; before build 08 it would revert the edit, mark the record Synced, and the push would
+then find nothing to do - a status change lost with no error. `WorkItemInboundProcessor` now
+skips every field listed in `Pending_Push_Fields__c`, applies the rest, and leaves the sync
+fields alone until nothing is pending. A refused change is held the same way, so it keeps
+showing Failed with its reason until somebody acts - moving a card back to where Jira still has
+it counts as done, because the adapter reads the issue's status before calling a move refused.
+
+**A start date is refused in the trigger for any source whose `Board_Source__mdt` says it has
+none** - on insert and update, suppressed or not, whatever the edit path. The board hides the
+editor for such a source; the trigger is the rule. Clearing one is always allowed.
+
+**`Ignored` means two different things, and `Ignore_Reason__c` is which.** `Superseded` is a
+newer delivery for the same external id winning inside the batch - the winner carries the whole
+story. `Not Applicable` is the adapter having nothing to say about the resource, so no retry would
+ever produce a change; Asana story events are the bulk of these. Retention rules read the field.
+Before it existed the only way to tell them apart was to string-match `Error_Message__c`, which
+breaks silently the day somebody rewords a message. Values live in `IgnoreReason`; do not write
+the literal.
+
+**`Is_Public__c` is a READ gate and nothing else.** It gates the guest board, in two
+places: `PublicWorkItemSelector`'s `WHERE` clause and the two criteria-based guest sharing
+rules. It does **not** govern who may write the record. Build 07 step 8 added
+`item.Is_Public__c != true` to `WorkItemTriggerHandler.isPushable`, making sync inbound-only
+for anything on public display — which silently turned every item on the public board
+read-only from the internal board, Jira's included, with no error anywhere. Step 9 removed it.
+`WorkItemTriggerHandlerTest.aPublicJiraItemStillPushesOnAStatusChange` and
+`AsanaOutboundTest.aPublicItemsStatusChangeEnqueuesOneJobToo` fail if it comes back.
+
+**Inbound sets `Is_Public__c` from the parent project, on creation only.** The field defaults
+to `false`, so before this every synced item arrived invisible and stayed invisible until
+somebody ticked the box by hand — no error when that was missed, the item simply never
+appeared. `WorkItemInboundProcessor` now inherits the resolved project's flag when it creates
+a record, and never on update, so an item unpublished by hand is not republished by the next
+delivery from the source system. An item whose project key resolves to nothing is created
+private, which is the safe direction.
+
+**DML before a callout throws.** `You have uncommitted work pending`. All callouts in a
+chunk run first; `Integration_Log__c` rows buffer in memory and are written after.
+
+**Callout budget.** Up to 4 callouts per item since build 09 step 5 - a Jira field edit, the
+two-step transition, and the read of Jira's `updated` that the late-echo stamp needs (below) -
+against 100 per transaction, so chunks of 25 (33 in build 08, 50 before). Asana stays at 2: its
+edits ride on the completion flag's update, which also returns `modified_at`. The other ceiling is 120s cumulative callout
+time; measured ~563ms per call, so count binds first at current latency.
+
+**`External_Id__c` is namespaced** (`jira:10023`). Jira's REST paths need the raw id —
+`ExternalIdUtil.rawIdOf()`. Uniqueness is per field, not per system, which is why the
+prefix exists.
+
+**Loop prevention is three mechanisms, and each stops a different path.** Suppression (one
+transaction only) stops a change inbound applies from being pushed back. The **field-delta check
+on the trigger** - `SyncFields.changedBetween`, status only until build 08, now status, title,
+start, due and priority - stops the sync's own write-back of `Sync_Status__c`, `Last_Synced__c`,
+`Pending_Push_Fields__c` and `Sync_Error__c` from pushing again; that write-back is also
+suppressed since build 08, belt and braces. The timestamp comparison (durable) retires stale and
+duplicate deliveries. It cannot stop the echo of our own push - that is genuinely newer - which is
+why the echo is harmless for a different reason: it carries our own values, so it produces no
+delta.
+
+**A push stamps `Remote_Last_Modified__c` with the source's own time for what it wrote** (build 09
+step 5). Before that, a push left the field where the last delivery had put it, so the echo of an
+EARLIER push that was processed after a later push had landed still counted as newer, was applied,
+and marked the record Synced with the earlier value until the later echo put it right. Found live
+in step 3 on WI-0003 - High, then none, saved 49 seconds apart while deliveries took 30 to 50
+seconds to process: the card read High/Synced while Jira held the en dash. Now the adapter reports
+the timestamp in `SyncResult.remoteUpdated` - Jira by reading `?fields=updated` after a push that
+wrote anything (its edit and transition answer 204, and `returnIssue=true` returns only the edited
+fields, probed live), Asana from `opt_fields=modified_at` on its task update - and the write-back
+stores it, forward only. The late echo is then older and the timestamp check retires it; proved
+live by re-delivering WI-0003's "none" echo after a Low push, which came back Ignored. The echo of
+the push itself still applies, because Salesforce stores whole seconds (section 3) and the echo's
+milliseconds make it newer - and that echo is a full Jira snapshot, so an edit made in Jira just
+before our push rides in with it even though that edit's own late delivery is now retired. Asana
+was never exposed: it hydrates every event with the task as it is now, so a late Asana echo carries
+current values. Two windows remain, both negligible for one person driving both ends: an edit made
+in Jira in the milliseconds between our write and the read is stamped over; and an echo whose
+`updated` falls exactly on `.000` equals the stamp and is ignored, harmless unless an edit raced
+it. The title is compared case-sensitively; Apex's `==` on strings is not.
+
+**Inbound-created records need `OwnerId` set.** Guest sharing rules do not share records
+owned by Automated Process, and the webhook subscriber owns everything it creates.
+`WorkItemInboundProcessor` sets the owner on creation only. Without it, every newly synced
+issue is invisible on the public board with no error anywhere.
+
+**Inbound-created records also need `Project__c` set, and since the refactor pass they get it
+from the payload.** `fields.project.key` is matched against `Project__c.External_Project_Key__c`
+with the same `External_System__c` as the delivery. No match, or more than one, leaves the lookup
+null and writes an `Integration_Log__c` row naming the key. The public board's query requires a
+public parent project, so an unlinked record is public, synced and invisible - the same failure
+shape as the owner. Records created by hand before this existed are linked on their next
+delivery, provided the project record carries the key and the system.
+
+**Since build 07 step 2 the link follows a move, and the old rule is gone.** The refactor pass
+said "an existing link is never overridden", which protected links made by hand and froze stale
+ones in the same breath. On the guest path it failed open: an issue moved in Jira from a public
+project to a private one carries the new key, the key was ignored, and the record kept pointing
+at the public project - so the public board, whose only enforcement of the parent flag is
+`PublicWorkItemSelector`'s WHERE clause, kept rendering it to anonymous visitors after its remote
+home had become private. Three cases now, and they are distinct:
+
+| Record     | Payload               | Result                                |
+| ---------- | --------------------- | ------------------------------------- |
+| no project | names one             | assign. The back-fill path, unchanged |
+| a project  | names a different one | follow the move, and log both keys    |
+| a project  | names the same one    | nothing written, nothing logged       |
+
+A move whose new key resolves to nothing, or to more than one project, **keeps the link it has**
+and logs. Nulling a working link because a lookup failed would hide the record from the board
+rather than correct it. The `Is_Public__c` flag on the work item is deliberately left alone:
+following the move is what closes the leak, and the flag is a separate decision.
+
+**The guest must never reach `WorkItemBoardController`.** Apex class access is per class,
+not per method — reaching it at all exposes `changeStatus`. That is why
+`PublicBoardController` exists as a separate class with no write method.
+
+**The guest DTO's key set is asserted exactly** in `PublicBoardControllerTest`. Adding a
+field fails the test on purpose, so publishing something new to an anonymous visitor is
+a deliberate act.
+
+**Status, timestamps, title, type and parent all sync inbound** as of build 06.
+`Type__c` comes from `fields.issuetype.name` through `IWorkItemAdapter.normalizeType`;
+`Parent_Work_Item__c` comes from `fields.parent`; `Project__c` from `fields.project.key`.
+All of that reading happens in `JiraAdapter.parseInbound`, which returns a vendor-neutral
+`InboundChange`. The processor never sees a payload, which is what lets Asana be a second
+adapter rather than a second processor.
+
+**Every one of those is assigned only when the payload carries it.** Most deliveries are
+status transitions carrying no summary, issuetype or parent at all — writing a null
+through would blank known data on every one of them. An `issuetype` object present but
+with a blank `name` counts as absent, not as unmapped.
+
+**Priority syncs inbound by id, and an id nothing maps changes nothing** (build 09). Jira's
+`fields.priority.id` and the option gid of Asana's Priority field - found by the field's own gid,
+from a `Field` row, never by the name "Priority" - are looked up in `Field_Mapping__mdt` rows of
+type `Priority`. Three outcomes, and the adapter decides which before the processor sees anything:
+a mapped id is carried as its value; Jira's en dash (`10000`, a `Maps_To_Blank__c` row), a Jira
+`"priority": null` and an Asana field with no option chosen are carried as blank and clear the
+field; an id no row maps is **not carried**, so `Priority__c` keeps what it holds, and an Inbound
+`Integration_Log__c` row names the id. The rest of that delivery applies. Clearing on an unknown id
+would read as the owner removing the priority. A task whose project has no Priority field, or a
+delivery without the key, carries nothing. Priority is held back while `Pending_Push_Fields__c`
+lists `PRIORITY`, like every other pushable field.
+
+**Parent resolution is a second pass, and deliberately creates no stub records.** A
+delivery batch can carry a child and its parent in either order, so linking happens after
+every record in the batch exists. A parent `External_Id__c` Salesforce has never seen
+leaves `Parent_Work_Item__c` null, writes an `Integration_Log__c` row naming both sides,
+and the delivery still succeeds. **Nothing back-fills that link when the parent later
+arrives** — only a subsequent delivery for the _child_ repairs it. The log row is the
+only record of the gap.
+
+**A site guest can write a custom object row and can never read one back.** Not its own row,
+not in system mode, not through a `without sharing` class. This is the Guest User Security
+Policy and it is not configuration - in build 07 step 4 object access, field-level security,
+view-all and `without sharing` were each granted in turn and each only moved the error along
+(`sObject type not supported`, then `No such column`, then a silent null). `JiraWebhookResource`
+already relied on this for its rate-limit comment; step 4 measured it.
+
+**Consequently, a webhook signing secret cannot be verified from a custom object field.** The
+endpoint runs as the guest. So secrets live in two places on purpose:
+
+- `Webhook_Secret__c` is a **write-only staging row**. The registration handshake is the only
+  moment a vendor sends its secret, and staging it is all the guest can do. Insert only - the
+  guest licence forbids `Edit` on a custom object outright, and first-write-wins also stops an
+  unauthenticated caller replacing a live secret with one of their own.
+- `Integration_Secret__mdt` is what verification reads. Apex reads protected Custom Metadata
+  with **no object grant, no field-level security and no sharing rule**, from any user including
+  the guest. That is how Jira has verified since build 02.
+- `scripts/apex/promote-webhook-secret.apex` carries the value across, run by hand beside the
+  curl that registers the webhook. Apex cannot write Custom Metadata synchronously and the guest
+  could not deploy it anyway. Until it is run, deliveries are rejected 401 and the vendor
+  retries; Asana tolerates 24 hours of failures. **Delete the staged row once promoted.**
+
+**The internal board is live only for a user with View All Records on `Work_Item__c`.** Build 08
+subscribes to `/data/Work_Item__ChangeEvent` (Change Data Capture, enabled by the
+`platformEventChannelMembers/` file in source). On a single-object channel Salesforce checks the
+subscriber's permission when it subscribes and refuses the subscription without View All Records on
+the object, or View All Data - CDC ignores sharing, so it asks for more than read access. The admin
+has View All Data; `Portfolio_HQ_Developer` deliberately does not grant View All (see "Sharing
+models" above). Such a user's board still loads and still refreshes after their own saves; it just
+does not say "Live" and does not update when someone else changes a record. Widening the
+permission set would fix that and would also widen what the user can see, so it is a decision, not
+a fix.
+
+**The public board polls, and stops when nobody is looking.** LWR sites do not support
+`lightning/empApi`, so `publicWorkItemBoard` re-reads every 30 seconds while the tab is visible and
+the visitor has done something in the last five minutes, then shows "Paused" until they do. Each
+read is the same parameterless `getPublicBoardData`, one SOQL query. The idle cap exists because a
+Developer Edition site is allowed ten minutes of server time a day, and an unattended tab polling
+every 30 seconds would spend a real share of it on its own. The method is `cacheable=true` without
+`scope='global'`, so it is not cached on the CDN and every poll reaches the server - that is what
+makes the 30 seconds true, and why the idle cap matters.
+
+**The featured epic reaches an anonymous visitor as answers, never as an id** (build 10). The
+public payload says which epic is featured with `PublicEpic.isFeatured`, and which cards belong to
+it with `PublicCard.inEpic` and `inFeaturedEpic`. Apex works these out from `EpicRollup`, against
+the rows the visitor's query returned, so an epic the visitor cannot see is none. The build
+prompt proposed publishing the epic's Salesforce Id; step 0 declined, because no public DTO
+carries one and `PublicBoardControllerTest` bans the `"Id"` key. Resolving it costs no query:
+`FeaturedEpicService.resolveAmong` reads the cached setting and the rows already loaded. A
+featured epic keeps its card past the three-Done cap, and its work stays in the public Tasks view
+after it is Done, for as long as it is featured.
+
+**The guest's readable fields are asserted exactly.** `GuestAccessTest.theBoardGuestReadsExactlyTheseFields`
+lists every field `Portfolio_HQ_Guest` grants; before build 08 the suite only forbade four named
+fields, so a new grant failed nothing. Granting the guest a field now fails that test and
+`PublicBoardControllerTest`'s DTO key sets together, which is the point.
+
+**`In Review` is unreachable.** It exists in the picklist; the Jira board offers only
+To Do, In Progress and Done. Board columns are configurable so it can be added later
+without a code change.
+
+---
+
+## 3. Traps, each of which cost real time here
+
+**A schedulable class cannot be deployed while it has scheduled jobs - and neither can anything it
+uses.** The deploy fails whole - every other class in the same command with it - with `This
+schedulable class has jobs pending or in progress - CronTrigger IDs (...)`. The message names ids
+and never says "unschedule it first". Build 08 step 2 found the lock is on the scheduled class's
+whole dependency graph, not the class alone: `WorkItemInboundSweeper` enqueues
+`WorkItemInboundQueueable`, which calls `WorkItemInboundProcessor`, both adapters,
+`FieldMappingService` and `InboundChange`, and a `deploy validate` touching any of those failed with
+the sweeper's four CronTrigger ids. So any change on the inbound path, as well as to
+`WorkItemInboundSweeper` **or `IntegrationDataPurge`**, is a three-step loop:
+
+```bash
+sf apex run --file scripts/apex/unschedule-inbound-sweeper.apex --target-org MyScratchOrg
+```
+
+then deploy, then re-run `schedule-inbound-sweeper.apex`. The alternative is the "Allow deployments
+of components when corresponding Apex jobs are pending or in progress" checkbox in
+Setup > Deployment Settings, deliberately not enabled: the schedule script is also the thing that
+records which user the sweeps run as, and that matters more here than the convenience does.
+
+**`LightningSelfRegisterControllerTest.testSelfRegisterWithProperCredentials` fails about one run in
+four thousand, and that is not a regression.** The org-generated controller builds a nickname from
+`String.valueOf(Crypto.getRandomInteger()).substring(1,7)`, which throws `Ending position out of
+bounds: 7` whenever the random integer has fewer than seven characters. Seen once, in build 08
+step 2's validation; it passed on rerun. The class is site scaffolding and is not edited here - rerun
+the test rather than chase it.
+
+**Scheduled Apex cannot make callouts.** Which is why `WorkItemInboundSweeper` enqueues
+`WorkItemInboundQueueable` rather than calling `WorkItemInboundProcessor.process` itself. Same
+family of refusal as the trigger-context one that created the queueable in the first place.
+
+**A `PlatformEventSubscriberConfig` does not take effect until the subscriber is restarted.**
+The inbound queueable calls Asana, and a callout needs the `Asana_Token-PAT1` external
+credential principal. The platform event subscriber runs as **Automated Process**, which
+cannot be granted it — `sf org assign permset --on-behalf-of` refuses with
+`user license doesn't match`. Pointing the subscriber at a real user with a
+`PlatformEventSubscriberConfig` record is the fix, but creating the record changes nothing on
+its own, and **redeploying the trigger does not re-register it either**. Every delivery kept
+failing with `System.CalloutException: We couldn't access the credential(s)`, an error that
+names neither the running user nor the subscriber. Suspend and resume the trigger in
+**Setup → Platform Events → Webhook Event Received → Subscriptions** and the config is picked
+up. Symptom to recognise: events stuck `Pending`, jobs reporting `Completed errors=0`, and the
+credential error only in `Integration_Log__c`.
+
+**Test the identity, not just the code.** Three separate defects in build 07 were the same
+mistake — verifying a path as the admin when it runs as somebody else. The guest FLS failure
+on inbound DML, the trigger-callout defect, and the credential failure above all passed a
+hand-run check from anonymous Apex because anonymous Apex runs as you. Anything reached by a
+guest, by Automated Process, or by a platform event subscriber has to be exercised as that
+user or the check is vacuous.
+
+**Metadata deploys do not grant field-level security.** Symptom:
+`Operation failed due to fields being inaccessible`. Fix: assign the permission set.
+
+**Deploying an LWC does not update the site.** An LWR site serves a built bundle. Deploy the
+component, see the org's `LightningComponentBundle.LastModifiedDate` move, and the public page
+still serves the old markup until the site is republished:
+
+```bash
+sf community publish --name "Test Professional Site" --target-org MyScratchOrg
+```
+
+`--name` is required and is the **Network** name, not the Site name — so `Test Professional Site`
+even though the board lives on `/neoGeoTest`, which is Site `Test_Professional_Site1`. Same trap as
+the `guestUser` CommunityNickname. The publish is **asynchronous**: it returns a job id, and the
+change goes live a minute or so later. Poll it:
+
+```bash
+sf data query -o MyScratchOrg -q "SELECT Status, Error FROM BackgroundOperation WHERE Id = '<job id>'"
+```
+
+**`--source-dir force-app/main/default/lwc` does not deploy.** The folder holds
+`lwc/__tests__/` - the vendor-name scan and the guest-bundle test, which test all the bundles and
+belong to none - and the CLI names it as a component, then finds nothing to send:
+`An object '__tests__' of type LightningComponentBundle was named in package.xml, but was not
+found`. Deploy LWC with `manifest/build-08/package.xml` (every bundle, by wildcard) or one
+`--source-dir` per bundle. Found in build 08 step 7, by a validation that failed before it ran a
+test.
+
+**`toEqual` ignores `undefined` entries in an array.** `expect([a, b, undefined]).toEqual([a, b])`
+passes. A test that maps elements to an attribute and compares the list is blind to every element
+that lacks the attribute - which is exactly the unexpected one. Build 08 step 6's public board
+guard did this, and passed with a disclosure button in every card until step 7 caught it. Compare
+such lists with `toStrictEqual`, and map an unknown element to something, not to `undefined`.
+
+**Deleting an LWC from source does not delete it from an org.** The org keeps the bundle, and a
+scoped deploy never mentions it. Build 08 replaced three card bundles (`workItemCard`,
+`publicWorkItemCard`, `publicEpicCard`) with shared ones; their deletion is recorded in
+`manifest/build-08/destructiveChangesPost.xml`, and **every org this branch reaches needs it run
+once** - the scratch org at step 6, the development org when the branch merges. Post, not pre: the
+old boards reference the old cards until the new boards replace them in the same deploy.
+
+```bash
+sf project deploy start -x manifest/build-08/package.xml \
+  --post-destructive-changes manifest/build-08/destructiveChangesPost.xml --target-org MyScratchOrg
+```
+
+**The LWC template compiler drops whitespace between tags** - even `<span>A</span> <span>B</span>`
+renders as `AB`. Visually a flex gap hides it; to a screen reader, adjacent spans can run together
+("JiraWI-0003"). A space has to come from data, not from the template. The board cards give each
+meta line a spoken string from `boardModel` in an `.assistive` span and hide the drawn line,
+separator dots included, with `aria-hidden`. Found in build 08 step 6 by probing the compiler.
+
+**`standard__LightningSales` cannot be deleted, and trying takes the whole deploy with it.** The org
+rejects it twice over — "standard and cannot be deleted", and separately because in-app guidance is
+attached. Deploys are atomic, so one unrelated deletion in the set fails everything. It is a standard
+app present in every org and needs no source file, so the answer is never to delete it.
+
+**Jest runs in `America/Los_Angeles`, pinned in `jest.config.js`.** A zone behind UTC is where
+`new Date('2026-09-24')` - midnight UTC - becomes the 23rd, so a date bug fails locally rather than
+for visitors in the Americas. A test file cannot move the zone itself: Jest hands each file a copy
+of `process.env`, so setting `TZ` there silently does nothing. `boardModel.test.js` asserts the
+zone first, so it fails loudly if the pin is removed.
+
+**Headless Chrome will not size a window below about 500px.** `--window-size=375,...` renders a
+500px page and crops it - a "375px" screenshot that is not one. `scripts/capture-public-board.mjs`
+emulates the device over the DevTools protocol instead, in a fresh profile with no session, and
+writes a desktop and a 375px capture of the public board as a guest sees it.
+
+**A CSS-only LWC module needs `css` in Jest's `moduleFileExtensions`.** `c/boardTheme` has no
+`.js`, and the resolver only tries the listed extensions. `jest.config.js` appends `css` last, so
+every other `c/` import still finds its `.js` first.
+
+**`.forceignore` does not retract a deletion already pending.** A pending delete lives in source
+tracking, not in file presence, so ignoring the path stops future retrieves pulling it back but does
+not stop the CLI trying to delete it. Both are needed:
+
+```bash
+# after adding the path to .forceignore
+sf project reset tracking --target-org MyScratchOrg --no-prompt
+```
+
+**Source tracking breaks constantly.** Scoped deploys and `deploy validate` leave every
+component's `lastRetrievedFromServer` null, which reports the whole org as remotely
+changed and produces a wall of conflicts on the next deploy.
+
+```bash
+sf project reset tracking --target-org MyScratchOrg --no-prompt
+```
+
+**Always diff before `--ignore-conflicts`.** It overwrites the org with local content.
+Once in this project a conflict was real — the site page had been edited in Experience
+Builder. Retrieve the org's copy and compare semantically (JSON/XML formatting differs,
+content usually does not).
+
+**Retrieves strip XML comments but keep `<description>`.** Rationale written as an XML
+comment in metadata disappears on the next retrieve. Put it in a `description` element.
+
+**Prettier reformats metadata between edits.** String-match patches silently no-op —
+assert that a replacement actually changed the file.
+
+**Prettier and the org fight over formatting, and the loop never settles on its own.**
+A retrieve reporting 60+ modified files is almost always this, not real drift. The
+mechanism is the **pre-commit hook**, not the editor extension — `package.json` wires
+`husky` → `lint-staged` → `prettier --write`, so:
+
+1. You deploy — the org stores those exact bytes.
+2. You commit — the hook reformats the staged files.
+3. The repo now holds prettier's version; the org holds the pre-prettier version.
+4. The next retrieve drags the org's version back.
+
+Repo and org are never formatted the same way, by construction. Disabling the VS Code
+Prettier extension changes nothing, because step 2 is a git hook.
+
+Six flavours of pure churn, none of them meaningful: trailing newline (prettier adds,
+Salesforce strips), `UTF-8 ?>` vs `UTF-8?>`, LWC JS quote style / indent / 80-col
+wrapping and prettier's `return ( … )` parens, the `<description\n  >` break in XML,
+`&apos;` vs a literal apostrophe, and `" : "` vs `": "` in digitalExperiences JSON.
+
+**Two fixes, applied in build 06:**
+
+- `.prettierignore` now covers `digitalExperiences/`, `profiles/`, `sharingRules/`,
+  `permissionsets/` and `**/*-meta.xml`. These are org-generated; prettier's only effect
+  on them was guaranteed churn. **For these paths the org's format is now canonical** —
+  commit what the retrieve gives you rather than reformatting it.
+- **The cure in use since build 06: deploy freely, retrieve minimally.** The clash only happens
+  when a retrieve pulls the org's formatting back over prettier's, so source that lives in git
+  travels local → org only and is never retrieved. `manifest/org-changes.xml` is the declarative-only
+  package for that: `sf project retrieve start -x manifest/org-changes.xml`. It deliberately omits
+  ApexClass, ApexTrigger, LWC, DigitalExperience **and Profile** — every churn source identified.
+  Running `npm run prettier` before deploy would also have narrowed the gap, but not retrieving the
+  files at all closes it.
+- **Since the refactor pass, every project Apex file is formatted at prettier's defaults** (two
+  spaces), and `.prettierignore` also excludes the org's site scaffolding. `npm run
+prettier:verify` and `npm run lint` are clean and should stay so. The hook only reformats
+  files you stage, so a file nobody has touched keeps whatever style it had - which is how the
+  repo ended up half 2-space and half 4-space before the pass.
+
+**A side effect worth knowing when reviewing a commit:** the hook reformats whole files on
+the way in, so a commit's diff can be far larger than the change you reviewed. Build 06
+step 2 was ~35 lines of real change; `JiraAdapter.cls` went into `e0fc34c` as 801 changed
+lines because the hook prettier-formatted the whole file at the same time.
+
+**Sorting a post-retrieve working tree.** Normalising whitespace and quote style is enough
+to separate churn from substance:
+
+```bash
+for f in $(git diff --name-only); do
+  a=$(git show HEAD:"$f" | tr -d "[:space:]'\"()"); b=$(cat "$f" | tr -d "[:space:]'\"()")
+  [ "$a" != "$b" ] && echo "SUBSTANTIVE: $f"
+done
+```
+
+Run this before reverting anything. In build 06 it reduced 63 modified files to two real
+changes: `Admin.profile` gaining `PublicBoardControllerTest` class access, and the route's
+`pageAccess` going `UseParent` → `Public` — the latter being build 05's site-public-access
+click, which the repo had never captured.
+
+**Jira's `editmeta` does not say what the API will take in DOPP.** DOPP is a team-managed
+project, and there `editmeta` describes each issue type's layout: it lists `priority` on Story
+alone. Build 09 step 0 reported that as Jira refusing a priority on Epic, Subtask, Bug and Task,
+and asked for a Jira settings change - wrongly. A real change, Medium to High and back, returned
+204 and landed on all four. Two details make the check easy to get wrong the same way twice: a
+write of the value an issue already holds also answers 204 without validating anything (its
+`updated` does not move), so only a real change and revert proves a field writable; and
+`overrideScreenSecurity=true` answers 403 for an API token (Connect and Forge apps only).
+
+**`sf org display` can hand out a stale access token.** The CLI refreshes its session inside its
+own commands and does not always write the fresh token back, so a token copied from `org display`
+into another client fails - REST with 401, CometD with `403::Handshake denied` and
+`401::Request requires authentication`. `scripts/listen-work-item-changes.mjs` gets its session
+from the CLI's bundled `@salesforce/core` and calls `refreshAuth()` first. Found in build 09 step 1.
+
+**Salesforce API gotchas found the hard way:**
+
+- Long Text Area fields are not filterable in SOQL.
+- `Owner.UserType` is not filterable through a polymorphic lookup; compare `OwnerId`.
+- `PermissionSet.description` caps at 255 chars; field and object descriptions at 1000.
+- Guest sharing uses `sharingGuestRules`, not `sharingCriteriaRules`.
+  `includeRecordsOwnedByAll` is **invalid** there. `guestUser` takes a
+  `CommunityNickname`.
+- A criteria sharing rule cannot reference a parent field, so
+  `Project__r.Is_Public__c` is enforced **only** by `PublicBoardController`'s WHERE
+  clause. Any future guest-reachable class touching `Work_Item__c` inherits that duty.
+
+**Encrypted Text is not readable by Apex the way everyone assumes.** Apex returns an encrypted
+field **masked** unless the running user holds the `ViewEncryptedData` USER PERMISSION - and
+system mode does **not** bypass it the way it bypasses field-level security. Proved with an A/B
+holding FLS constant: granting the permission to the permission set flipped the same system-mode
+read from asterisks to clear text and back. Worse, a **guest permission set silently cannot hold
+it**: the deploy reports success and the org keeps `PermissionsViewEncryptedData = false`. So
+Encrypted Text is unusable for anything a guest-run endpoint must read.
+
+**Callouts are forbidden from triggers, and the inbound subscriber IS a trigger.** The
+subscriber on `Webhook_Event_Received__e` therefore only ENQUEUES: `WorkItemInboundProcessor.handle`
+hands the batch to `WorkItemInboundQueueable`, which is where `parseInbound` runs and where an
+adapter is allowed to call out. Jira never revealed this because it calls out for nothing; the
+first live Asana delivery failed with `System.CalloutException: Callout from triggers are
+currently not supported` while the whole test suite stayed green, because every test calls
+`WorkItemInboundProcessor.process` directly. **A test that drives processing directly is not
+testing the path that runs in production.** The outbound path has always had this shape - the
+trigger enqueues `WorkItemSyncQueueable` - and inbound now matches it.
+
+**A queueable enqueued while `Test.stopTest()` delivers a platform event does not execute.** So
+an endpoint test cannot assert an end-to-end outcome any more; `JiraWebhookResourceTest` drives
+the second half itself via a `drainStagedDeliveries()` helper. The async boundary is real, not a
+test artefact.
+
+**`FieldMappingService` reads live custom metadata when nothing is injected, so org data can
+change what a test measures.** Deploying the three real Asana status mappings made
+`anItemForAnUnsupportedSystemFailsWithoutStoppingTheRest` pass an Asana item through that it had
+always rejected - it had used `asana:` as its example of an unregistered system. It uses
+`trello:` now. Any test asserting "no mapping exists" must inject an empty table rather than
+assume the org has none.
+
+**Asana's batch endpoint rejects query parameters in `relative_path`**, and rejects them as a
+**400 inside an otherwise 200 response** - so the batch call looks like it worked and every task
+inside it silently fails. `opt_fields` goes in `options.fields` as an array per action. The mock
+did not catch this because it read the gid out of the path and answered happily whatever else
+was in it.
+
+**Guest field-level security is enforced on DML, so one ungranted field fails the whole insert -
+silently, if the caller catches.** Apex runs in system mode for every other user and ignores
+field-level security on writes; the guest is the exception. `AsanaWebhookResource.record()` set
+`Webhook_Event__c.External_Id__c`, which `Jira_Webhook_Guest` does not grant, so every rejection
+and handshake row failed to insert while the endpoint still answered correctly. **No Apex test
+could catch it, because tests run as the admin.** Found by POSTing to the live endpoint and
+finding no row. Any guest-written field must be in that permission set, and any endpoint test
+worth trusting runs inside `System.runAs(<the site guest>)`.
+
+**The Guest User licence refuses `Edit` on a custom object**, and says so at deploy time: `The
+user license doesn't allow the permission: Edit <Object>`. Guest-facing writes must be inserts.
+
+**Apex gotchas:**
+
+- `nulls` is a reserved word (SOQL's `ORDER BY ... NULLS FIRST`) and cannot be a variable name.
+  The Apex parser's message names the token but not the reason. Same family as the trailing
+  underscore rule below.
+- Identifiers are case-insensitive: a field named `outcome` shadows a type named
+  `Outcome`. Qualify enums as `ClassName.Enum.VALUE`.
+- **No DML may happen before `IWorkItemAdapter.parseInbound` is called.** An adapter is
+  allowed to call out from there and `AsanaAdapter` does, because Asana's payloads name a
+  resource and an action and carry neither the task's title nor its section. Any earlier DML
+  in the transaction produces `CalloutException: You have uncommitted work pending`, and it
+  does so **for Asana deliveries only**, with an error that never mentions Asana. The same
+  shape of trap as the line above: the message does not name the cause. The rule is written
+  on the interface, in `CLAUDE.md` and here, because ordering alone happened to be safe and
+  nothing enforced it.
+- `Test.stopTest()` restores the limits context that was in force before `Test.startTest()`.
+  A `Limits.getCallouts()` reading taken _after_ `stopTest` therefore reports the outer
+  transaction's count, not the code under test - which makes
+  `Assert.areEqual(before, Limits.getCallouts())` a vacuous assertion that passes even when a
+  callout was made. Take both readings inside the window. Found in build 07 step 3 by breaking
+  the test on purpose, which is the only reason it was found at all.
+- Trailing underscores are illegal in identifiers (`update_` will not compile). `update` itself
+  is a reserved word, so a variable cannot be called that either.
+- **Prettier can format a static call into something Apex will not compile.** A long chain such
+  as `SyncFields.changedBetween(a, b).isEmpty()` is split so the class name sits alone on a
+  line, then `.changedBetween(...)` below it, and the compiler reports `Variable does not exist:
+SyncFields`. The one-line form of the same call compiles. Hold the result in a local rather
+  than chaining off a static call. Found in build 08 step 3, by the deploy.
+- **A Datetime field stores whole seconds.** Jira and Asana send milliseconds
+  (`18:07:41.913`); `Remote_Last_Modified__c` and `Source_Created__c` read back `.000`. So a
+  value just parsed from a payload never equals the one stored from the same payload: compare at
+  the second (`getTime() / 1000`), or a check for "did this change" answers yes every time. Build
+  09's backfill reported 20 creation dates changed on a run that changed nothing, until it did.
+  The loop-prevention comparison has lived with this since build 02 - an echo in the same second
+  as the stored value counts as newer - and is harmless there only because the echo carries the
+  values already held.
+- `@TestVisible` does not expose members to anonymous Apex.
+- **Plain DML on a custom setting is checked against the running user, even in Apex.** Unlike a
+  custom object, a hierarchy custom setting's `insert` or `update` is refused with "Access to entity
+  'Featured_Epic__c' denied" for a user who cannot customise the application - from a `without
+sharing` class too, and with the setting granted in a permission set. Reading it is not checked:
+  the site guest reads the featured epic with no grant at all. Only an explicit
+  `Database.insert/update(record, AccessLevel.SYSTEM_MODE)` writes it. Found in build 10 step 3 by
+  the first test that ran as a Standard User holding `Portfolio_HQ_Developer`; every earlier test
+  had run as the admin, which passes either way - the same mistake as section 3's "Test the
+  identity".
+- **A `@TestSetup` method is counted as a test in a run's summary.** The org writes an
+  `ApexTestResult` row for it, so `sf apex run test` reports one more test than there are test
+  methods, while the per-test list in the same JSON leaves it out. `FeaturedEpicServiceTest` (build 10) is the first class here with one: the run after it read 481 for 480 tests. Count methods, or
+  subtract the setup rows, before reporting a number.
+- Apex only type-checks server-side. Nothing is verified until it deploys.
+
+**Page layouts.** Deploys create fields but do not place them on layouts. This made
+`Secret_Value__c` invisible in Setup until a layout was added. `Project__c`,
+`Work_Item__c`, `Integration_Log__c` and `Webhook_Event__c` still have bare layouts.
+
+---
+
+## 4. Open items
+
+| Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Trigger point                                          |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Integration owner resolved by `Profile.Name = 'System Administrator'` — brittle. A dedicated integration user named in configuration is the right answer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Before a second admin exists                           |
+| ~~`Integration_Log__c` and `Webhook_Event__c` grow unbounded~~ **Closed.** `IntegrationDataPurge` caps both at 50 rows nightly. The cost is that rejected-signature rows and Processed history age out; version 2 archives them to a Big Object first                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Closed                                                 |
+| Unauthenticated callers can still create `Webhook_Event__c` rows. Bounded to ~106 chars each (payload dropped on signature failure) but the row count is not capped — capping needs a query the guest cannot run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | If the endpoint sees hostile traffic                   |
+| `JiraAdapter` deliveries go through the same sweeper as Asana's, but Jira never strands one - it calls out for nothing, so the retry budget is exercised by Asana alone.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Informational                                          |
+| Bare page layouts on four objects.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Cosmetic                                               |
+| An unresolved parent reference is never back-filled. The child must be delivered again after the parent exists. Closing this needs either a `Parent_External_Id__c` field or the reconciliation job.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | When hierarchy gaps are noticed                        |
+| Prettier and the org disagree on formatting for hand-written source. Mitigated by retrieving only through `manifest/org-changes.xml`; a full retrieve still churns. See section 3.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Next time a full retrieve is needed                    |
+| Both non-admin profiles carry 49 disabled `classAccesses` entries from an old retrieve. Harmless — they grant nothing — and now unreachable by the minimal-retrieve manifest, which omits Profile entirely.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Cosmetic                                               |
+| ~~A push that failed for a transient reason is not retried without a change~~ **Closed** in build 08 step 8: the open card's Retry (see section 2). A transient failure is still not retried on its own - someone has to press Retry or save a change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Closed                                                 |
+| ~~Two edits to one record a few seconds apart push the first edit's fields twice~~ **Closed** in build 08 step 7: each push job sends the fields its own save staged - see section 2. Found live on WI-0015 (LOG-00077 to LOG-00080).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Closed                                                 |
+| `AsanaAdapter`'s callout log rows carry no `Work_Item__c`: its `send` takes no work item id, unlike `JiraAdapter`'s. An Asana push shows in `Integration_Log__c` with a blank work item, so the log cannot be filtered to one Asana task. Found during build 08 step 3's live check.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Next time the Asana adapter is touched                 |
+| ~~An epic card does not truncate its title~~ **Closed** in build 08 step 6: `boardEpicCard` clamps to two lines, like every card.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Closed                                                 |
+| A `npm audit fix` that bumps `@salesforce/sfdx-lwc-jest` to v8 breaks Jest completely — v8 stops transforming `@lwc/engine-dom` and every suite dies on its ESM export before a test runs. Revert to `^7.0.2`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | If `npm run test:unit` dies wholesale                  |
+| Work items created by hand or before project linkage may still have no `Project__c`. They are linked on their next delivery if the project record carries the Jira key and `External_System__c = Jira`; otherwise a log row says so.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | After the next few live deliveries                     |
+| The Asana `Format` option "Article / paper" (`1218523733859544`) has no `Field_Mapping__mdt` row, because `Work_Item__c.Type__c` has no value to map it to. A task carrying it lands on `Unspecified` with the raw word in `Source_Type__c`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | When an article is added in Asana                      |
+| A project's `Is_Public__c` is read at creation time only, so flipping a project public does not retroactively publish the work already synced into it. Fix by hand, or with a one-off update that touches `Is_Public__c` and nothing else - never `Status__c`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | When a project is made public                          |
+| Nothing enforces deletion of a `Webhook_Secret__c` staging row after promotion; the script only says to. The Asana row was deleted by hand on 2026-09-21.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | After the next real registration                       |
+| Rotating a secret means deleting the staged row first: `Resource_Id__c` is unique and the guest cannot update a row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | At first rotation                                      |
+| Secret promotion is manual. Automating it needs a platform event plus a Metadata API deployment from a user that can deploy metadata - untested for Automated Process.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | If re-registration becomes frequent                    |
+| Flat items (any source with no epics) are always visible on the board, so their Done column grows unbounded. The orphan cap does not apply to them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | At volume                                              |
+| `JiraAdapter` still uses hardcoded `STATUS_ALIASES` / `TYPE_ALIASES` while Asana reads `Field_Mapping__mdt`. Two mechanisms for one job.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Next time a Jira mapping changes                       |
+| The public board's subtitle is empty, by the owner's decision for now (2026-09-25). See section 1 for how to set it without a click-only change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | When the owner writes it                               |
+| The site template's "Skip to Main" link sits outside every landmark (its `href` is `javascript:void(0)`, so axe does not treat it as a skip link) and uses the browser's default focus ring. The template's, not the board's; `audit-public-board.mjs` reports it separately.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | If the template is replaced                            |
+| A transient push failure is still not retried automatically; someone presses Retry or saves a change. A scheduled retry would be the same Failed-to-Pending save, made by a job.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | If transient failures become common                    |
+| The same field saved twice in quick succession is owned by both push jobs and can go out twice, deliberately: the second save may carry a newer value. If the jobs run at once, the order their callouts land decides what the source keeps.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Informational                                          |
+| Drag-and-drop on touch, and remembering filter selections between visits, were out of scope for build 08. Touch users move cards with Move to.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Version 2                                              |
+| Several Jira and Asana items carry test edits in their titles ("_edit_", "_newer edit_") from builds 07 and 08, and the owner's build 09 checks left DOPP-17 with no priority, DOPP-19 Low and DOPP-6 High (the other DOPP issues are Medium). Test data cleanup was out of scope.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Before launch                                          |
+| ~~A late echo of an earlier push can briefly revert a field and mark the record Synced~~ **Closed** in build 09 step 5: a push stamps `Remote_Last_Modified__c` with the source's own timestamp of its write (section 2, loop prevention). Proved live by replaying a late echo, which came back Ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Closed                                                 |
+| What the step 5 stamp leaves open, all rare for one person driving both tools and each corrected by the next delivery: two pushes to one record landing in the same second (Datetime keeps whole seconds, so the stamp cannot order them and the late echo slips through as before); a Jira edit in the milliseconds between our write and the `?fields=updated` read (stamped over, its own delivery then counts as old); an echo whose `updated` is exactly `.000` (equals the stamp, ignored); and, older than build 09, two inbound jobs processing one issue at once (no row lock, so the older can commit last). No fix removes every race - neither API has a conditional edit - but the stale-overwrite class can go. **Full fix:** hydrate Jira deliveries like Asana's (read the issue as it is now, as `backfill-work-item-source-fields.apex` already does, instead of trusting the webhook snapshot) and take `FOR UPDATE` on the processor's comparison after the callouts; closes all four, makes Jira's post-push read unnecessary (back to 3 callouts, chunks of 33), costs a Jira read per delivery, sweeper-dependence for Jira inbound, and a mock in most inbound tests. **Smaller:** a millisecond stamp in a Number field plus `FOR UPDATE`; closes three, not the edit-between-write-and-read. Left as is for launch by the owner's decision, 2026-09-25. | Version 2                                              |
+| A priority value added in Jira or Asana that no `Field_Mapping__mdt` row maps is logged and ignored: `Priority__c` keeps what it holds, an Inbound `Integration_Log__c` row names the id, and the rest of the delivery applies (ADR build-09, decision 4). Supporting one is a future build - a picklist value, a mapping row, and for Asana the option gid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | When a priority is added in either tool                |
+| Remembered filters and sort between visits, and a Priority filter, were out of scope for build 09 (decision 8). Every visit opens on Tasks, All sources, Due date.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Version 2                                              |
+| A Jira edit can take longer than the 10-second callout timeout: in build 09 step 6 one did, and Jira applied it after the push had already failed. The card showed Failed with the reason, the echo was held back as pending, and Retry re-sent the same value and settled Synced. Correct, and noisy; a longer timeout would cost callout time against the 120-second limit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | If Jira timeouts recur                                 |
+| Lighthouse best practices is 96, not 100, on both form factors because the page declares no icon and `/favicon.ico` at the site root answers 404 - one console error. The site template's, not the board's.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | If a favicon is added                                  |
+| Every commit on `feature/first-branch` has the committer `Sapling <sapling@Saplings-Mac-mini.local>`: git has no name or email configured on the build machine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Before the branch merges                               |
+| The unresolved-parent count is incomplete (build 10 step 0): WI-0007 and WI-0009 could be unresolved references or simply parentless, and only Jira can say. No field stores an unresolved reference, and the purge has aged out the log rows that would have recorded one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | After the move, when the hierarchy arrives by delivery |
+| The seed script's hierarchy exists in Salesforce only: WI-0005 and WI-0006 under WI-0000, and WI-0001 typed Epic. Inbound never clears a parent a payload does not carry, so the links survive deliveries; a Jira delivery for `DOPP-15` carrying its issue type retypes WI-0001, which then reads as none if it is the featured epic. WI-0002 (DOPP-16), which the script had made a Story under WI-0000, was corrected to an Epic with no parent by the owner on 2026-09-27 - **rerunning `flag-public-demo-data.apex` would undo that**, since it assigns epic and story roles by status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Before launch, in the Developer Edition org            |
+| Subtasks are ordinary cards: Jira's Sub-task maps to `Task` (ADR build-06, ADR-005), so one under a featured epic shows in its Tasks view. None is public today; build 10's decision 4 leaves subtasks to version 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Version 2                                              |
+| At 375px the portrait arrows sit at mid-screen (`sticky`, since build 08) and can cover a column heading when the content above them is tall - the featured epic's four-line sentence does it on first load. They move off it on scroll.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | If the portrait layout is revisited                    |
+| Other open internal-board tabs see a featured-epic change only on their next refresh: Change Data Capture does not fire for a custom setting (build 10 decision 14). The tab that made the change refreshes itself.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Informational                                          |
+
+---
+
+## 5. Verifying the system still works
+
+```bash
+# Tests
+sf apex run test --target-org MyScratchOrg --test-level RunLocalTests --result-format human
+npm run test:unit
+
+# Guest record access must equal Is_Public__c exactly
+sf data query -o MyScratchOrg -q "SELECT COUNT() FROM Work_Item__c WHERE Is_Public__c = true"
+
+# Synced records with no project cannot appear on the public board. Expect this to fall to 0
+# as issues are redelivered; each one that stays unlinked has an Inbound log row naming why
+sf data query -o MyScratchOrg -q "SELECT COUNT() FROM Work_Item__c WHERE Project__c = null AND External_Id__c != null"
+# Or link them all now, by key prefix, without waiting for a redelivery (never writes Status__c)
+sf apex run --file scripts/apex/backfill-work-item-projects.apex --target-org MyScratchOrg
+
+# Fill what inbound sync fills - created, dates, description, priority - from each source, through
+# its own adapter. Writes only fields that differ, suppressed; a second run reports updated=0
+sf apex run --file scripts/apex/backfill-work-item-source-fields.apex --target-org MyScratchOrg
+
+# Outbound: change a Jira status, expect 3 Integration_Log__c rows and no more - the listing,
+# the transition, and the timestamp read (build 09); a title or priority edit, 2 - the PUT and the read
+sf data query -o MyScratchOrg -q "SELECT Name, HTTP_Method__c, Status_Code__c FROM Integration_Log__c ORDER BY CreatedDate DESC LIMIT 4"
+
+# Inbound: every event should reach a terminal status, none stuck Pending
+sf data query -o MyScratchOrg -q "SELECT Processing_Status__c, COUNT(Id) c FROM Webhook_Event__c GROUP BY Processing_Status__c"
+
+# The public board, as an anonymous visitor
+curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/work-item-board
+
+# ...and what it looks like to one, at desktop width and on a 375px phone - optionally with a
+# card opened first
+node scripts/capture-public-board.mjs docs/build-08/screenshots <label> [WI-0005]
+
+# ...and whether it is accessible to one: axe-core over fourteen states - both sorts at both sizes
+# since build 09, and since build 10 the featured epic in Tasks, its source filtered out, none in
+# Epics and none in Tasks, at both sizes - (colour contrast included, which the Jest gate cannot
+# check), and a keyboard walkthrough at both sizes. Build 10 states check what they show, and at
+# 375px that the sentence fits below the toolbar. Exits 1 on a problem in the board, a state
+# showing the wrong thing, or any Apex request made while a sort, view or source changes; the
+# site template's own "Skip to Main" link is reported, not failed. It CHANGES ORG DATA: it features
+# WI-0000, then none, through FeaturedEpicService as you, and puts back the exact value it found,
+# even on failure. --shots=<dir> saves each build 10 state, the 375px ones by device emulation
+node scripts/audit-public-board.mjs [focus-screenshot.png] [--shots=<dir>]
+
+# Whether Jira and Asana still offer the priorities Field_Mapping__mdt maps (read-only callouts):
+# DOPP's priority scheme and its default, and the Asana project's Priority field and options
+sf apex run --file scripts/apex/check-priority-sources.apex --target-org MyScratchOrg | grep '>>>'
+
+# What the internal board receives live: Change Data Capture events on Work_Item__c, printed
+# from the command line (needs View All Records or View All Data, like the board). Make the
+# change in another terminal once it says "subscribed"
+node scripts/listen-work-item-changes.mjs [seconds] [events]
+```
+
+To try Retry without a real failure, make a record look refused. Sync fields only, suppressed, so
+nothing is sent until Retry is pressed; the push then resends the current title:
+
+```bash
+sf apex run --target-org MyScratchOrg <<'APEX'
+Work_Item__c item = [SELECT Id FROM Work_Item__c WHERE Name = 'WI-0010'];
+SyncContext.suppressOutbound();
+update new Work_Item__c(Id = item.Id, Sync_Status__c = 'Failed', Sync_Error__c = 'Simulated.', Pending_Push_Fields__c = 'TITLE');
+APEX
+```
+
+Build 06 added a second view. Both payloads ship on every call whichever is on screen, so check
+what the guest actually receives rather than what renders:
+
+```bash
+sf apex run --target-org MyScratchOrg <<'EOF'
+PublicBoardController.PublicBoardData b = PublicBoardController.getPublicBoardData();
+System.debug('>>> tasks=' + b.itemCount + ' epics=' + b.epics.size());
+System.debug('>>> epic keys=' + ((Map<String,Object>)JSON.deserializeUntyped(JSON.serialize(b.epics[0]))).keySet());
+EOF
+```
+
+Expect **exactly one SOQL query** in that debug log's limit block. Ancestry and child counts are
+computed in memory; a per-epic query would put the guest page one busy project away from the
+governor limit.
+
+**Counting the queries an anonymous visitor costs, as the visitor** (build 10 step 2). A run as
+the owner is not proof of what the guest gets (invariant 8). Trace the site guest user for a few
+minutes with the org's `SFDC_DevConsole` debug level, then load the board logged out. The trace
+expires on its own:
+
+```bash
+sf data create record --use-tooling-api -o MyScratchOrg --sobject TraceFlag --values "TracedEntityId=<guest user id> LogType=USER_DEBUG DebugLevelId=<SFDC_DevConsole id> StartDate=<now, UTC> ExpirationDate=<now + 20 min, UTC>"
+```
+
+Each call leaves two `ApexLog` rows for the guest. The small one, operation
+`/webruntime/api/apex/execute`, holds only the class loading. The call itself is in the large one
+beside it, whose operation reads `UniversalPerfLogger`. Grep it for `SOQL_EXECUTE_BEGIN` and
+`Number of SOQL queries`. The guest's id:
+
+```bash
+sf data query -o MyScratchOrg -q "SELECT Id FROM User WHERE UserType = 'Guest' AND IsActive = true"
+```
+
+The seed script is the way to get a board worth looking at after a rebuild, and it now also plants
+a **canary**: a work item flagged public under a _private_ project. It must never render. If it
+does, the only enforcement of the parent project flag has gone.
+
+A loop-prevention check: change one Jira `Status__c`, then watch `Integration_Log__c`. It
+should gain exactly 3 rows and stop. Climbing by 3 repeatedly means the loop did not
+terminate.
+
+---
+
+## 6. Asana — the manual setup (done; kept as the recipe for a fresh org)
+
+Build 07's code is deployed and tested. None of it has met live Asana, because all of this is by
+hand and out of build scope. Until it is done, an Asana delivery is rejected 401 and no Asana
+work item exists.
+
+### In Asana
+
+1. Create the learning project with sections named **Up Next**, **In Progress**, **Completed**.
+2. Capture the **project gid** and each **section gid**. The API returns them; the UI shows them
+   in the URL.
+3. Add an **enum** task custom field named **`Format`**, with an option per kind of work
+   (`Book`, `Online course`, `Video series`, ...). This is a convention this project chose, not
+   an Asana feature: a task has no native type, and `resource_subtype` is almost always
+   `default_task`. `AsanaAdapter` matches the field name case-insensitively and reads the chosen
+   option's **gid**, falling back to the display name for a non-enum field.
+
+### In Salesforce
+
+4. `Project__c` record with `External_Project_Key__c` = the project gid and
+   `External_System__c` = `Asana`. **Without this the adapter cannot tell which of a task's
+   memberships to read a section from**, so the item arrives with no project and no status.
+5. `Field_Mapping__mdt` records. Since build 08 the nine this org uses are in source under
+   `customMetadata/` and deploy with the code; on a new Asana workspace the gids differ, so these
+   are the shape to reproduce, created in Setup or by script:
+
+   | External System | Mapping Type | External Value            | External Label | Normalized Value |
+   | --------------- | ------------ | ------------------------- | -------------- | ---------------- |
+   | Asana           | Status       | _Up Next section gid_     | Up Next        | To Do            |
+   | Asana           | Status       | _In Progress section gid_ | In Progress    | In Progress      |
+   | Asana           | Status       | _Completed section gid_   | Completed      | Done             |
+
+   Keyed on the **gid**, never the section name: a gid survives a rename and a name does not.
+   There is deliberately no `In Review` row — Asana has no such column, and that asymmetry is
+   correct.
+
+6. Type mappings, with `Mapping_Type__c = Type`, keyed on the **enum option gid** for the same
+   reason status mappings are keyed on section gids. `scripts/apex/add-asana-type-mappings.apex`
+   deploys them; read the gids with
+   `GET /projects/<gid>/custom_field_settings?opt_fields=custom_field.name,custom_field.enum_options.name`.
+
+   `Type__c` is a restricted picklist and carries both vocabularies: Jira's `Epic`, `Story`,
+   `Bug`, `Task`, `Spike`, and the learning board's `Book`, `Online Course`, `Video`, `Tutorial`,
+   `Trailhead`, `Superbadge`. An Asana option with no mapping lands on `Unspecified` with
+   `Source_Type__c` keeping the raw name - that is the promotion path working, not a failure.
+
+### Register the webhook, by hand
+
+The target URL must carry the resource gid as its **last path segment** — the handshake carries
+no body and a delivery names only the resources that changed, so neither can say which secret to
+verify against.
+
+```bash
+curl -X POST https://app.asana.com/api/1.0/webhooks \
+  -H "Authorization: Bearer $ASANA_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"resource":"<project_gid>","target":"https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTestvforcesite/services/apexrest/v1/webhook/asana/<project_gid>"}}'
+```
+
+A **201** means the handshake succeeded and a `Webhook_Secret__c` row exists. Anything else means
+the endpoint did not echo correctly — check the row before retrying. A **409** means a secret is
+already staged for that resource: delete the row first, deliberately.
+
+### Then promote the secret — deliveries fail until you do
+
+```bash
+sf apex run --file scripts/apex/promote-webhook-secret.apex --target-org MyScratchOrg
+```
+
+The endpoint runs as the guest, and **a guest cannot read a custom object row** — so verification
+reads protected Custom Metadata instead, and something run by a real user has to carry the value
+across. Asana tolerates 24 hours of failures before deleting a webhook, so running this straight
+after registering is comfortably inside the window. **Delete the staged row once promoted.**
+
+### Priority, on a new Jira site or Asana workspace (build 09)
+
+Nothing about priority is a click in Salesforce - the field, the permission grants and the mapping
+rows are all in source - but the ids in those rows are the live systems', so a new Jira site or
+Asana workspace needs them read and the rows edited before deploying:
+
+- **Jira:** the project's priority scheme must hold High, Medium, Low and a stand-in for none. DOPP
+  uses `–` (en dash, U+2013, id `10000`), created because a Jira issue cannot be without a
+  priority; it is the scheme's default. One `Field_Mapping__mdt` row of type `Priority` per id, and
+  the stand-in's row has `Maps_To_Blank__c` ticked and no normalized value. DOPP is team-managed,
+  and its `editmeta` lists priority on Story only while the API accepts it on every issue type -
+  prove writability with a real change, never with `editmeta` (section 3).
+- **Asana:** an enum custom field on the synced project with an option per value; empty is none,
+  so there is no stand-in and no blank row. One row of type `Field` naming the field's gid
+  (normalized value `Priority__c`), and one row of type `Priority` per option gid.
+- Check with `scripts/apex/check-priority-sources.apex`, deploy, then run
+  `backfill-work-item-source-fields.apex` so every existing item takes its source's priority.
+
+### The featured epic, on a new org (build 10)
+
+The setting, the permission, the service and the scripts are all in source; which epic is featured
+is not - it is data, and it does not travel. After the deploy:
+
+1. Assign `Portfolio_HQ_Developer` to the owner (section 1). It carries `Portfolio_HQ_Feature_Epic`;
+   without it the epic card has no Feature button, and the controller refuses the methods anyway.
+2. Publish the site (section 3), or the public board keeps serving the components it was last
+   published with.
+3. Feature the epic: the "Feature on public board" button in its open card on the internal board,
+   or edit `EPIC` at the top of the script - a record number or a source key - and run it. It must
+   be an epic, public, under a public project; anything else is refused with the reason.
+
+```bash
+sf apex run --file scripts/apex/set-featured-epic.apex --target-org <alias>
+```
+
+Until then the public board opens on its Epics view, and its Tasks view shows no epic work, under
+the sentence "No epic is featured right now, so no epic tasks are shown." That is the design
+(decision 7), not a fault.
+
+`scripts/audit-public-board.mjs` features **WI-0000** by record number, in the org named by
+`AUDIT_ORG` (default `MyScratchOrg`), and restores what it found. On a new org, point `FEATURED` at
+an epic that exists there and is public, and set `AUDIT_ORG`, before running it.
+
+### Known cost of the scratch org
+
+The site URL dies with the org, and Asana deletes a webhook after 24 hours of failed delivery.
+Re-registration is one curl plus one script run per org recreation.
+
+### Seeding
+
+Let real webhooks create Asana work items. If a script is ever needed, it sets the outbound
+suppression flag on its first line - a status write on a record carrying an `External_Id__c`
+enqueues a real push to real Asana.

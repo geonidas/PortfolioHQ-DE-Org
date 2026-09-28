@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Source_System__c</fullName>
+    <description>System the webhook belongs to. Backed by the same External_System global value set as everything else, so the vocabulary cannot drift. One secret store, one verification pattern; the adapters differ only in how they compute the digest.</description>
+    <label>Source System</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetName>External_System</valueSetName>
+    </valueSet>
+</CustomField>

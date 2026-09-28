@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Duration_ms__c</fullName>
+    <description>Wall-clock milliseconds for the callout. Max 999999, comfortably above the 120000 ms Apex callout ceiling.</description>
+    <externalId>false</externalId>
+    <label>Duration (ms)</label>
+    <precision>6</precision>
+    <required>false</required>
+    <scale>0</scale>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

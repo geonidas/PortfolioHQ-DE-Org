@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_Value__c</fullName>
+    <description>The vendor&apos;s own key, and the thing matched on. For an Asana status this is the SECTION GID, never the section name: a gid survives a rename and a name does not, and a mapping that silently stopped matching because somebody retitled a column would be invisible. Compared case-insensitively after trimming.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>External Value</label>
+    <length>255</length>
+    <required>true</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

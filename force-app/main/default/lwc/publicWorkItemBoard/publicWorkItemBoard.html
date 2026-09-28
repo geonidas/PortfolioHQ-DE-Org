@@ -1,0 +1,259 @@
+<template>
+  <section class="board">
+    <header class="board-head">
+      <div class="head-main">
+        <h1 class="title">{headingLabel}</h1>
+        <template lwc:if={hasSubtitle}>
+          <p class="subtitle" data-subtitle>{subtitle}</p>
+        </template>
+        <!-- Re-reads through the same parameterless method the page loaded with. It can ask
+             for nothing narrower or wider, and there is no write path behind it. -->
+        <p class="status-line">
+          <template lwc:if={freshnessLabel}>
+            <span class="freshness">{freshnessLabel}</span>
+          </template>
+          <span class="checked" data-checked>{checkedLabel}</span>
+          <button
+            type="button"
+            class="refresh-btn"
+            data-action="refresh"
+            onclick={handleRefresh}
+          >
+            Refresh
+          </button>
+        </p>
+      </div>
+      <span class="total" aria-live="polite">{countLabel}</span>
+    </header>
+
+    <template lwc:if={isLoading}>
+      <p class="state" data-state="loading">Loading…</p>
+    </template>
+
+    <template lwc:elseif={hasError}>
+      <!-- Fixed wording. The server sends no detail, and the page invents none. -->
+      <div class="state state-error" data-state="error">
+        <p class="state-title">{errorMessage}</p>
+        <p class="state-detail">Please try again shortly.</p>
+      </div>
+    </template>
+
+    <template lwc:elseif={isEmpty}>
+      <div class="state" data-state="empty">
+        <p class="state-title">Nothing to show yet.</p>
+        <p class="state-detail">
+          No work is public on this board at the moment.
+        </p>
+      </div>
+    </template>
+
+    <template lwc:else>
+      <!-- Display only. Both payloads arrived in the one cacheable call that loaded the
+           page; the filters re-render what is already in memory and never reach the server.
+           The Apex method takes no parameters, so there is nothing they could send. -->
+      <c-board-toolbar
+        class="toolbar"
+        view={view}
+        source={source}
+        source-options={sourceChoices}
+        onviewchange={handleViewChange}
+        onsourcechange={handleSourceChange}
+        sort={sort}
+        onsortchange={handleSortChange}
+      ></c-board-toolbar>
+
+      <!-- Build 10. After the toolbar, so it never moves it. Always present, empty outside the
+           Tasks view: a status region announces its words when they change, once. -->
+      <p
+        class="featured-note"
+        role="status"
+        data-featured-note={featuredNoteKind}
+      >
+        {featuredNoteText}
+      </p>
+
+      <template lwc:if={isTaskView}>
+        <template lwc:if={isTaskViewEmpty}>
+          <div class="state" data-empty="tasks">
+            <template lwc:if={isFiltered}>
+              <p class="state-title">{filteredEmptyTitle}</p>
+              <p class="state-detail">
+                Choose All sources to see the rest of the board.
+              </p>
+            </template>
+            <template lwc:else>
+              <!-- Build 10: an empty Tasks view no longer means every epic is complete - epic
+                   work shows only under the featured epic, and the sentence above says which. -->
+              <p class="state-title">No open work right now.</p>
+              <p class="state-detail">Switch to Epics to see the epics.</p>
+            </template>
+          </div>
+        </template>
+
+        <template lwc:else>
+          <c-board-columns
+            class="columns"
+            columns={viewColumns}
+            data-state="ready"
+          >
+            <template for:each={viewColumns} for:item="col">
+              <section
+                class="column"
+                data-board-column
+                key={col.key}
+                data-column={col.key}
+              >
+                <h2 class="col-head">
+                  <span class="col-name">{col.label}</span>
+                  <span class="col-count">{col.countLabel}</span>
+                </h2>
+                <template lwc:if={col.isEmpty}>
+                  <p class="col-empty">Nothing here</p>
+                </template>
+                <template for:each={col.cards} for:item="card">
+                  <div class="stack" key={card.key}>
+                    <c-board-card
+                      card={card}
+                      expanded-key={expandedKey}
+                      ontoggle={handleToggle}
+                    ></c-board-card>
+                    <template lwc:if={card.hasChildren}>
+                      <ul class="children">
+                        <template for:each={card.children} for:item="child">
+                          <li key={child.key}>
+                            <c-board-card
+                              card={child}
+                              expanded-key={expandedKey}
+                              ontoggle={handleToggle}
+                            ></c-board-card>
+                          </li>
+                        </template>
+                      </ul>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </c-board-columns>
+
+          <template lwc:if={hasOther}>
+            <section class="other" data-region="other">
+              <h2 class="other-head">Other</h2>
+              <div class="other-cards">
+                <template for:each={otherCards} for:item="card">
+                  <c-board-card
+                    key={card.key}
+                    card={card}
+                    expanded-key={expandedKey}
+                    ontoggle={handleToggle}
+                  ></c-board-card>
+                </template>
+              </div>
+            </section>
+          </template>
+        </template>
+      </template>
+
+      <template lwc:else>
+        <div class="epic-view" data-state="epics">
+          <template lwc:if={isEpicViewEmpty}>
+            <div class="state" data-empty="epics">
+              <template lwc:if={isFiltered}>
+                <p class="state-title">{filteredEmptyTitle}</p>
+                <p class="state-detail">
+                  Choose All sources to see the rest of the board.
+                </p>
+              </template>
+              <template lwc:else>
+                <p class="state-title">Nothing to roll up yet.</p>
+                <p class="state-detail">
+                  No public work is typed as an epic, and nothing else is public
+                  either.
+                </p>
+              </template>
+            </div>
+          </template>
+
+          <template lwc:else>
+            <!-- The same columns as the task view, from the same configuration, keyed on
+                 each card's own status. Not a second layout: one board, read two ways. The
+                 Done column is bounded for epics because the server sends at most three
+                 completed ones. -->
+            <c-board-columns
+              class="columns"
+              columns={epicColumns}
+              data-region="epic-columns"
+            >
+              <template for:each={epicColumns} for:item="col">
+                <section
+                  class="column"
+                  data-board-column
+                  key={col.key}
+                  data-epic-column={col.key}
+                >
+                  <h2 class="col-head">
+                    <span class="col-name">{col.label}</span>
+                    <span class="col-count">{col.countLabel}</span>
+                  </h2>
+                  <template lwc:if={col.isEmpty}>
+                    <p class="col-empty" data-empty={col.emptyKey}>
+                      {col.emptyLabel}
+                    </p>
+                  </template>
+                  <!-- Two kinds of card share these columns. Which one a card is was
+                       decided by the server: the epic view is a transform that applies
+                       only to cards whose source rolls up into epics, and the rest pass
+                       through untouched into the column their own status names. -->
+                  <template for:each={col.cards} for:item="entry">
+                    <div class="stack" key={entry.key}>
+                      <template lwc:if={entry.isEpic}>
+                        <c-board-epic-card
+                          epic={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-epic-card>
+                      </template>
+                      <template lwc:else>
+                        <c-board-card
+                          card={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-card>
+                      </template>
+                    </div>
+                  </template>
+                </section>
+              </template>
+            </c-board-columns>
+
+            <template lwc:if={hasOtherEpics}>
+              <section class="other" data-region="other-epics">
+                <h2 class="other-head">Other</h2>
+                <div class="other-cards">
+                  <template for:each={otherEpics} for:item="entry">
+                    <div class="stack" key={entry.key}>
+                      <template lwc:if={entry.isEpic}>
+                        <c-board-epic-card
+                          epic={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-epic-card>
+                      </template>
+                      <template lwc:else>
+                        <c-board-card
+                          card={entry}
+                          expanded-key={expandedKey}
+                          ontoggle={handleToggle}
+                        ></c-board-card>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </section>
+            </template>
+          </template>
+        </div>
+      </template>
+    </template>
+  </section>
+</template>

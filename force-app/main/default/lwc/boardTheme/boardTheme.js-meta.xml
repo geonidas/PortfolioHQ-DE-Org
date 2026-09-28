@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>67.0</apiVersion>
+    <isExposed>false</isExposed>
+    <description>Design tokens shared by the work item boards. A CSS-only module: imported with @import 'c/boardTheme'.</description>
+</LightningComponentBundle>

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "1 · The shape of the system",
+  "description": "The few types everything else is built on: one record per piece of work, keyed on the source\nsystem's own id, and an interface that keeps each source's vocabulary out of the rest of the code.\n\nConcepts: custom objects and External ID fields, picklists, validation rules, Apex interfaces.",
+  "isPrimary": true,
+  "nextTour": "2 · Outbound: a save becomes a push",
+  "steps": [
+    {
+      "title": "What are the moving parts?",
+      "description": "Portfolio HQ keeps work items in a Salesforce org in two-way sync with Jira and Asana, shows them on\nan internal Kanban board that edits and pushes, and publishes a read-only board of the public ones\nto anyone with the link. Three paths carry all of it:\n\n```text\nOutbound  board save -> Work_Item__c -> WorkItemTrigger -> WorkItemSyncQueueable\n          -> WorkItemSyncService -> IWorkItemAdapter -> Jira / Asana REST\n\nInbound   Jira / Asana webhook -> REST resource (site guest) -> Webhook_Event__c\n          -> Webhook_Event_Received__e -> WorkItemInboundQueueable\n          -> WorkItemInboundProcessor -> IWorkItemAdapter.parseInbound -> upsert Work_Item__c\n\nBoards    workItemBoard -> WorkItemBoardController           (internal: read and write)\n          publicWorkItemBoard -> PublicBoardController        (guest: read only)\n          both share boardCard, boardModel, boardLayout ...   (import no Apex)\n```\n\nThe records that matter: `Work_Item__c` (the work, with its sync state), `Project__c` (which\ncarries `Is_Public__c`), `Webhook_Event__c` (one row per inbound delivery), `Integration_Log__c`\n(one row per callout or processing problem), and two custom metadata types that hold configuration:\n`Field_Mapping__mdt` and `Board_Source__mdt`.\n\nThis tour covers the shared types. Tour 2 follows a save out to a source system, tour 3 follows a\nwebhook in, tour 4 compares the two adapters, tour 5 is the public boundary, tour 6 the two boards,\nand tour 7 how all of it is tested and operated."
+    },
+    {
+      "file": "force-app/main/default/classes/ExternalIdUtil.cls",
+      "pattern": "public static String qualify\\(String systemNamespace, String rawId\\) \\{",
+      "title": "Why is every external id stored as `jira:10023`?",
+      "description": "`External_Id__c` is the key every inbound write upserts on, and it is unique. Uniqueness is per\nfield, not per system, so a Jira issue id and an Asana gid that happened to share digits would\ncollide. The id is therefore stored qualified with its system - `jira:10023`,\n`asana:1210000000000077` - and `rawIdOf` strips the prefix before the id goes into a REST path. The\nadapter factory routes on the same prefix.\n\nThe raw part is always the vendor's permanent id. Never Jira's human key (`DOPP-15`), which changes\nwhen an issue moves project; `External_Key__c` holds that, for display only.\n\n**Concept.** An External ID field is indexed and can be the key of an upsert:\n`Database.upsert(rows, Work_Item__c.External_Id__c, false)` inserts or updates by that value, so\nthe inbound path never looks up Salesforce ids first.\n\n**Failure mode.** Unqualified ids work until the second system arrives. Then an Asana task whose gid\nequals a Jira issue id upserts onto the Jira record.\n\n**Pattern: Key on what doesn't change.** The key is the vendor's permanent id, qualified by the\nsystem it belongs to, and `split` refuses a blank or unqualified value rather than guessing."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemStatus.cls",
+      "pattern": "public static final String UNSPECIFIED = 'Unspecified';",
+      "title": "Why does a picklist value never appear as a literal?",
+      "description": "Every picklist API name the code compares against lives in a small constants class:\n`WorkItemStatus`, `SyncStatus`, `WorkItemType`, `ExternalSystem`, `DeliveryStatus`,\n`LogDirection`, `IgnoreReason`.\n\n**Concept.** A picklist field stores its value as a string. Nothing links Apex to the picklist's\nmetadata at compile time, so `item.Status__c == 'Todo'` compiles and is simply false for every\nrecord.\n\n**Failure mode.** A misspelt literal at a call site is a silent no-op: a branch that never runs, a\nfilter that matches nothing. A misspelt constant name does not compile.\n\n**Pattern: One home for each fact.** Each string exists once, beside a comment saying what it\nmeans - `UNSPECIFIED` is the landing value for a remote status with no mapping, and is never\npushed - and every other class names the constant."
+    },
+    {
+      "file": "force-app/main/default/objects/Work_Item__c/validationRules/Sync_Status_Requires_Known_Status.validationRule-meta.xml",
+      "pattern": "<errorConditionFormula>AND\\(",
+      "title": "Why can a record with an unmapped status never read Synced?",
+      "description": "`Status__c = Unspecified` means the source reported a status no mapping covers. `Sync_Status__c =\nSynced` claims that Salesforce and the source agree. This validation rule makes the two together\nunsaveable, so inbound leaves such a record Pending, and outbound never pushes Unspecified\n(`SyncFields.changedBetween` ignores it and both adapters refuse it as a target).\n\n**Concept.** A validation rule runs on every save - the record page, the API, Apex, a data load -\nand rejects the row when its formula is true.\n\n**Failure mode.** Without it, a record could show a green Synced while its status is a placeholder,\nand nobody would be prompted to add the missing mapping.\n\n**Pattern: Honest state.** Synced is a claim about the world, so it is only allowed where it can be\ntrue.\n\n**Pattern: The server holds the rule.** The rule sits where every write passes, not in one of the\ncode paths that happens to write the field."
+    },
+    {
+      "file": "force-app/main/default/classes/IWorkItemAdapter.cls",
+      "pattern": "public interface IWorkItemAdapter \\{",
+      "title": "What does the rest of the code ask of Jira or Asana?",
+      "description": "Six methods, covering both directions: `push(item, fields)`, `fetchAvailableTransitions`,\n`parseInbound(batch)`, `normalizeStatus`, `normalizeType` and `drainLogs`. Nothing in the\nsignatures, or in the types they exchange (`SyncField`, `SyncResult`, `InboundChange`,\n`TransitionOption`), is vendor vocabulary: `SyncField.TITLE` is Jira's summary and Asana's name.\n\nThe contracts are written on the interface, because they are what callers rely on: `push` never\nthrows for a business outcome, `parseInbound` never throws for an unusable payload and takes a\nwhole batch, and no DML may happen in the transaction before `parseInbound` is called (tour 3\nexplains why).\n\n**Concept.** Ports and adapters: the core defines the interface it needs, and each external\nsystem gets a class that implements it.\n\n**Failure mode.** Until the refactor after build 06, the inbound processor parsed Jira's payload\nitself. Had it stayed that way, Asana would have needed a second processor, with its own copy of\nevery rule about applying a change.\n\n**Pattern: Vendor at the edge.** Adding Asana in build 07 was a new class and one line in the\nfactory. The processor, the sync service and both boards did not change."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemAdapterFactory.cls",
+      "pattern": "public static IWorkItemAdapter forSystem\\(String systemNamespace\\) \\{",
+      "title": "Where is a vendor allowed to be named?",
+      "description": "Here, in the adapters themselves, in the two webhook endpoints and in the `ExternalSystem`\nconstants, because something has to construct the concrete class and something has to answer each\nvendor's HTTP. The factory routes on\nthe external id's namespace, which is what actually decides which API an id is valid against,\nrather than on `External_System__c`, which stays descriptive.\n\n`injected` lets a test replace the adapter when the thing under test is the sync service, not the\nwire.\n\n**Failure mode.** Without a single constructor, vendor checks spread into every caller, and each new\nsystem means editing each of them.\n\n**Pattern: Vendor at the edge.** A third system is a class and a line here.\n\n**Pattern: Control what the test reads.** The seam is one `@TestVisible` static, so a service test\nnever depends on HTTP at all."
+    },
+    {
+      "file": "force-app/main/default/classes/InboundChange.cls",
+      "pattern": "public Boolean carriesDueDate \\{ get; private set; \\}",
+      "title": "What does an inbound change look like once the vendor is gone?",
+      "description": "`InboundChange` is what an adapter hands the processor: one change to one work item, in\nSalesforce's terms. For its optional fields the rule is that null means \"this delivery did not\ncarry it\", never \"the source holds nothing\". Four fields can genuinely be emptied in the source -\nthe start date, due date, description and priority - so each carries a flag beside its value, and\nthe value can only be set through `carry*()`, which sets the flag too. The setters are private, so\nthere is no way to set a value without saying it was carried.\n\nEach change also names the delivery it came from (`sourceEventId`): an adapter may return fewer\nchanges than it was given, so results are matched by id, never by position.\n\n**Failure mode.** With one convention for both meanings, either every status-only delivery blanks\nthe title, or a due date removed in Jira never clears in Salesforce.\n\n**Pattern: Absent is not empty.** Two states that look alike in a payload - key missing, and key\npresent with no value - get two representations in the type."
+    }
+  ]
+}

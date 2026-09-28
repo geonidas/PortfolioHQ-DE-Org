@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Request_Body__c</fullName>
+    <description>Outbound payload. Benign for transitions today, but inbound webhook payloads land here in a later build and carry reporter and assignee PII. GUEST-SENSITIVE: withhold from any guest permission set.</description>
+    <label>Request Body</label>
+    <length>32768</length>
+    <trackTrending>false</trackTrending>
+    <type>LongTextArea</type>
+    <visibleLines>5</visibleLines>
+</CustomField>

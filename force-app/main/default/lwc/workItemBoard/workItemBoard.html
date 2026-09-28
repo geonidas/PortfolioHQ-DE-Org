@@ -1,0 +1,302 @@
+<template>
+  <section class="board">
+    <header class="board-head">
+      <div>
+        <h1 class="title">{headingLabel}</h1>
+        <p class="freshness">{freshnessLabel}</p>
+      </div>
+      <p class="head-side">
+        <span class="total" aria-live="polite">{countLabel}</span>
+        <template lwc:if={isLive}>
+          <span class="live" data-live
+            ><span class="sep" aria-hidden="true">·</span>{liveLabel}</span
+          >
+        </template>
+      </p>
+    </header>
+
+    <template lwc:if={isLoading}>
+      <p class="state" data-state="loading">Loading work items…</p>
+    </template>
+
+    <template lwc:elseif={hasError}>
+      <div class="state state-error" data-state="error">
+        <p class="state-title">The board could not load.</p>
+        <p class="state-detail">{errorMessage}</p>
+        <p class="state-hint">
+          Refresh the page. If it keeps failing, check access to Work Item
+          records.
+        </p>
+      </div>
+    </template>
+
+    <template lwc:elseif={isEmpty}>
+      <div class="state state-empty" data-state="empty">
+        <p class="state-title">No work items yet.</p>
+        <p class="state-detail">Nothing has synced into this project yet.</p>
+      </div>
+    </template>
+
+    <template lwc:else>
+      <c-board-toolbar
+        class="toolbar"
+        view={view}
+        source={source}
+        source-options={sourceChoices}
+        onviewchange={handleViewChange}
+        onsourcechange={handleSourceChange}
+        sort={sort}
+        onsortchange={handleSortChange}
+      ></c-board-toolbar>
+
+      <!-- What a drop did, for everyone: a closed card has nowhere to say it, and a screen
+           reader hears it here. Present before anything is said, so the first message is read. -->
+      <p class={boardMessageClass} role="status" data-board-message>
+        {boardMessage}
+      </p>
+
+      <template lwc:if={isTaskView}>
+        <template lwc:if={isTaskViewEmpty}>
+          <div class="state" data-empty="tasks">
+            <p class="state-title">{filteredEmptyTitle}</p>
+            <p class="state-detail">
+              Choose All sources to see the rest of the board.
+            </p>
+          </div>
+        </template>
+        <template lwc:else>
+          <c-board-columns
+            class="columns"
+            columns={viewColumns}
+            data-state="ready"
+          >
+            <template for:each={viewColumns} for:item="col">
+              <section
+                class="column"
+                data-board-column
+                key={col.key}
+                data-column={col.key}
+                ondragover={handleDragOver}
+                ondragleave={handleDragLeave}
+                ondrop={handleDrop}
+              >
+                <h2 class="col-head">
+                  <span class="col-name">{col.label}</span>
+                  <span class="col-count">{col.countLabel}</span>
+                </h2>
+                <template lwc:if={col.isEmpty}>
+                  <p class="col-empty">Nothing here</p>
+                </template>
+                <template for:each={col.cards} for:item="card">
+                  <div class="stack" key={card.key}>
+                    <c-board-card
+                      card={card}
+                      data-key={card.key}
+                      data-status={card.status}
+                      abilities={abilities}
+                      expanded-key={expandedKey}
+                      feedback={feedback}
+                      record-link={recordLink}
+                      ontoggle={handleToggle}
+                      onmove={handleMove}
+                      onsave={handleSave}
+                      onopenrecord={handleOpenRecord}
+                      oncarddragstart={handleCardDragStart}
+                      oncarddragend={handleCardDragEnd}
+                      onretry={handleRetry}
+                    ></c-board-card>
+                    <template lwc:if={card.hasChildren}>
+                      <ul class="children">
+                        <template for:each={card.children} for:item="child">
+                          <li key={child.key}>
+                            <c-board-card
+                              card={child}
+                              data-key={child.key}
+                              data-status={child.status}
+                              abilities={abilities}
+                              expanded-key={expandedKey}
+                              feedback={feedback}
+                              record-link={recordLink}
+                              ontoggle={handleToggle}
+                              onmove={handleMove}
+                              onsave={handleSave}
+                              onopenrecord={handleOpenRecord}
+                              oncarddragstart={handleCardDragStart}
+                              oncarddragend={handleCardDragEnd}
+                              onretry={handleRetry}
+                            ></c-board-card>
+                          </li>
+                        </template>
+                      </ul>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </c-board-columns>
+
+          <!-- Records the configured columns do not account for. Kept visible on purpose:
+               dropping them would hide exactly the data build 03 chose to surface. -->
+          <template lwc:if={hasOutside}>
+            <section class="outside" data-region="outside">
+              <h2 class="outside-head">Outside the configured columns</h2>
+              <p class="outside-note">
+                These have a status that is not one of the board columns —
+                either the source system reported something with no Salesforce
+                mapping, or the column is not configured. They are not "to do"
+                and are not counted as such.
+              </p>
+              <div class="outside-cards">
+                <template for:each={outsideCards} for:item="card">
+                  <c-board-card
+                    key={card.key}
+                    card={card}
+                    data-key={card.key}
+                    data-status={card.status}
+                    abilities={abilities}
+                    expanded-key={expandedKey}
+                    feedback={feedback}
+                    record-link={recordLink}
+                    ontoggle={handleToggle}
+                    onmove={handleMove}
+                    onsave={handleSave}
+                    onopenrecord={handleOpenRecord}
+                    oncarddragstart={handleCardDragStart}
+                    oncarddragend={handleCardDragEnd}
+                    onretry={handleRetry}
+                  ></c-board-card>
+                </template>
+              </div>
+            </section>
+          </template>
+        </template>
+      </template>
+
+      <template lwc:else>
+        <template lwc:if={isEpicViewEmpty}>
+          <div class="state" data-empty="epics">
+            <template lwc:if={isFiltered}>
+              <p class="state-title">{filteredEmptyTitle}</p>
+              <p class="state-detail">
+                Choose All sources to see the rest of the board.
+              </p>
+            </template>
+            <template lwc:else>
+              <p class="state-title">Nothing to roll up yet.</p>
+              <p class="state-detail">
+                Nothing on this board is typed as an epic.
+              </p>
+            </template>
+          </div>
+        </template>
+        <template lwc:else>
+          <!-- The public board's epic view, from the same rules: epics from EpicRollup, and
+               cards whose source has no epics passing through into their own column. -->
+          <c-board-columns
+            class="columns"
+            columns={epicColumns}
+            data-region="epic-columns"
+          >
+            <template for:each={epicColumns} for:item="col">
+              <section
+                class="column"
+                data-board-column
+                key={col.key}
+                data-epic-column={col.key}
+                ondragover={handleDragOver}
+                ondragleave={handleDragLeave}
+                ondrop={handleDrop}
+              >
+                <h2 class="col-head">
+                  <span class="col-name">{col.label}</span>
+                  <span class="col-count">{col.countLabel}</span>
+                </h2>
+                <template lwc:if={col.isEmpty}>
+                  <p class="col-empty">{col.emptyLabel}</p>
+                </template>
+                <template for:each={col.cards} for:item="entry">
+                  <div class="stack" key={entry.key}>
+                    <template lwc:if={entry.isEpic}>
+                      <c-board-epic-card
+                        epic={entry}
+                        data-key={entry.key}
+                        abilities={abilities}
+                        expanded-key={expandedKey}
+                        record-link={recordLink}
+                        feedback={feedback}
+                        ontoggle={handleToggle}
+                        onopenrecord={handleOpenRecord}
+                        onfeature={handleFeature}
+                      ></c-board-epic-card>
+                    </template>
+                    <template lwc:else>
+                      <c-board-card
+                        card={entry}
+                        data-key={entry.key}
+                        data-status={entry.status}
+                        abilities={abilities}
+                        expanded-key={expandedKey}
+                        feedback={feedback}
+                        record-link={recordLink}
+                        ontoggle={handleToggle}
+                        onmove={handleMove}
+                        onsave={handleSave}
+                        onopenrecord={handleOpenRecord}
+                        oncarddragstart={handleCardDragStart}
+                        oncarddragend={handleCardDragEnd}
+                        onretry={handleRetry}
+                      ></c-board-card>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </template>
+          </c-board-columns>
+
+          <template lwc:if={hasOutsideEpics}>
+            <section class="outside" data-region="outside-epics">
+              <h2 class="outside-head">Outside the configured columns</h2>
+              <div class="outside-cards">
+                <template for:each={outsideEpics} for:item="entry">
+                  <div class="stack" key={entry.key}>
+                    <template lwc:if={entry.isEpic}>
+                      <c-board-epic-card
+                        epic={entry}
+                        data-key={entry.key}
+                        abilities={abilities}
+                        expanded-key={expandedKey}
+                        record-link={recordLink}
+                        feedback={feedback}
+                        ontoggle={handleToggle}
+                        onopenrecord={handleOpenRecord}
+                        onfeature={handleFeature}
+                      ></c-board-epic-card>
+                    </template>
+                    <template lwc:else>
+                      <c-board-card
+                        card={entry}
+                        data-key={entry.key}
+                        data-status={entry.status}
+                        abilities={abilities}
+                        expanded-key={expandedKey}
+                        feedback={feedback}
+                        record-link={recordLink}
+                        ontoggle={handleToggle}
+                        onmove={handleMove}
+                        onsave={handleSave}
+                        onopenrecord={handleOpenRecord}
+                        oncarddragstart={handleCardDragStart}
+                        oncarddragend={handleCardDragEnd}
+                        onretry={handleRetry}
+                      ></c-board-card>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </section>
+          </template>
+        </template>
+      </template>
+    </template>
+  </section>
+</template>

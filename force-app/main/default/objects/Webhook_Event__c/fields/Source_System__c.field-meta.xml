@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Source_System__c</fullName>
+    <description>System that sent the webhook. Backed by the same External_System global value set as Project__c and Work_Item__c, so the vocabulary cannot drift between inbound and outbound.</description>
+    <label>Source System</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetName>External_System</valueSetName>
+    </valueSet>
+</CustomField>

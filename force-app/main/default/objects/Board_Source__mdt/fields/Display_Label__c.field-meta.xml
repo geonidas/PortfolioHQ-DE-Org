@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Display_Label__c</fullName>
+    <description>What the boards call this source, on every card and in help text such as &quot;the Jira update runs in the background&quot;. Published to anonymous visitors on the public board since build 08. The client renders it and never compares it: a component that branched on this value would be branching on a vendor.</description>
+    <fieldManageability>DeveloperControlled</fieldManageability>
+    <label>Display Label</label>
+    <length>40</length>
+    <required>true</required>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>
