@@ -53,6 +53,8 @@ guest board. This file is the short version.
 - Deploying a permission set does not assign it. See the handoff for the assignments.
 - Verify with `sf apex run test --test-level RunLocalTests` on the org and `npm run test:unit`,
   `npm run lint`, `npm run prettier:verify` locally. Report real numbers.
+- `docs/tour/` is a code tour whose stops point at lines by snippet. After a change that moves or
+  rewrites code a stop points at, run `npm run tour` (refreshes it) and `npm run tour:check`.
 - Org-generated site scaffolding (`aura/`, `pages/`, `components/`, the `Communities*`, `Site*`
   and `Lightning*Controller` classes) is kept on purpose and excluded from lint and prettier.
   Do not edit or delete it.

@@ -22,6 +22,11 @@ traps that have each cost real time. `CLAUDE.md` is the short version for a codi
 Decisions and their reasoning are in `docs/adr/`, one register per build. Per-build narrative,
 written for the planning chat, is in `docs/build-summaries/`.
 
+**[The code tour](docs/tour/README.md)** walks through version 1 in seven short tours - the
+concepts each part rests on, why it is built the way it is, and the patterns that recur - with
+every stop on a real line of code. It runs in VS Code with the CodeTour extension, or reads as
+Markdown on GitHub.
+
 ## Working on it
 
 ```bash

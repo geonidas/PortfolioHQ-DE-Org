@@ -1,0 +1,74 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "5 · The public boundary",
+  "description": "Anyone with the link sees a board of the work flagged public. This tour is about why that visitor\ncan read only what was chosen for them and can do nothing else - as properties of the code, rather\nthan settings that have to stay right.\n\nConcepts: Experience Cloud (LWR) sites and the guest user, Apex class access and `@AuraEnabled`,\n`with sharing` and `USER_MODE`, guest sharing rules, DTOs, custom settings and custom permissions.",
+  "nextTour": "6 · Two boards, one set of parts",
+  "steps": [
+    {
+      "file": "force-app/main/default/classes/PublicBoardController.cls",
+      "pattern": "Separate from WorkItemBoardController because Apex class access is granted per class",
+      "title": "Why is there a second controller?",
+      "description": "Apex class access is granted per class, not per method. Any user who can reach a class can call\nevery `@AuraEnabled` method on it from the browser, whatever the page renders - so a guest who\ncould reach `WorkItemBoardController` could call `changeStatus`. `PublicBoardController` has no\nwrite method at all, which makes the public board read-only in its code rather than in a\npermission. A test reads the guest permission set's class grants and requires exactly one: this\nclass.\n\n**Concept.** An `@AuraEnabled` method is an endpoint. The components on a page decide what gets\ncalled in normal use; they do not decide what can be called.\n\n**Failure mode.** A single controller with a \"read-only mode\" is one mistaken grant, or one\nforgotten check, away from letting an anonymous visitor move cards in Jira.\n\n**Pattern: Safe by construction.** The write the guest must never make does not exist anywhere the\nguest can reach."
+    },
+    {
+      "file": "force-app/main/default/classes/PublicBoardController.cls",
+      "pattern": "public static PublicBoardData getPublicBoardData\\(\\) \\{",
+      "title": "Why does the public read take no parameters?",
+      "description": "One method, no arguments: nothing a client sends can change what comes back, so there is nothing to\nvalidate, widen or mis-default. Both views ship in the one call, and the board's view toggle,\nsource filter and sort only re-render what it already holds. An error becomes one fixed sentence,\nso query and field names never reach a browser.\n\nThe internal selector shows why: it takes a project scope and treats a blank one as \"everything\" -\nright on an internal page, fail-open on a public one. A test calls this method with no arguments,\nso adding a parameter breaks it at compile time.\n\n**Pattern: Safe by construction.** An argument that cannot be sent cannot be abused."
+    },
+    {
+      "file": "force-app/main/default/classes/PublicWorkItemSelector.cls",
+      "pattern": "WHERE Is_Public__c = TRUE AND Project__r\\.Is_Public__c = TRUE",
+      "title": "Where is `Is_Public__c` actually enforced?",
+      "description": "In this WHERE clause: the item's flag and its project's flag, written into the query text rather\nthan composed from parameters. The guest sharing rules also gate on the item's own flag, but a\ncriteria-based sharing rule cannot reference a parent's field, so the project's flag is enforced\nhere and nowhere else. Any future guest-reachable class that reads `Work_Item__c` inherits that\nduty.\n\n`WITH USER_MODE` makes a missing guest grant throw instead of quietly returning more, and the field\nlist leaves out the description, assignee and URL, so no later change to a DTO can send them.\n\n**Concept.** Sharing rules decide which records a user can see at all; a query's WHERE clause\nnarrows that further. Only the second can look at a related record's field.\n\n**Failure mode.** Relying on the sharing rules alone would show a public item under a private\nproject. The seed data plants exactly such a record as a canary (tour 7).\n\n**Pattern: Fail closed.** No code path produces an unfiltered result, and a missing permission is\nan error rather than a wider answer."
+    },
+    {
+      "file": "force-app/main/default/classes/PublicBoardController.cls",
+      "pattern": "public class PublicCard \\{",
+      "title": "Why do DTOs cross the wire instead of records?",
+      "description": "What an anonymous visitor receives is a class, not a record. An SObject carries every queried field\nto the browser; a DTO carries only the properties it declares, so adding a field to the query\npublishes nothing.\n\nThe same care runs through the mapping: no Salesforce ids, with the auto number as the key; the\nproject's short name with no fallback to its internal name; a parent named only when the parent is\nitself public, because telling a visitor that a hidden record exists is a small leak with no upside;\nand the Unspecified type sent as null, so the client never learns the sentinel.\n\n**Pattern: Safe by construction.** Publishing a field takes a declared property, a line of mapping\nand a test change - there is no way to do it by accident."
+    },
+    {
+      "file": "force-app/main/default/classes/PublicBoardControllerTest.cls",
+      "pattern": "static void theDtoCarriesExactlyTheAgreedFieldsAndNoOthers\\(\\) \\{",
+      "title": "Why assert the payload's key set exactly?",
+      "description": "The test serialises a card and compares its keys with an exact set - an allow-list, not a list of\nbanned fields. Adding a property fails it, so publishing something new to an anonymous visitor is a\ndecision somebody makes, with the test failing first and naming the new key. Each entry carries the\nbuild and step that added it, and a removal is recorded the same way. A second test bans an `\"Id\"`\nkey and named private fields outright.\n\n**Failure mode.** A block-list only catches the fields someone thought to list; the field nobody\nthought about is the one that leaks.\n\n**Pattern: Pin the contract exactly.** The set is the contract, so the test asserts the whole set.\n\n**Pattern: Watch the test fail.** Every addition to the list was made after seeing this test fail\nfor it."
+    },
+    {
+      "file": "force-app/main/default/classes/GuestAccessTest.cls",
+      "pattern": "static void theBoardGuestReadsExactlyTheseFields\\(\\) \\{",
+      "title": "How is the guest's field access pinned?",
+      "description": "The same idea, one layer down. The test reads the guest permission set's field grants from the org\nand compares them with an exact list, and requires that the guest can edit nothing. Granting the\nguest a field now fails this test and the DTO key-set test together.\n\nThese tests read the grants rather than running as the guest, because a freshly built scratch org\nmay have no site and so no guest user; a runtime check runs as well when one exists.\n\n**Failure mode.** Before build 08, the suite only forbade four named fields, so a new grant failed\nnothing.\n\n**Pattern: Pin the contract exactly.** What the guest may read is a set, asserted whole."
+    },
+    {
+      "file": "force-app/main/default/classes/PublicBoardControllerTest.cls",
+      "pattern": "static void twoHundredPublicRecordsCostOneQuery\\(\\) \\{",
+      "title": "Why does one query per visitor matter?",
+      "description": "Two hundred public records cost one SOQL query. The epic ancestry, child counts, the cap on\ncompleted epics and the featured epic are all worked out in memory from the rows that one query\nreturned (`EpicRollup`). Per-source rules come from custom metadata through `getAll()`, the\npriority order from a describe, and the featured epic from a cached custom setting - none of which\nis a query.\n\n**Failure mode.** A query per epic or per card puts the page one busy project away from the governor\nlimit, and a Developer Edition site has ten minutes of server time a day. The count was also checked\nlive, as the guest, with a trace flag - a run as the owner proves nothing about what the guest\ncosts (the recipe is in the handoff).\n\n**Pattern: Design to the limit.** The budget is one query, and everything else is arranged to fit\nin it.\n\n**Pattern: Pin the contract exactly.** The query count is asserted as a number, so a change that\nadds a second query fails."
+    },
+    {
+      "file": "force-app/main/default/classes/PublicBoardController.cls",
+      "pattern": "card\\.inFeaturedEpic = rollup\\.inFeaturedEpic\\(record\\.Id\\);",
+      "title": "How does the visitor learn which epic is featured without an id?",
+      "description": "As answers. The featured epic's card says `isFeatured`, and every card says whether it rolls up\ninto an epic (`inEpic`) and whether that epic is the featured one (`inFeaturedEpic`). Apex works\nthese out against the rows the visitor's own query returned, so an epic the visitor cannot see is\ntreated as none, and the client never walks a hierarchy.\n\nPublishing the featured epic's Salesforce Id was the first proposal, and it was declined at the\ndesign step: no public DTO carries an id, and the key-set test bans one.\n\n**Pattern: Send answers, not inputs.** The client gets the decision it needs to render, not the raw\ndata it would have to interpret - and raw data is exactly what should not reach an anonymous\nbrowser."
+    },
+    {
+      "file": "force-app/main/default/classes/WorkItemTriggerHandler.cls",
+      "pattern": "Is_Public__c WAS A CONDITION ON PUSHING",
+      "title": "Why is `Is_Public__c` a read gate and nothing else?",
+      "description": "The flag answers one question: may an anonymous visitor read this record. It says nothing about who\nmay write it; object and field permissions govern that.\n\n**Failure mode.** In build 07 step 8, `item.Is_Public__c != true` was added to the push condition,\nto make sync inbound-only for anything on public display. It silently made every item on the public\nboard read-only from the internal board - Jira's included, with no error anywhere - on exactly the\nrecords the project exists to show. Step 9 removed it, and two tests now fail if it comes back.\n\n**Pattern: One flag, one meaning.** The comment block stays in the class, in capitals, because the\nchange looked reasonable and the damage was invisible."
+    },
+    {
+      "file": "force-app/main/default/classes/FeaturedEpicService.cls",
+      "pattern": "A setting rather than a field on Work_Item__c",
+      "title": "Why is the featured epic a setting and not a field?",
+      "description": "The featured epic is the org default of a hierarchy custom setting holding one Id - so there is one\nby construction - rather than a flag on the work item. Featuring an epic is then never a work item\nedit: the trigger does not run, nothing is staged, nothing is pushed to Jira. The setting is read\nfrom the application cache, so both boards resolve it without a query.\n\nWhat can be featured is one rule, applied when it is set and again when it is read: an epic that is\npublic, under a public project. One that stops qualifying reads as none rather than being cleared.\nWho may set it is checked in the controller against a custom permission; the button being hidden is\npresentation.\n\n**Concept.** A custom setting is cached configuration data; a custom permission is a named\ncapability granted through permission sets and checked in code.\n\n**Pattern: Attach the side effect to the change.** Seen from the other side: where the state lives\ndecides which side effects fire, so choosing a setting over a field is choosing that featuring an\nepic pushes nothing.\n\n**Pattern: The server holds the rule.** The controller refuses a user without the permission,\nwhatever the page shows them."
+    },
+    {
+      "file": "force-app/main/default/classes/FeaturedEpicService.cls",
+      "pattern": "Database\\.insert\\(setting, AccessLevel\\.SYSTEM_MODE\\);",
+      "title": "Why is the setting written in system mode?",
+      "description": "Plain DML on a custom setting is checked against the running user, even in Apex, and refused for\nanyone who cannot customise the application - from a `without sharing` class too, and with the\nsetting granted in a permission set. Only an explicit `AccessLevel.SYSTEM_MODE` writes it. The\nauthorisation is the custom permission the controller checks; no user is granted the setting itself.\n\n**Failure mode.** Every test in the step that built the service ran as the admin, which passes\neither way. The first test run as a Standard User holding the project's permission set found it.\n\n**Pattern: Test as the real user.** A check made as the admin passed for the wrong reason.\n\n**Pattern: Know who your code runs as.** Custom objects and custom settings answer the same DML\ndifferently for the same user, and only the running user reveals it."
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "6 · Two boards, one set of parts",
+  "description": "Both boards are Lightning Web Components. The internal board reads, edits, drags, retries and\nfeatures; the public board reads. They share one card, one toolbar, one layout and one view model,\nwithout the public bundle ever carrying the internal board's Apex.\n\nConcepts: LWC modules and bundles, `@wire` and `refreshApex`, Change Data Capture and\n`lightning/empApi`, LWR sites, Jest with jsdom and accessibility checks.",
+  "nextTour": "7 · Proving it: tests and operations",
+  "steps": [
+    {
+      "file": "force-app/main/default/lwc/boardLayout/boardLayout.js",
+      "pattern": "This module imports no Apex, and that is the whole reason it can be shared\\.",
+      "title": "Why can the two boards share modules at all?",
+      "description": "An LWC import is not conditional: whatever a module imports ships in the bundle of every page that\nuses it. A component that imported `WorkItemBoardController` would carry the class a guest must\nnever reach into the public page, whichever branch ran. So the two boards stay separate\ncomponents, each importing its own controller, and everything they share imports no Apex -\n`boardLayout`, `boardModel`, `boardCard`, `boardEpicCard`, `boardColumns`, `boardToolbar`,\n`boardTheme`. The shared modules are pure: plain data in, plain data out, no wire, no state.\n\nNothing the controller returns is dropped on the way: a card whose status is not a configured\ncolumn comes back in `other` and is shown below the board, not lost.\n\n**Concept.** An LWC bundle's static imports are resolved at build time and shipped with it, Apex\nmethod imports included.\n\n**Pattern: Safe by construction.** The public bundle cannot call a class it does not contain."
+    },
+    {
+      "file": "force-app/main/default/lwc/__tests__/guestBundle.test.js",
+      "pattern": "An LWC import is not conditional",
+      "title": "How is the public bundle kept free of the internal board's Apex?",
+      "description": "A unit test walks the public board's graph from source - JavaScript imports, child components\nnamed in templates, CSS imports - and asserts that the only Apex import anywhere in it is\n`PublicBoardController.getPublicBoardData`, that nothing in it imports `lightning/empApi` (which\nLWR sites do not support), and that every module shared with the internal board imports nothing\nfrom `@salesforce` or `lightning` at all.\n\nIt reads source rather than a build, so it runs in the ordinary Jest suite and fails before a\ndeploy rather than on a public page.\n\n**Pattern: Pin the contract exactly.** \"The guest bundle reaches one Apex method\" is asserted as a\nfact about the whole graph, not trusted to review."
+    },
+    {
+      "file": "force-app/main/default/lwc/boardCard/boardCard.js",
+      "pattern": "@api abilities;",
+      "title": "Why does the card decide nothing?",
+      "description": "One card serves both boards. It renders the view model the board hands it and raises events -\ntoggle, move, save, open record - and the board does the work and hands the outcome back. What an\nopen card can do is passed in as `abilities`: the statuses it can move to, whether it can edit,\nretry, drag or open the record. The internal board passes them; the public board passes nothing, so\na public card has exactly one control, its disclosure. The card calls no Apex, which is what lets\nboth boards share it.\n\n**Failure mode.** A card that imported the save method, and hid its controls on the public board,\nwould put the write back into the guest bundle.\n\n**Pattern: Safe by construction.** A control the public board never grants is absent from the\npublic card, not hidden on it."
+    },
+    {
+      "file": "force-app/main/default/classes/BoardSourceRules.cls",
+      "pattern": "The board's counterpart to WorkItemAdapterFactory",
+      "title": "Why does the client never name a vendor?",
+      "description": "`BoardSourceRules` is the only reader of `Board_Source__mdt`. The controllers ask it about each\ncard's source and send the answers - a label to show, an accent token such as `accent-1` that the\nstylesheet maps to a colour, whether the source supports start dates and priority, whether its work\ncondenses into epics - so no component branches on which vendor a card came from. A client may show\na label; it never compares one.\n\nA unit test (`vendorNeutrality.test.js`) fails on \"jira\" or \"asana\" anywhere in LWC JavaScript,\nHTML or CSS outside comments. It strips comments with a real tokenizer, because a regular expression\nthat strips `// ...` also strips half of `https://...`.\n\n**Pattern: Send answers, not inputs.** The client receives decisions it can render, and a third\nsource needs a metadata row, not a component change.\n\n**Pattern: Configuration, not code.** Per-source behaviour is a row in custom metadata, read with\n`getAll()`, which costs the public board no query."
+    },
+    {
+      "file": "force-app/main/default/lwc/boardModel/boardModel.js",
+      "pattern": "export function formatDay\\(",
+      "title": "Why are dates sent as strings?",
+      "description": "A start or due date is a calendar day, not an instant, so it travels from Apex as a `YYYY-MM-DD`\nstring and the client reads the day from the string's own parts. The creation date is a real\ninstant, so it arrives as a Datetime and shows in the viewer's own zone. On the Apex side, `IsoDate`\nreads a vendor's day into a `Date`, never a `Datetime`.\n\n**Failure mode.** `new Date(\"2026-09-24\")` is midnight UTC, which is the 23rd for every visitor west\nof Greenwich: every due date on the board one day early, for exactly the people most likely to use\nit.\n\n**Pattern: A day is not an instant.** A value without a time zone never passes through a type that\nhas one."
+    },
+    {
+      "file": "jest.config.js",
+      "pattern": "process\\.env\\.TZ = \"America/Los_Angeles\";",
+      "title": "Why does Jest run in Los Angeles?",
+      "description": "Every Jest run is pinned to a zone behind UTC, so a date bug fails locally rather than only for\nvisitors in the Americas. The pin is set in the config, before the workers start, because Jest hands\neach test file a copy of `process.env` - setting `TZ` inside a test silently does nothing.\n`boardModel.test.js` asserts the zone first, so removing the pin fails loudly.\n\n**Pattern: A day is not an instant.** The zone where the bug appears is the zone the tests run in.\n\n**Pattern: Control what the test reads.** The machine's own time zone is an input, so the suite fixes\nit rather than inheriting it."
+    },
+    {
+      "file": "force-app/main/default/lwc/workItemBoard/workItemBoard.js",
+      "pattern": "subscribe\\(CHANGE_CHANNEL, -1, \\(\\) => this\\.scheduleRefresh\\(\\)\\)",
+      "title": "How does the internal board stay live?",
+      "description": "It subscribes to Change Data Capture on `Work_Item__c` and refreshes when a change arrives,\ndebounced by a second and a half, because one save produces several events: the edit, then the\nsync's own write-back a moment later. The header says Live only once the subscription has resolved,\nand stops saying it when the stream reports an error. The subscription belongs to the container\nalone; the shared components never import `lightning/empApi`.\n\nCDC ignores sharing, so Salesforce allows the subscription only to a user with View All Records on\nthe object (or View All Data). The project's permission set deliberately does not grant it, so for\nsuch a user the board loads, refreshes after their own saves, and simply does not say Live.\nWidening the permission would fix that and would also widen what they can see - a decision, not a\nfix.\n\n**Concept.** Change Data Capture publishes an event for each record change; `lightning/empApi`\nsubscribes to it from a component in Lightning Experience.\n\n**Pattern: Honest state.** \"Live\" is shown only while it is true.\n\n**Pattern: Know who your code runs as.** Whether the board is live depends on the viewing user's\npermissions, not on the code."
+    },
+    {
+      "file": "force-app/main/default/lwc/publicWorkItemBoard/publicWorkItemBoard.js",
+      "pattern": "export const IDLE_MS = 300000;",
+      "title": "Why does the public board poll, and why does it stop?",
+      "description": "LWR sites do not support `lightning/empApi`, so the public board re-reads every 30 seconds\ninstead, but only while the tab is visible and the visitor has done something in the last five\nminutes.\nAfter that it shows Paused, and a Refresh button is always there. Each poll is the same\nparameterless, one-query call the page loaded with, so polling widens nothing.\n\nThe method is `cacheable=true` without a global scope, so it is not cached on the CDN and every\npoll reaches the server. That is what makes \"every 30 seconds\" true, and why the idle cap matters: a\nDeveloper Edition site gets ten minutes of server time a day, and one unattended tab would spend a\nreal share of it. The view is chosen once, from the first payload, and a later poll never moves\nthe visitor.\n\n**Pattern: Design to the limit.** The refresh rate is set by what the site's allowance can afford,\nand spending stops when nobody is looking."
+    },
+    {
+      "file": "force-app/main/default/lwc/boardCard/boardCard.html",
+      "pattern": "<span class=\"assistive\">\\{card\\.metaSpoken\\}</span>",
+      "title": "Why does the spoken text come from data?",
+      "description": "The LWC template compiler drops the whitespace between tags: `<span>A</span> <span>B</span>`\nrenders as \"AB\". A flex gap hides that visually, but a screen reader hears the spans run together\n(\"JiraWI-0003\"). So `boardModel` builds a spoken string for each meta line, rendered in a visually\nhidden span, and the drawn line, separator dots included, is `aria-hidden`.\n\nAccessibility is checked in two places: sa11y in every Jest test of a component, and axe-core in a\nreal browser over the public board as a guest (`scripts/audit-public-board.mjs`), which is the only\nplace colour contrast is measured, since jsdom has no layout.\n\n**Failure mode.** The markup reads correctly in the source and wrongly aloud, and no visual check\nnotices.\n\n**Pattern: Test the path production takes.** What a visitor hears is the compiled output, so that\nis what gets probed and checked."
+    }
+  ]
+}

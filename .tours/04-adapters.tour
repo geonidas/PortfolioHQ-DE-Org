@@ -1,0 +1,68 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "4 · Two adapters behind one interface",
+  "description": "Jira and Asana differ in almost every way the integration cares about. Jira sends everything in\nthe payload and moves status through workflow transitions. Asana sends an id and an action, models\na board column and a completion checkbox as separate things, and names everything by gid. The\ninterface absorbed both.\n\nConcepts: Named Credentials, untyped JSON in Apex, Asana's batch API, custom metadata as a mapping\ntable.",
+  "nextTour": "5 · The public boundary",
+  "steps": [
+    {
+      "file": "force-app/main/default/classes/JiraAdapter.cls",
+      "pattern": "Everything Jira-shaped is confined here",
+      "title": "What does the Jira adapter know that nothing else does?",
+      "description": "The named credential, the `/rest/api/3` paths, the webhook payload's shape, the transitions\nenvelope, and the tables that map Jira's status and issue type names to Salesforce's. Both\ndirections read the same tables, so inbound and outbound cannot disagree about what a status means.\nTwo judgement calls are recorded beside them: Jira's Sub-task maps to Task, because `Type__c` has no\nsubtask value and a flattening reads better than a blank; and nothing maps to Unspecified on\npurpose, so \"not mapped\" stays distinguishable from a real value.\n\nThose tables are still constants, while Asana's mappings are custom metadata - two mechanisms for\none job, recorded in the handoff as an open item for the next time a Jira mapping changes.\n\n**Pattern: Vendor at the edge.** Jira's paths, payloads and workflow rules live in this class;\nabove it, a work item is a work item.\n\n**Pattern: One home for each fact.** `normalizeStatus` and the outbound `match` read one table, so a\nstatus added to it is understood in both directions at once."
+    },
+    {
+      "file": "force-app/main/default/classes/JiraAdapter.cls",
+      "pattern": "Two things are read from the issue, not the envelope\\.",
+      "title": "Why is the id `issue.id` and the timestamp `fields.updated`?",
+      "description": "Both come from the issue rather than the webhook's envelope. The id is `issue.id`, numeric and\npermanent, never the key (`DOPP-15`), which changes when an issue moves project. The timestamp is\n`issue.fields.updated`, when the issue changed, never the envelope's own timestamp, which says when\nthe event fired - and on a redelivery, that is later than the change it describes.\n\n**Failure mode.** Keyed on the key, a moved issue arrives as a new record. Ordered by the event's\ntime, a redelivered old state can beat a newer one.\n\n**Pattern: Key on what doesn't change.** Identity and ordering both come from the values the source\nguarantees, not the ones that happen to be nearby."
+    },
+    {
+      "file": "force-app/main/default/classes/JiraAdapter.cls",
+      "pattern": "if \\(fields\\.containsKey\\('duedate'\\)\\) \\{",
+      "title": "How does the adapter tell a cleared date from a missing one?",
+      "description": "Jira sends a key with a null value when a field is empty, and leaves the key out when the field was\nnot sent. The adapter carries a date only when its key is present (`containsKey`, not a null\ncheck), so a present null clears the date in Salesforce and an absent key leaves it alone.\n\nA value that is present but is not a real YYYY-MM-DD day is not carried at all, and a log row names\nthe field and what it said. `IsoDate` is strict on purpose: `Date.valueOf` accepts a date-time and\nrolls an impossible day forward. The start date's Jira field id comes from configuration, because\ncustom field ids differ between Jira sites (`customfield_10015` is this one's).\n\n**Failure mode.** Treating an unreadable date as \"none\" would clear a date Salesforce holds on the\nstrength of a value nobody could read.\n\n**Pattern: Absent is not empty.** The same two states the `InboundChange` type keeps apart are\nread apart here, at the source."
+    },
+    {
+      "file": "force-app/main/default/classes/JiraAdapter.cls",
+      "pattern": "Three outcomes, and the difference between the last two is the point:",
+      "title": "Why is an unknown priority left alone instead of cleared?",
+      "description": "Priority is mapped by id, with three outcomes decided before the processor sees anything. A mapped\nid is carried as its value. Jira's en dash - the stand-in a Jira issue needs, since it cannot be\nwithout a priority - or an explicit null is carried as blank and clears the field. An id no row\nmaps is not carried: `Priority__c` keeps what it holds, and a log row names the id.\n\n**Failure mode.** Clearing on an unknown id would read as somebody removing the priority. Failing\nwould cost the delivery the rest of its change, a status move included.\n\n**Pattern: Name every case.** \"Unknown\" and \"none\" look alike from far away and lead to opposite\nwrites, so the comment lists all three outcomes before the code handles them."
+    },
+    {
+      "file": "force-app/main/default/classes/AsanaAdapter.cls",
+      "pattern": "The difference from Jira that shapes this class",
+      "title": "Why does the Asana adapter call out while parsing?",
+      "description": "Asana's events name a resource and an action and carry nothing else - not the title, not the\nsection, not whether the task is finished. So `parseInbound` hydrates: it collects the distinct task\ngids a batch mentions and fetches them through Asana's batch endpoint, ten tasks per request.\n\nThis is why the interface takes a batch. Two events about one task are one fetch, and fifty tasks\nare five callouts rather than fifty. A task the fetch did not reach - the callout budget ran out, or\none slice failed - comes back with no change, which the processor reads as \"leave it staged\" for a\nlater run. An event about anything but a task comes back with nothing too, and the sweeper retires\nit. The tracked projects are read before the first callout: a query is not DML, and it is the only\nway to know which of a task's memberships to read.\n\n**Pattern: Design to the limit.** Deduplicate, then batch, then stop cleanly at the budget and leave\nthe rest for the next run."
+    },
+    {
+      "file": "force-app/main/default/classes/AsanaAdapter.cls",
+      "pattern": "Parallel lists rather than a map keyed on Webhook_Event__c\\.Id\\.",
+      "title": "Why pair events and gids by position instead of a map?",
+      "description": "Events and the task gids read from them are kept in two parallel lists, not a map keyed on the\nevent's Id. An unsaved row has no Id, and a map keyed on null answers every event with the same\ntask.\n\n**Failure mode.** That is how an unreadable delivery once came back carrying another task's change.\n\n**Pattern: Key on what doesn't change.** A record's Id does change - from nothing to something, when\nit is inserted - so it is not a key until then. Position is the key that always exists here."
+    },
+    {
+      "file": "force-app/main/default/classes/AsanaAdapter.cls",
+      "pattern": "Keyed on the gid and never on the section name",
+      "title": "Why map sections by gid and never by name?",
+      "description": "Status comes from the section's gid, type from the chosen option's gid on the project's Format\nfield, and priority from the Priority field - found by the field's own gid - and then its option's\ngid. Names are kept only where a person reads them: in log rows, and in `Source_Type__c`.\n\n**Failure mode.** A mapping keyed on a name silently stops matching the day somebody retitles a\ncolumn, and nothing notices until the board is wrong.\n\n**Pattern: Key on what doesn't change.** A gid survives a rename. An unmapped gid lands on\nUnspecified, with a log row saying which gid to map."
+    },
+    {
+      "file": "force-app/main/default/classes/AsanaAdapter.cls",
+      "pattern": "The completion flag overrides the section",
+      "title": "Why does the completion checkbox beat the section?",
+      "description": "A completed task is Done whatever section it sits in. Asana's checkbox is independent of sections\nand is the easiest way to finish something in its UI: it strikes the task through without moving\nthe card. On the way out, a status change writes both - the section move and the completion flag -\nso Salesforce never authors the contradiction itself.\n\nThe same care applies to projects: a task can sit in several projects with a different section in\neach, so the adapter reads only the membership for a project this org tracks.\n\n**Failure mode.** Without the rule, ticking the box finishes a task in Asana while the board keeps\nshowing it In Progress, and nothing says why.\n\n**Pattern: Vendor at the edge.** Asana's two representations of \"done\" are reconciled here, and\neverything above the adapter sees one status."
+    },
+    {
+      "file": "force-app/main/default/classes/AsanaAdapter.cls",
+      "pattern": "it refuses it as a 400 INSIDE an otherwise 200 response",
+      "title": "Why must a mock be as strict as the API?",
+      "description": "Asana's batch endpoint refuses a query string inside an action's path, and refuses it as a 400\ninside an otherwise 200 response. So the fields go in each action's `options.fields`, and\n`readBatch` checks every action's own status code rather than the envelope's.\n\n**Failure mode.** The test mock read the gid out of the path and answered happily whatever else was\nin it, so the suite passed while every task in every live batch failed. It was found against the\nlive API.\n\n**Pattern: Test the path production takes.** A mock that accepts what the real service refuses\nproves the code agrees with the mock, not with the service."
+    },
+    {
+      "file": "force-app/main/default/classes/FieldMappingService.cls",
+      "pattern": "Vendor value mappings, read in both directions from one table\\.",
+      "title": "Where do mappings live?",
+      "description": "In `Field_Mapping__mdt`, read in both directions through this class: an Asana section gid to a\n`Status__c` on the way in, the `Status__c` back to the gid on the way out. Four mapping types:\nStatus, Type, Field (which vendor field holds a Salesforce field, such as Jira's start date), and\nPriority, where a `Maps_To_Blank__c` row stands for a vendor's \"none\".\n\n`normalizedFor` returns null rather than a fallback, because what an unmapped value should become\ndiffers by field and is the caller's decision; `isMapped` tells \"maps to blank\" from \"maps to\nnothing\". The records deploy with the code - since build 08 every custom metadata record is in\nsource except the secrets.\n\n**Concept.** A custom metadata type is a table of configuration records that deploys with the code,\nas metadata rather than data, so the same rows reach every org the source reaches - and a test\ncannot insert one.\n\n**Failure mode.** Two tables drift, and drift shows as a task that moves on the board and then moves\nback.\n\n**Pattern: Configuration, not code.** Gids and custom field ids differ between workspaces and sites,\nso they are rows, not constants.\n\n**Pattern: One home for each fact.** One table, both directions."
+    }
+  ]
+}
