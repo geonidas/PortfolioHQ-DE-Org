@@ -1,0 +1,76 @@
+<template>
+  <section class="hero" aria-labelledby="hero-name">
+    <div class="wrap grid">
+      <div class="copy">
+        <template lwc:if={hasAvailability}>
+          <p class="availability" data-availability>
+            <span class="dot" aria-hidden="true"></span>{availability}
+          </p>
+        </template>
+
+        <h1 id="hero-name" class="name">{name}</h1>
+        <p class="headline">{headline}</p>
+        <template lwc:if={hasLocation}>
+          <p class="location" data-location>
+            <c-portfolio-icon name="pin"></c-portfolio-icon>
+            <span>{location}</span>
+          </p>
+        </template>
+        <p class="intro">{intro}</p>
+
+        <div class="actions">
+          <template lwc:if={hasProjects}>
+            <a
+              class="btn btn-primary"
+              href="#projects"
+              data-action="projects"
+              onclick={handleProjects}
+            >
+              View projects
+              <c-portfolio-icon name="arrow"></c-portfolio-icon>
+            </a>
+          </template>
+          <template lwc:if={hasResume}>
+            <a
+              class="btn btn-secondary"
+              href={resumeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-action="resume"
+            >
+              {resumeLabel}
+              <c-portfolio-icon name="download"></c-portfolio-icon>
+              <span class="assistive">(opens in a new tab)</span>
+            </a>
+          </template>
+        </div>
+
+        <c-portfolio-links class="profiles" links={links}></c-portfolio-links>
+      </div>
+
+      <div class="portrait">
+        <div class="frame">
+          <template lwc:if={showPhoto}>
+            <img
+              class="photo"
+              src={photoUrl}
+              alt={photoAlt}
+              data-photo
+              onerror={handlePhotoError}
+            />
+          </template>
+          <template lwc:else>
+            <div
+              class="initials"
+              data-initials
+              role="img"
+              aria-label={photoAlt}
+            >
+              {initials}
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>

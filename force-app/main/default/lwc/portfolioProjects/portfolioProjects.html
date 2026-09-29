@@ -1,0 +1,122 @@
+<template>
+  <section class="section" aria-labelledby="projects-title">
+    <div class="wrap">
+      <p class="eyebrow">Projects</p>
+      <h2 id="projects-title" class="section-title">Things I've built</h2>
+      <template lwc:if={hasIntro}>
+        <p class="intro" data-intro>{intro}</p>
+      </template>
+
+      <ul class="grid">
+        <template for:each={cards} for:item="card">
+          <li key={card.key} class={card.cardClass} data-project={card.id}>
+            <template lwc:if={card.hasMedia}>
+              <div class={card.mediaClass} data-media>
+                <div class="stage">
+                  <template lwc:if={card.desktop}>
+                    <figure class="shot desktop">
+                      <div class="chrome" aria-hidden="true">
+                        <span class="light"></span><span class="light"></span
+                        ><span class="light"></span>
+                      </div>
+                      <img
+                        src={card.desktop.url}
+                        alt={card.desktop.alt}
+                        data-url={card.desktop.url}
+                        loading="lazy"
+                        onerror={handleImageError}
+                      />
+                    </figure>
+                  </template>
+                  <template lwc:if={card.phone}>
+                    <figure class="shot phone">
+                      <img
+                        src={card.phone.url}
+                        alt={card.phone.alt}
+                        data-url={card.phone.url}
+                        loading="lazy"
+                        onerror={handleImageError}
+                      />
+                    </figure>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <div class="body">
+              <div class="card-head">
+                <h3 class="title">{card.title}</h3>
+                <template lwc:if={card.badge}>
+                  <span class="badge">{card.badge}</span>
+                </template>
+              </div>
+
+              <template lwc:if={card.access}>
+                <p class={card.access.cssClass} data-access>
+                  <c-portfolio-icon name={card.access.icon}></c-portfolio-icon>
+                  <span>{card.access.label}</span>
+                </p>
+              </template>
+
+              <p class="summary">{card.summary}</p>
+
+              <template lwc:if={card.hasTryIt}>
+                <p class="try-it" data-try-it>
+                  <span class="try-label">What you can do</span>
+                  {card.tryIt}
+                </p>
+              </template>
+
+              <ul class="chips">
+                <template for:each={card.tags} for:item="tag">
+                  <li key={tag.key} class="chip">{tag.text}</li>
+                </template>
+              </ul>
+
+              <template lwc:if={card.hasActions}>
+                <div class="actions">
+                  <template lwc:if={card.primary}>
+                    <a
+                      class="btn btn-primary"
+                      href={card.primary.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-kind="demo"
+                    >
+                      {card.primary.label}
+                      <c-portfolio-icon
+                        name={card.primary.icon}
+                      ></c-portfolio-icon>
+                      <span class="assistive">
+                        ({card.title}, opens in a new tab)</span
+                      >
+                    </a>
+                  </template>
+                  <ul class="more">
+                    <template for:each={card.others} for:item="link">
+                      <li key={link.key}>
+                        <a
+                          class="action"
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-kind={link.kind}
+                        >
+                          <c-portfolio-icon name={link.icon}></c-portfolio-icon>
+                          <span>{link.label}</span>
+                          <span class="assistive">
+                            ({card.title}, opens in a new tab)</span
+                          >
+                        </a>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </div>
+  </section>
+</template>

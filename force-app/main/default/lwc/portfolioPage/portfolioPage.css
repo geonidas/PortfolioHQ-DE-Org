@@ -1,0 +1,18 @@
+@import "c/portfolioTheme";
+
+:host {
+  display: block;
+  background: var(--pf-paper);
+  color: var(--pf-ink);
+  font-family: var(--pf-font);
+  -webkit-font-smoothing: antialiased;
+}
+main {
+  display: block;
+}
+
+/* Where a section lands when the bar scrolls to it: clear of the sticky bar, which is 4rem. */
+[data-section] {
+  display: block;
+  scroll-margin-top: 4rem;
+}

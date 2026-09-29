@@ -1,0 +1,29 @@
+@import "c/portfolioTheme";
+
+:host {
+  display: block;
+}
+.grid {
+  display: grid;
+  gap: 0.5rem;
+}
+.paragraph {
+  max-width: 40rem;
+  margin: 0 0 1.1rem;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+.paragraph:last-child {
+  margin-bottom: 0;
+}
+
+/* The heading beside the story, not over it, so a short story is not a lonely paragraph. */
+@media (min-width: 52rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 4rem;
+  }
+  .section-title {
+    margin-bottom: 0;
+  }
+}

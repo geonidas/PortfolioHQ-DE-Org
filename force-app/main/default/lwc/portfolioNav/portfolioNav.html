@@ -1,0 +1,52 @@
+<template>
+  <header class="bar" onkeydown={handleKeydown}>
+    <div class="wrap bar-inner">
+      <a class="brand" href="#top" data-brand onclick={handleBrand}>
+        <span class="mark" aria-hidden="true">{initials}</span>
+        <span class="brand-name">{name}</span>
+      </a>
+
+      <button
+        type="button"
+        class="menu-button"
+        data-menu-button
+        aria-expanded={menuExpanded}
+        aria-controls="site-menu"
+        onclick={toggleMenu}
+      >
+        <c-portfolio-icon name={menuIcon}></c-portfolio-icon>
+        <span class="assistive">{menuLabel}</span>
+      </button>
+
+      <nav id="site-menu" class={linksClass} aria-label="Sections">
+        <ul class="list">
+          <template for:each={items} for:item="item">
+            <li key={item.id}>
+              <a
+                class="link"
+                href={item.href}
+                data-id={item.id}
+                aria-current={item.current}
+                onclick={handleLink}
+                >{item.label}</a
+              >
+            </li>
+          </template>
+        </ul>
+        <template lwc:if={hasResume}>
+          <a
+            class="btn btn-secondary resume"
+            href={resumeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-resume
+          >
+            {resumeLabel}
+            <c-portfolio-icon name="download"></c-portfolio-icon>
+            <span class="assistive">(opens in a new tab)</span>
+          </a>
+        </template>
+      </nav>
+    </div>
+  </header>
+</template>

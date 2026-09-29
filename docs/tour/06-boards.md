@@ -91,9 +91,10 @@ stylesheet maps to a colour, whether the source supports start dates and priorit
 condenses into epics - so no component branches on which vendor a card came from. A client may show
 a label; it never compares one.
 
-A unit test (`vendorNeutrality.test.js`) fails on "jira" or "asana" anywhere in LWC JavaScript,
-HTML or CSS outside comments. It strips comments with a real tokenizer, because a regular expression
-that strips `// ...` also strips half of `https://...`.
+A unit test (`vendorNeutrality.test.js`) fails on "jira" or "asana" anywhere in the boards' LWC
+JavaScript, HTML or CSS outside comments (the `portfolio*` bundles of the portfolio site are exempt:
+they describe a finished project in prose and render no board data). It strips comments with a real
+tokenizer, because a regular expression that strips `// ...` also strips half of `https://...`.
 
 **Pattern: Send answers, not inputs.** The client receives decisions it can render, and a third
 source needs a metadata row, not a component change.

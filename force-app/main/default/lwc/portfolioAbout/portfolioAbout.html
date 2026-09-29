@@ -1,0 +1,15 @@
+<template>
+  <section class="section" aria-labelledby="about-title">
+    <div class="wrap grid">
+      <div class="heading">
+        <p class="eyebrow">About</p>
+        <h2 id="about-title" class="section-title">A bit about me</h2>
+      </div>
+      <div class="story">
+        <template for:each={paragraphs} for:item="paragraph">
+          <p key={paragraph.key} class="paragraph">{paragraph.text}</p>
+        </template>
+      </div>
+    </div>
+  </section>
+</template>

@@ -1,0 +1,21 @@
+<template>
+  <ul class={listClass}>
+    <template for:each={items} for:item="link">
+      <li key={link.id}>
+        <a
+          class="link"
+          href={link.url}
+          target={link.target}
+          rel={link.rel}
+          data-link={link.id}
+        >
+          <c-portfolio-icon name={link.icon}></c-portfolio-icon>
+          <span>{link.label}</span>
+          <template lwc:if={link.external}>
+            <span class="assistive">(opens in a new tab)</span>
+          </template>
+        </a>
+      </li>
+    </template>
+  </ul>
+</template>

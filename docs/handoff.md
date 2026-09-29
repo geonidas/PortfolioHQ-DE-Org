@@ -17,6 +17,8 @@ verified - against live Jira and Asana up to build 09; build 10 calls neither. `
 has not been merged to `main` (the development org): see section 3, "Deleting an LWC from source",
 for the one thing that merge must also run. No build used a separate branch after build 08.
 
+**A second project shares this repo: the portfolio site** (branch `portfolioSite`, section 7). It is `portfolio*` LWCs and one static resource, needs no Apex and no guest access, and is on no site or org yet.
+
 Build 07's Asana setup (section 6) is done and live. Class names reflect the refactor after build
 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`. Older ADRs and summaries use the old
 name.
@@ -1081,3 +1083,111 @@ Re-registration is one curl plus one script run per org recreation.
 Let real webhooks create Asana work items. If a script is ever needed, it sets the outbound
 suppression flag on its first line - a status write on a record carrying an `External_Id__c`
 enqueues a real push to real Asana.
+
+## 7. The portfolio site (branch `portfolioSite`)
+
+A **project showcase** for the owner, linked from a résumé and LinkedIn: each project shown running,
+with a label for how far a visitor can go. A separate project from Portfolio HQ that shares the repo,
+the dev org and the site host. Nothing here is in `docs/adr/` or `docs/build-summaries/` yet: the
+work is committed step by step but the build is open.
+
+**Decision (2026-09-28, the owner): no skills, experience or certifications on the page.** They live
+on the résumé and LinkedIn, and a second copy is one more thing to keep current; the owner also has
+an employment gap they do not want given prominence. What a project was built with is on its card,
+as evidence. `portfolioContent.test.js` fails if an export named for experience, skills or
+certifications comes back, so restoring them is a decision and not drift. The page links the résumé
+rather than copying it.
+
+**Where it is.** `lwc/portfolioPage` is the whole page, exposed to Experience Builder
+(`lightningCommunity__Page`). In page order: `portfolioNav`, `portfolioHero`, `portfolioProjects`,
+`portfolioAbout` (prose only), `portfolioFooter`, with `portfolioLinks`, `portfolioIcon` and the
+CSS-only `portfolioTheme` underneath. **Everything the page says is
+`lwc/portfolioContent/portfolioContent.js`** - the one file to edit. Pictures are files in the
+`portfolio_assets` static resource, named by `PROFILE.photo` and each project's `media[].file`; the
+page is the only place that turns a name into an address.
+
+**A project card** shows the project in action first (a browser-framed screenshot, and a phone
+beside it), then an **access label**, the summary, a "What you can do" line, its tags and its
+links. `access` is `interactive`, `view`, `video` or `screenshots`; the first two must have a `demo`
+link, checked by the content test, so a card cannot promise a live version it does not link to.
+The first `demo` link is the card's button. The first `featured` project is shown wide.
+
+**Placement (the owner, 2026-09-28): the portfolio replaces the stub Home page of the existing
+`/neoGeoTest` site** ("Test Professional Site", `Test_Professional_Site1`), in neoGeoDevHub. In source
+the Home view (`sfdc_cms__view/home/content.json`) now holds `c:portfolioPage` in place of the
+"Start Building Your Page" rich text; nothing else on the page changed. The board stays at
+`/neoGeoTest/work-item-board`, and the site's URL prefix is unchanged. (The owner's "portfolio"
+prefix answer was to a question about a new site, and was read as not applicable.)
+
+**Org state: none.** Check-only deploys to the scratch org succeeded on 2026-09-28, the last with the
+Home view included (12 components, 0 errors). Nothing is deployed to any org, and no page shows the
+portfolio. Two consequences of putting it in source that a reader should not learn by surprise:
+
+- **The next publish makes it public.** LWR serves the bundle it was last published with, so the
+  placeholder Home goes live on the first `sf community publish` or `build-org.mjs` run after the
+  Home view is deployed, from any branch that carries it. Merging `portfolioSite` to `main` and
+  building an org from it publishes whatever the content file says that day. Fill in
+  `portfolioContent.js` first.
+- **`build-org.mjs` is the wrong tool for adding this to neoGeoDevHub.** It has `--from` but no
+  `--to`, so a run always continues through `jobs` (reschedules the sweeper and purge), `publish` and
+  `tests` (RunLocalTests) on the live org. A scoped `sf project deploy start --source-dir` of the
+  `portfolio*` bundles and the static resource has no org-bound values to rewrite and no page uses
+  it until the Home view is deployed, so it changes nothing visible. It departs from the CLAUDE.md
+  line that every non-scratch org goes through `build-org.mjs`, so it needs the owner's word first.
+
+Open: which org the first real look happens in, and the wrappers questions in Traps below. Not yet
+decided: the scratch org as a staging site (its public URL is throwaway and expires 2026-10-05).
+
+**Still placeholders in the content:** search `portfolioContent.js` for `example.com`, `Your Name` and
+`Your next project`. The Portfolio HQ links are real but assume the repo is public.
+
+**The Portfolio HQ screenshots are a snapshot of the dev org's live public board** (captured
+2026-09-28 with a copy of `scripts/capture-public-board.mjs` pointed at the dev org's URL; the repo
+script is hard-wired to the scratch org). They show its real work items, including test-looking
+titles such as "Test Task (build 08) _new edit_". Retake them after tidying the board's data, and
+again whenever the board's look changes: they do not update themselves.
+
+### Invariants
+
+- **No Apex, no object, no guest permission.** `lwc/__tests__/portfolioBundle.test.js` fails if a
+  portfolio bundle imports anything but `lwc`, another portfolio bundle or
+  `@salesforce/resourceUrl/portfolio_assets`, or shares a bundle with the boards. Class access is
+  per class, so the way to keep the guest's access unchanged is to keep the dependency out. This is
+  also why a demo is a **link** and not the board embedded in the page: embedding
+  `publicWorkItemBoard` would need Apex class access for the portfolio site's guest.
+- **`vendorNeutrality.test.js` skips `portfolio*`.** The rule is about board code branching on a
+  vendor; `portfolioContent` names Jira and Asana in prose about a finished project. The exemption is
+  by bundle name at the top of `lwc/`, and the test asserts no `portfolio*` file is in its scan.
+- **`portfolioContent.test.js` is the edit guard.** It refuses any link that is not `https:` or
+  `mailto:`, an unknown icon name, a duplicated id, an unknown access level, a live label with no demo
+  link, a picture that is not in the static resource or has no real alt text, and more or less than one
+  featured project. A section whose list is empty leaves both the page and the navigation.
+
+### Traps
+
+- **Deploying the LWCs does not change the site.** Same as the boards (section 3): republish with
+  `sf community publish --name "Test Professional Site" --target-org <org>`, using the **Network**
+  name of whichever site holds the page.
+- **Synthetic shadow rewrites a fragment-only `href`.** `href="#about"` renders as `#about-0`, to match
+  mangled ids. Every click is intercepted, so it does no harm, but a test that pins the literal fails
+  and "copy link address" gives a dead fragment. There are no shareable section deep links.
+- **`position: sticky` on the top bar belongs on the host** (`:host` in `portfolioNav.css`). Put on an
+  element inside the host it can move only as far as the host is tall, which is the bar's own height,
+  so it never sticks. Whether the LWR theme's own wrappers let it stick on the live site is not yet
+  verified: they may clip it with `overflow`.
+- **The phone overlaps the browser window's corner on purpose** (`.phone` is positioned against
+  `.stage`, with a negative offset). The media panel's padding leaves room for the overhang; if the
+  padding is reduced the phone is clipped by the card's `overflow: hidden`.
+- **The page renders its own `<main>`.** If the LWR theme layout also wraps content in one, the live
+  site has two landmarks. Check on the first deploy.
+- **Head markup is not in the component.** The tab title, description, favicon and the Open Graph
+  tags LinkedIn reads for a link preview are the site's `headMarkup`
+  (`sfdc_cms__appPage/mainAppPage`), currently "Welcome to LWC Communities!" on `/neoGeoTest`.
+- **Jest cannot reset custom elements.** `jest.resetModules()` does not clear jsdom's registry, so
+  mounting the same tag from a fresh module fails. `portfolioPage.test.js` overwrites the real content
+  module's exports and restores them instead.
+- **Looking at it needs a real width.** The browser pane can be narrower than a desktop, and an
+  emulated 1280px viewport wider than the pane screenshots as a corner of a black canvas. Headless
+  Chrome (`--headless=new --window-size=1280,3000 --screenshot=...`) against a local bundle gives a
+  true desktop picture. The bundle itself is built with `@lwc/rollup-plugin` from a scratch harness
+  that is not in the repo.
