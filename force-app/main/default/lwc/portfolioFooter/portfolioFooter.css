@@ -34,14 +34,14 @@
 .actions:empty {
   display: none;
 }
-.btn-light {
+:host .btn-light {
   background: #ffffff;
   color: var(--pf-navy);
 }
-.btn-light:hover {
+:host .btn-light:hover {
   background: var(--pf-tint);
 }
-.btn-light:focus-visible {
+:host .btn-light:focus-visible {
   outline-color: #ffffff;
 }
 .profiles {

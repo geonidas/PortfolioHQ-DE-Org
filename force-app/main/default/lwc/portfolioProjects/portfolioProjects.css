@@ -224,7 +224,7 @@
   padding: 0;
   list-style: none;
 }
-.action {
+:host .action {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -233,7 +233,7 @@
   font-weight: 600;
   text-decoration: none;
 }
-.action:hover span:not(.assistive) {
+:host .action:hover span:not(.assistive) {
   text-decoration: underline;
   text-underline-offset: 3px;
 }

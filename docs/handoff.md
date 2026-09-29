@@ -17,7 +17,7 @@ verified - against live Jira and Asana up to build 09; build 10 calls neither. `
 has not been merged to `main` (the development org): see section 3, "Deleting an LWC from source",
 for the one thing that merge must also run. No build used a separate branch after build 08.
 
-**A second project shares this repo: the portfolio site** (branch `portfolioSite`, section 7). It is `portfolio*` LWCs and one static resource, needs no Apex and no guest access, and is on no site or org yet.
+**A second project shares this repo: the portfolio site** (branch `portfolioSite`, section 7). It is `portfolio*` LWCs and one static resource, needs no Apex and no guest access, and is staged on the scratch org only.
 
 Build 07's Asana setup (section 6) is done and live. Class names reflect the refactor after build
 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`. Older ADRs and summaries use the old
@@ -1118,9 +1118,16 @@ the Home view (`sfdc_cms__view/home/content.json`) now holds `c:portfolioPage` i
 `/neoGeoTest/work-item-board`, and the site's URL prefix is unchanged. (The owner's "portfolio"
 prefix answer was to a question about a new site, and was read as not applicable.)
 
-**Org state: none.** Check-only deploys to the scratch org succeeded on 2026-09-28, the last with the
-Home view included (12 components, 0 errors). Nothing is deployed to any org, and no page shows the
-portfolio. Two consequences of putting it in source that a reader should not learn by surprise:
+**Org state.** **Staged on the scratch org on 2026-09-29, with the owner's go**: the `portfolio*`
+bundles, the `portfolio_assets` static resource, the Home view, the Home route (`pageAccess`
+`Public`) and the site's `styles.css` are deployed and published. It is live, placeholders and all, at
+`https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/` until the org expires on
+2026-10-05. **Nothing is deployed to neoGeoDevHub.** Checked there as an anonymous visitor (headless
+Chrome, 1280 and 375 wide): 200 with no login, one `<main>`, the bar sticks, the page runs edge to
+edge with no theme bands, all three pictures load, and the board page beside it is unchanged (theme
+bands 32px, section padding 16px, 7 cards, no portfolio). The only failed request is `/favicon.ico`.
+
+Two consequences of putting it in source that a reader should not learn by surprise:
 
 - **The next publish makes it public.** LWR serves the bundle it was last published with, so the
   placeholder Home goes live on the first `sf community publish` or `build-org.mjs` run after the
@@ -1130,12 +1137,13 @@ portfolio. Two consequences of putting it in source that a reader should not lea
 - **`build-org.mjs` is the wrong tool for adding this to neoGeoDevHub.** It has `--from` but no
   `--to`, so a run always continues through `jobs` (reschedules the sweeper and purge), `publish` and
   `tests` (RunLocalTests) on the live org. A scoped `sf project deploy start --source-dir` of the
-  `portfolio*` bundles and the static resource has no org-bound values to rewrite and no page uses
-  it until the Home view is deployed, so it changes nothing visible. It departs from the CLAUDE.md
-  line that every non-scratch org goes through `build-org.mjs`, so it needs the owner's word first.
+  `portfolio*` bundles, the static resource and these site pieces has no org-bound values to rewrite:
+  `sfdc_cms__view/home`, `sfdc_cms__route/Home` and `sfdc_cms__styles`, under
+  `digitalExperiences/site/Test_Professional_Site1/`. It departs from the CLAUDE.md line that every
+  non-scratch org goes through `build-org.mjs`, so it needs the owner's word first.
 
-Open: which org the first real look happens in, and the wrappers questions in Traps below. Not yet
-decided: the scratch org as a staging site (its public URL is throwaway and expires 2026-10-05).
+Still open: the tab title is "Home" and there is no favicon or Open Graph tags (head markup, below);
+and the same scoped deploy and publish for neoGeoDevHub, once the content is in.
 
 **Still placeholders in the content:** search `portfolioContent.js` for `example.com`, `Your Name` and
 `Your next project`. The Portfolio HQ links are real but assume the repo is public.
@@ -1172,16 +1180,41 @@ again whenever the board's look changes: they do not update themselves.
   and "copy link address" gives a dead fragment. There are no shareable section deep links.
 - **`position: sticky` on the top bar belongs on the host** (`:host` in `portfolioNav.css`). Put on an
   element inside the host it can move only as far as the host is tall, which is the bar's own height,
-  so it never sticks. Whether the LWR theme's own wrappers let it stick on the live site is not yet
-  verified: they may clip it with `overflow`.
+  so it never sticks. Confirmed on the live site: the LWR wrappers do not clip it.
 - **The phone overlaps the browser window's corner on purpose** (`.phone` is positioned against
   `.stage`, with a negative offset). The media panel's padding leaves room for the overhang; if the
   padding is reduced the phone is clipped by the card's `overflow: hidden`.
-- **The page renders its own `<main>`.** If the LWR theme layout also wraps content in one, the live
-  site has two landmarks. Check on the first deploy.
+- **The theme layout supplies the `<main>`; the page must not add a second.** Found on the live site,
+  where the Jest suite and the local preview both hid it (`portfolioPage` wraps its content in a
+  `div.content`, and a test asserts there is no `main`). Our `header` and `footer` elements sit
+  inside the theme's main, so they are not landmarks either; the theme's own header and footer are.
+- **Home was login-only until its route said `Public`.** The site is `authenticationType:
+AUTHENTICATED`, and a route with `pageAccess: UseParent` (Home, and eight others) inherits that: an
+  anonymous visitor got a 302 to login while `/work-item-board`, whose route is `Public`, answered 200.
+  `sfdc_cms__route/Home/content.json` is now `Public`. The handoff's older "how to tell a site-level
+  problem from a page-level one" describes the same trap from the board's side.
+- **The site's own link rule beats a scoped anchor style.** `dxp-slds-extensions.min.css` styles
+  `a:link:not(.slds-button, .slds-dropdown__item > a)` at specificity (0,2,2), which wins over
+  `.btn-primary[lwc-...]` at (0,2,0): every button-styled link lost its fill and its text colour and
+  became plain link-blue. Only a live page shows it, because the local preview does not load the
+  site's stylesheets. Every anchor rule in the portfolio is therefore written `:host .name`, which is
+  (0,3,0) in synthetic shadow and also valid in native shadow. A new anchor style needs the prefix.
+- **Site-level CSS lives in `sfdc_cms__styles/styles_css/styles.css`, and three rules in it belong to
+  the portfolio.** All are guarded by `:has(c-portfolio-page)`, so they are inert on every other page
+  (verified on the board): they hide the theme's empty header and footer bands, hide the empty
+  `community_layout-hidden-region` whose inline line box left a 24px white strip under the footer, and
+  zero the section's padding. The padding rule needs `.comm-section-container` **twice** to beat the
+  section's own `.lwc-...-host.comm-section-container` (two classes, (0,2,0)): specificity is compared
+  class count first, and one class plus type selectors is (0,1,2), which loses. It took three tries.
+  They rely on `:has()` and on the theme's class and element names, so a theme update can undo them
+  without any error.
 - **Head markup is not in the component.** The tab title, description, favicon and the Open Graph
   tags LinkedIn reads for a link preview are the site's `headMarkup`
-  (`sfdc_cms__appPage/mainAppPage`), currently "Welcome to LWC Communities!" on `/neoGeoTest`.
+  (`sfdc_cms__appPage/mainAppPage`), currently "Welcome to LWC Communities!", and the Home view's SEO
+  helper sets the title to "Home". Not yet touched.
+- **A deploy straight after a publish can fail once.** `sf project deploy start --json` returned
+  `status: 1` with no components the moment after a publish completed; the identical command
+  succeeded a minute later. Rerun before investigating.
 - **Jest cannot reset custom elements.** `jest.resetModules()` does not clear jsdom's registry, so
   mounting the same tag from a fresh module fails. `portfolioPage.test.js` overwrites the real content
   module's exports and restores them instead.

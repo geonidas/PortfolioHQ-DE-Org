@@ -9,7 +9,7 @@
     onnavigate={handleNavigate}
   ></c-portfolio-nav>
 
-  <main>
+  <div class="content">
     <c-portfolio-hero
       name={profile.name}
       initials={initials}
@@ -39,7 +39,7 @@
         summary={about.summary}
       ></c-portfolio-about>
     </template>
-  </main>
+  </div>
 
   <c-portfolio-footer
     data-section="contact"

@@ -91,7 +91,7 @@
   line-height: 1.4;
 }
 
-.btn {
+:host .btn {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -109,19 +109,19 @@
     border-color 0.15s ease,
     color 0.15s ease;
 }
-.btn-primary {
+:host .btn-primary {
   background: var(--pf-accent);
   color: #ffffff;
 }
-.btn-primary:hover {
+:host .btn-primary:hover {
   background: var(--pf-navy);
 }
-.btn-secondary {
+:host .btn-secondary {
   background: var(--pf-paper);
   border-color: var(--pf-line);
   color: var(--pf-ink);
 }
-.btn-secondary:hover {
+:host .btn-secondary:hover {
   border-color: var(--pf-accent);
   color: var(--pf-accent);
 }
@@ -156,7 +156,7 @@ button:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn {
+  :host .btn {
     transition: none;
   }
 }

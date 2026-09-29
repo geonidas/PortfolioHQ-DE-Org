@@ -24,7 +24,7 @@
   min-height: 4rem;
 }
 
-.brand {
+:host .brand {
   display: inline-flex;
   align-items: center;
   gap: 0.7rem;
@@ -89,7 +89,7 @@
   padding: 0;
   list-style: none;
 }
-.link {
+:host .link {
   display: block;
   padding: 0.7rem 0;
   color: var(--pf-ink);
@@ -97,11 +97,11 @@
   font-weight: 500;
   text-decoration: none;
 }
-.link:hover,
-.link[aria-current="true"] {
+:host .link:hover,
+:host .link[aria-current="true"] {
   color: var(--pf-accent);
 }
-.resume {
+:host .resume {
   align-self: flex-start;
 }
 
@@ -125,14 +125,14 @@
     flex-direction: row;
     gap: 1.75rem;
   }
-  .link {
+  :host .link {
     position: relative;
     padding: 0.4rem 0;
     font-size: 0.9375rem;
   }
   /* The section in view is marked by an underline as well as by color, for a visitor who
      cannot tell the two blues apart. */
-  .link[aria-current="true"]::after {
+  :host .link[aria-current="true"]::after {
     content: "";
     position: absolute;
     left: 0;
@@ -142,7 +142,7 @@
     border-radius: 2px;
     background: var(--pf-accent);
   }
-  .resume {
+  :host .resume {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
   }

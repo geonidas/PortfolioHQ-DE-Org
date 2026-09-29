@@ -77,10 +77,12 @@ describe("c-portfolio-page", () => {
     expect(query(element, "c-portfolio-experience")).toBeNull();
   });
 
-  it("puts the hero in a main landmark and the footer after it", () => {
+  it("renders no main landmark of its own, because the site's theme layout supplies one", () => {
     const element = mount();
-    expect(query(element, "main c-portfolio-hero")).not.toBeNull();
-    expect(query(element, "main c-portfolio-footer")).toBeNull();
+    expect(query(element, "main")).toBeNull();
+    // The work sits in .content, and the footer closes the page after it.
+    expect(query(element, ".content c-portfolio-hero")).not.toBeNull();
+    expect(query(element, ".content c-portfolio-footer")).toBeNull();
     expect(query(element, "c-portfolio-footer")).not.toBeNull();
   });
 
