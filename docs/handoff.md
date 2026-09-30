@@ -1,21 +1,27 @@
 # Handoff — Portfolio HQ (neoGeoDevOrg)
 
-What a new context window needs and cannot read from the repo. Decisions and their
-reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
+What a new context window needs and cannot read from the repo. The org is a hub with one folder
+per project under `docs/projects/`, and each project keeps its decisions (`adr/`) and per-build
+narrative (`build-summaries/`) there. Sections 1-6 are project 01, the unified workflow board
+(`docs/projects/01-workflow-board/`); section 7 is project 02, the Experience Cloud site.
 **This file holds only what git does not know: org state, invariants, and traps.**
 
-Current as of **Build 10** (`docs/build-10/summary.md`, and `docs/build-summaries/build-10.md`),
-which closes version 1: the owner features one epic on the public board from a button on its card
-on the internal board. With an epic featured, the public board opens on Tasks and shows that epic's
-work under a sentence naming it; with none, it opens on Epics. Build 09
-(`docs/build-summaries/build-09.md`) gave every work item a priority that syncs both ways, and both
-boards a Sort; build 08 (`docs/build-summaries/build-08.md`) redesigned both boards - source
+Current as of **Build 10** (`docs/projects/01-workflow-board/build-10/summary.md`, and
+`docs/projects/01-workflow-board/build-summaries/build-10.md`), which closes version 1: the owner
+features one epic on the public board from a button on its card on the internal board. With an epic
+featured, the public board opens on Tasks and shows that epic's work under a sentence naming it;
+with none, it opens on Epics. Build 09
+(`docs/projects/01-workflow-board/build-summaries/build-09.md`) gave every work item a priority that
+syncs both ways, and both boards a Sort; build 08
+(`docs/projects/01-workflow-board/build-summaries/build-08.md`) redesigned both boards - source
 accents, View and Source filters, cards that open in place, editing and pushing from the internal
-board, drag-and-drop, Retry, live updates through Change Data Capture, and a public board that
-polls every 30 seconds while someone looks. Builds 01-10 are deployed to the scratch org and
-verified - against live Jira and Asana up to build 09; build 10 calls neither. `feature/first-branch`
-has not been merged to `main` (the development org): see section 3, "Deleting an LWC from source",
-for the one thing that merge must also run. No build used a separate branch after build 08.
+board, drag-and-drop, Retry, live updates through Change Data Capture, and a public board that polls
+every 30 seconds while someone looks. Builds 01-10 are deployed to the scratch org and verified -
+against live Jira and Asana up to build 09; build 10 calls neither. `feature/first-branch` has not
+been merged to `main` (the development org): see section 3, "Deleting an LWC from source", for the
+one thing that merge must also run. No build used a separate branch after build 08.
+
+**Project 02, the Experience Cloud site, has work in progress: the portfolio page** (branch `portfolioSite`, section 7). It is `portfolio*` LWCs and one static resource, needs no Apex and no guest access, and is staged on the scratch org only.
 
 Build 07's Asana setup (section 6) is done and live. Class names reflect the refactor after build
 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`. Older ADRs and summaries use the old
@@ -835,7 +841,6 @@ sharing` class too, and with the setting granted in a permission set. Reading it
 | Remembered filters and sort between visits, and a Priority filter, were out of scope for build 09 (decision 8). Every visit opens on Tasks, All sources, Due date.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Version 2                                              |
 | A Jira edit can take longer than the 10-second callout timeout: in build 09 step 6 one did, and Jira applied it after the push had already failed. The card showed Failed with the reason, the echo was held back as pending, and Retry re-sent the same value and settled Synced. Correct, and noisy; a longer timeout would cost callout time against the 120-second limit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | If Jira timeouts recur                                 |
 | Lighthouse best practices is 96, not 100, on both form factors because the page declares no icon and `/favicon.ico` at the site root answers 404 - one console error. The site template's, not the board's.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | If a favicon is added                                  |
-| Every commit on `feature/first-branch` has the committer `Sapling <sapling@Saplings-Mac-mini.local>`: git has no name or email configured on the build machine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Before the branch merges                               |
 | The unresolved-parent count is incomplete (build 10 step 0): WI-0007 and WI-0009 could be unresolved references or simply parentless, and only Jira can say. No field stores an unresolved reference, and the purge has aged out the log rows that would have recorded one.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | After the move, when the hierarchy arrives by delivery |
 | The seed script's hierarchy exists in Salesforce only: WI-0005 and WI-0006 under WI-0000, and WI-0001 typed Epic. Inbound never clears a parent a payload does not carry, so the links survive deliveries; a Jira delivery for `DOPP-15` carrying its issue type retypes WI-0001, which then reads as none if it is the featured epic. WI-0002 (DOPP-16), which the script had made a Story under WI-0000, was corrected to an Epic with no parent by the owner on 2026-09-27 - **rerunning `flag-public-demo-data.apex` would undo that**, since it assigns epic and story roles by status.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Before launch, in the Developer Edition org            |
 | Subtasks are ordinary cards: Jira's Sub-task maps to `Task` (ADR build-06, ADR-005), so one under a featured epic shows in its Tasks view. None is public today; build 10's decision 4 leaves subtasks to version 2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Version 2                                              |
@@ -877,7 +882,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed
 
 # ...and what it looks like to one, at desktop width and on a 375px phone - optionally with a
 # card opened first
-node scripts/capture-public-board.mjs docs/build-08/screenshots <label> [WI-0005]
+node scripts/capture-public-board.mjs docs/projects/01-workflow-board/build-08/screenshots <label> [WI-0005]
 
 # ...and whether it is accessible to one: axe-core over fourteen states - both sorts at both sizes
 # since build 09, and since build 10 the featured epic in Tasks, its source filtered out, none in
@@ -1081,3 +1086,145 @@ Re-registration is one curl plus one script run per org recreation.
 Let real webhooks create Asana work items. If a script is ever needed, it sets the outbound
 suppression flag on its first line - a status write on a record carrying an `External_Id__c`
 enqueues a real push to real Asana.
+
+## 7. The portfolio site (branch `portfolioSite`)
+
+A **project showcase** for the owner, linked from a résumé and LinkedIn: each project shown running,
+with a label for how far a visitor can go. Part of project 02, the Experience Cloud site
+(`docs/projects/02-experience-cloud-site/`): the site that already hosts the public board gains a
+home page. The project folder holds only its overview so far; its ADR and build summary go there
+when the owner closes the build, which is open and committed step by step.
+
+**Decision (2026-09-28, the owner): no skills, experience or certifications on the page.** They live
+on the résumé and LinkedIn, and a second copy is one more thing to keep current; the owner also has
+an employment gap they do not want given prominence. What a project was built with is on its card,
+as evidence. `portfolioContent.test.js` fails if an export named for experience, skills or
+certifications comes back, so restoring them is a decision and not drift. The page links the résumé
+rather than copying it.
+
+**Where it is.** `lwc/portfolioPage` is the whole page, exposed to Experience Builder
+(`lightningCommunity__Page`). In page order: `portfolioNav`, `portfolioHero`, `portfolioProjects`,
+`portfolioAbout` (prose only), `portfolioFooter`, with `portfolioLinks`, `portfolioIcon` and the
+CSS-only `portfolioTheme` underneath. **Everything the page says is
+`lwc/portfolioContent/portfolioContent.js`** - the one file to edit. Pictures are files in the
+`portfolio_assets` static resource, named by `PROFILE.photo` and each project's `media[].file`; the
+page is the only place that turns a name into an address.
+
+**A project card** shows the project in action first (a browser-framed screenshot, and a phone
+beside it), then an **access label**, the summary, a "What you can do" line, its tags and its
+links. `access` is `interactive`, `view`, `video` or `screenshots`; the first two must have a `demo`
+link, checked by the content test, so a card cannot promise a live version it does not link to.
+The first `demo` link is the card's button. The first `featured` project is shown wide.
+
+**Placement (the owner, 2026-09-28): the portfolio replaces the stub Home page of the existing
+`/neoGeoTest` site** ("Test Professional Site", `Test_Professional_Site1`), in neoGeoDevHub. In source
+the Home view (`sfdc_cms__view/home/content.json`) now holds `c:portfolioPage` in place of the
+"Start Building Your Page" rich text; nothing else on the page changed. The board stays at
+`/neoGeoTest/work-item-board`, and the site's URL prefix is unchanged. (The owner's "portfolio"
+prefix answer was to a question about a new site, and was read as not applicable.)
+
+**Org state.** **Staged on the scratch org on 2026-09-29, with the owner's go**: the `portfolio*`
+bundles, the `portfolio_assets` static resource, the Home view, the Home route (`pageAccess`
+`Public`) and the site's `styles.css` are deployed and published. It is live, placeholders and all, at
+`https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/` until the org expires on
+2026-10-05. **Nothing is deployed to neoGeoDevHub.** Checked there as an anonymous visitor (headless
+Chrome, 1280 and 375 wide): 200 with no login, one `<main>`, the bar sticks, the page runs edge to
+edge with no theme bands, all three pictures load, and the board page beside it is unchanged (theme
+bands 32px, section padding 16px, 7 cards, no portfolio). The only failed request is `/favicon.ico`.
+
+Two consequences of putting it in source that a reader should not learn by surprise:
+
+- **The next publish makes it public.** LWR serves the bundle it was last published with, so the
+  placeholder Home goes live on the first `sf community publish` or `build-org.mjs` run after the
+  Home view is deployed, from any branch that carries it. Merging `portfolioSite` to `main` and
+  building an org from it publishes whatever the content file says that day. Fill in
+  `portfolioContent.js` first.
+- **`build-org.mjs` is the wrong tool for adding this to neoGeoDevHub.** It has `--from` but no
+  `--to`, so a run always continues through `jobs` (reschedules the sweeper and purge), `publish` and
+  `tests` (RunLocalTests) on the live org. A scoped `sf project deploy start --source-dir` of the
+  `portfolio*` bundles, the static resource and these site pieces has no org-bound values to rewrite:
+  `sfdc_cms__view/home`, `sfdc_cms__route/Home` and `sfdc_cms__styles`, under
+  `digitalExperiences/site/Test_Professional_Site1/`. It departs from the CLAUDE.md line that every
+  non-scratch org goes through `build-org.mjs`, so it needs the owner's word first.
+
+Still open: the tab title is "Home" and there is no favicon or Open Graph tags (head markup, below);
+and the same scoped deploy and publish for neoGeoDevHub, once the content is in.
+
+**Still placeholders in the content:** search `portfolioContent.js` for `example.com`, `Your Name` and
+`Your next project`. The Portfolio HQ links are real but assume the repo is public.
+
+**The Portfolio HQ screenshots are a snapshot of the dev org's live public board** (captured
+2026-09-28 with a copy of `scripts/capture-public-board.mjs` pointed at the dev org's URL; the repo
+script is hard-wired to the scratch org). They show its real work items, including test-looking
+titles such as "Test Task (build 08) _new edit_". Retake them after tidying the board's data, and
+again whenever the board's look changes: they do not update themselves.
+
+### Invariants
+
+- **No Apex, no object, no guest permission.** `lwc/__tests__/portfolioBundle.test.js` fails if a
+  portfolio bundle imports anything but `lwc`, another portfolio bundle or
+  `@salesforce/resourceUrl/portfolio_assets`, or shares a bundle with the boards. Class access is
+  per class, so the way to keep the guest's access unchanged is to keep the dependency out. This is
+  also why a demo is a **link** and not the board embedded in the page: embedding
+  `publicWorkItemBoard` would need Apex class access for the portfolio site's guest.
+- **`vendorNeutrality.test.js` skips `portfolio*`.** The rule is about board code branching on a
+  vendor; `portfolioContent` names Jira and Asana in prose about a finished project. The exemption is
+  by bundle name at the top of `lwc/`, and the test asserts no `portfolio*` file is in its scan.
+- **`portfolioContent.test.js` is the edit guard.** It refuses any link that is not `https:` or
+  `mailto:`, an unknown icon name, a duplicated id, an unknown access level, a live label with no demo
+  link, a picture that is not in the static resource or has no real alt text, and more or less than one
+  featured project. A section whose list is empty leaves both the page and the navigation.
+
+### Traps
+
+- **Deploying the LWCs does not change the site.** Same as the boards (section 3): republish with
+  `sf community publish --name "Test Professional Site" --target-org <org>`, using the **Network**
+  name of whichever site holds the page.
+- **Synthetic shadow rewrites a fragment-only `href`.** `href="#about"` renders as `#about-0`, to match
+  mangled ids. Every click is intercepted, so it does no harm, but a test that pins the literal fails
+  and "copy link address" gives a dead fragment. There are no shareable section deep links.
+- **`position: sticky` on the top bar belongs on the host** (`:host` in `portfolioNav.css`). Put on an
+  element inside the host it can move only as far as the host is tall, which is the bar's own height,
+  so it never sticks. Confirmed on the live site: the LWR wrappers do not clip it.
+- **The phone overlaps the browser window's corner on purpose** (`.phone` is positioned against
+  `.stage`, with a negative offset). The media panel's padding leaves room for the overhang; if the
+  padding is reduced the phone is clipped by the card's `overflow: hidden`.
+- **The theme layout supplies the `<main>`; the page must not add a second.** Found on the live site,
+  where the Jest suite and the local preview both hid it (`portfolioPage` wraps its content in a
+  `div.content`, and a test asserts there is no `main`). Our `header` and `footer` elements sit
+  inside the theme's main, so they are not landmarks either; the theme's own header and footer are.
+- **Home was login-only until its route said `Public`.** The site is `authenticationType:
+AUTHENTICATED`, and a route with `pageAccess: UseParent` (Home, and eight others) inherits that: an
+  anonymous visitor got a 302 to login while `/work-item-board`, whose route is `Public`, answered 200.
+  `sfdc_cms__route/Home/content.json` is now `Public`. The handoff's older "how to tell a site-level
+  problem from a page-level one" describes the same trap from the board's side.
+- **The site's own link rule beats a scoped anchor style.** `dxp-slds-extensions.min.css` styles
+  `a:link:not(.slds-button, .slds-dropdown__item > a)` at specificity (0,2,2), which wins over
+  `.btn-primary[lwc-...]` at (0,2,0): every button-styled link lost its fill and its text colour and
+  became plain link-blue. Only a live page shows it, because the local preview does not load the
+  site's stylesheets. Every anchor rule in the portfolio is therefore written `:host .name`, which is
+  (0,3,0) in synthetic shadow and also valid in native shadow. A new anchor style needs the prefix.
+- **Site-level CSS lives in `sfdc_cms__styles/styles_css/styles.css`, and three rules in it belong to
+  the portfolio.** All are guarded by `:has(c-portfolio-page)`, so they are inert on every other page
+  (verified on the board): they hide the theme's empty header and footer bands, hide the empty
+  `community_layout-hidden-region` whose inline line box left a 24px white strip under the footer, and
+  zero the section's padding. The padding rule needs `.comm-section-container` **twice** to beat the
+  section's own `.lwc-...-host.comm-section-container` (two classes, (0,2,0)): specificity is compared
+  class count first, and one class plus type selectors is (0,1,2), which loses. It took three tries.
+  They rely on `:has()` and on the theme's class and element names, so a theme update can undo them
+  without any error.
+- **Head markup is not in the component.** The tab title, description, favicon and the Open Graph
+  tags LinkedIn reads for a link preview are the site's `headMarkup`
+  (`sfdc_cms__appPage/mainAppPage`), currently "Welcome to LWC Communities!", and the Home view's SEO
+  helper sets the title to "Home". Not yet touched.
+- **A deploy straight after a publish can fail once.** `sf project deploy start --json` returned
+  `status: 1` with no components the moment after a publish completed; the identical command
+  succeeded a minute later. Rerun before investigating.
+- **Jest cannot reset custom elements.** `jest.resetModules()` does not clear jsdom's registry, so
+  mounting the same tag from a fresh module fails. `portfolioPage.test.js` overwrites the real content
+  module's exports and restores them instead.
+- **Looking at it needs a real width.** The browser pane can be narrower than a desktop, and an
+  emulated 1280px viewport wider than the pane screenshots as a corner of a black canvas. Headless
+  Chrome (`--headless=new --window-size=1280,3000 --screenshot=...`) against a local bundle gives a
+  true desktop picture. The bundle itself is built with `@lwc/rollup-plugin` from a scratch harness
+  that is not in the repo.

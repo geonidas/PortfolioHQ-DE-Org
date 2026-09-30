@@ -1,0 +1,271 @@
+@import "c/portfolioTheme";
+
+:host {
+  display: block;
+}
+.section {
+  background: var(--pf-surface);
+}
+.intro {
+  max-width: 40rem;
+  margin: -0.75rem 0 2rem;
+  color: var(--pf-quiet);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+.grid {
+  display: grid;
+  gap: 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-radius);
+  background: var(--pf-paper);
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+.card:hover {
+  border-color: #bccbe0;
+  box-shadow: var(--pf-shadow);
+}
+.featured {
+  border-top: 4px solid var(--pf-accent);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1.5rem;
+}
+.featured .body {
+  padding: clamp(1.5rem, 4vw, 2.25rem);
+}
+
+/* The project in action: a browser window floating on a tint, with a phone overlapping its
+   corner, so it reads as a window into the thing and not a thumbnail of it. The stage is what the
+   phone is placed against, so it stays on the corner however tall the words beside it run. */
+.media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1.75rem 2.25rem 1.5rem;
+  background: var(--pf-tint);
+  border-bottom: 1px solid var(--pf-line);
+}
+.stage {
+  position: relative;
+  width: 100%;
+}
+.shot {
+  margin: 0;
+  overflow: hidden;
+  background: var(--pf-paper);
+  box-shadow: 0 6px 22px rgba(3, 45, 96, 0.16);
+}
+.shot img {
+  display: block;
+  width: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+.desktop {
+  border: 1px solid #bccbe0;
+  border-radius: 10px;
+}
+.desktop img {
+  aspect-ratio: 16 / 10;
+}
+.chrome {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--pf-surface);
+  border-bottom: 1px solid var(--pf-line);
+}
+.light {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #c3cfdf;
+}
+.phone {
+  position: absolute;
+  right: -0.75rem;
+  bottom: -1.5rem;
+  width: 26%;
+  max-width: 9rem;
+  border: 4px solid var(--pf-navy);
+  border-radius: 18px;
+}
+.phone img {
+  aspect-ratio: 9 / 17;
+}
+.phone-only .stage {
+  display: flex;
+  justify-content: center;
+}
+.phone-only .phone {
+  position: static;
+  width: 45%;
+  max-width: 11rem;
+}
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.featured .title {
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
+  letter-spacing: -0.01em;
+}
+.badge {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--pf-navy);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* How far a visitor can go. Interactive is the solid one: it is the strongest promise. */
+.access {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.25rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.interactive {
+  background: var(--pf-accent);
+  color: #ffffff;
+}
+.view,
+.video {
+  background: var(--pf-tint);
+  color: var(--pf-navy);
+}
+.screenshots {
+  background: var(--pf-surface);
+  border-color: var(--pf-line);
+  color: var(--pf-quiet);
+}
+
+.summary {
+  max-width: 50rem;
+  margin: 0;
+  line-height: 1.65;
+}
+.try-it {
+  max-width: 50rem;
+  margin: 0;
+  color: var(--pf-quiet);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+.try-label {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--pf-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The links sit at the foot of the card, so cards of different length still line up. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+:host .action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--pf-accent);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+:host .action:hover span:not(.assistive) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (min-width: 52rem) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+  .featured {
+    grid-column: 1 / -1;
+  }
+  /* The wide card puts the picture beside the words, and gives it the larger share. */
+  .featured.has-media {
+    flex-direction: row;
+  }
+  .featured.has-media .media {
+    flex: 1.25;
+    min-width: 0;
+    padding: 2.5rem 2.75rem 3rem 2.5rem;
+    border-bottom: 0;
+    border-right: 1px solid var(--pf-line);
+  }
+  .featured.has-media .body {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+}

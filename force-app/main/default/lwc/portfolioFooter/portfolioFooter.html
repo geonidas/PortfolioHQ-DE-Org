@@ -1,0 +1,33 @@
+<template>
+  <footer class="footer" aria-labelledby="contact-title">
+    <div class="wrap">
+      <div class="cta">
+        <p class="eyebrow">Contact</p>
+        <h2 id="contact-title" class="heading">{heading}</h2>
+        <template lwc:if={hasText}>
+          <p class="text">{text}</p>
+        </template>
+        <div class="actions">
+          <template lwc:if={hasEmail}>
+            <a class="btn btn-light" href={emailUrl} data-action="email">
+              <c-portfolio-icon name="mail"></c-portfolio-icon>
+              Send an email
+            </a>
+          </template>
+        </div>
+        <c-portfolio-links
+          class="profiles"
+          links={profileLinks}
+          tone="dark"
+        ></c-portfolio-links>
+      </div>
+
+      <div class="base">
+        <p class="copyright">{copyright}</p>
+        <p class="built">
+          Built with Lightning Web Components on Experience Cloud.
+        </p>
+      </div>
+    </div>
+  </footer>
+</template>

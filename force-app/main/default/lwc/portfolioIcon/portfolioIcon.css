@@ -1,0 +1,20 @@
+:host {
+  display: inline-flex;
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+}
+svg {
+  width: 100%;
+  height: 100%;
+}
+.glyph {
+  fill: currentColor;
+}
+.outline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

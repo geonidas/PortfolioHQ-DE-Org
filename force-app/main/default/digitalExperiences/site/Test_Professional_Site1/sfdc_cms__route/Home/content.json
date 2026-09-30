@@ -4,7 +4,7 @@
   "contentBody" : {
     "activeViewId" : "home",
     "configurationTags" : [ ],
-    "pageAccess" : "UseParent",
+    "pageAccess" : "Public",
     "routeType" : "home",
     "urlPrefix" : ""
   },

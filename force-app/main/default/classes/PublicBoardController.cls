@@ -199,7 +199,8 @@ public with sharing class PublicBoardController {
     /**
      * What the board calls this card's source, e.g. "Jira". Build 08 step 5, and a reversal:
      * build 07 kept every vendor name away from an anonymous visitor, and this publishes one.
-     * It is rendered, never compared - see docs/adr/build-08-board-redesign.md, decision 1.
+     * It is rendered, never compared - see
+     * docs/projects/01-workflow-board/adr/build-08-board-redesign.md, decision 1.
      */
     @AuraEnabled
     public String sourceLabel { get; set; }

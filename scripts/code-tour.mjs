@@ -1,6 +1,7 @@
 /**
- * The code tour: docs/tour/NN-*.md are the source, and this keeps them, their index and the
- * CodeTour files in .tours/ in step with the code they point at.
+ * The code tours: each project that has one keeps it in docs/projects/<project>/tour/, whose
+ * NN-*.md files are the source. This keeps them, each tour's index and the CodeTour files in
+ * .tours/<project>/ in step with the code they point at.
  *
  *   node scripts/code-tour.mjs           refresh every line link, table of contents and index,
  *                                        and regenerate .tours/
@@ -15,9 +16,13 @@
  * extension finds the line the same way after the file has moved on. A snippet that matches
  * nothing, or matches twice, fails the run rather than pointing a reader at the wrong line.
  *
+ * Each project's tour stands alone: its own numbering, index and patterns. CodeTour lists every
+ * tour in the workspace together and chains them by title, so two tours with the same title
+ * anywhere fail the run, and only the first project's first tour opens on its own.
+ *
  * Every "**Pattern: Name.**" in a stop must be defined in the list after the
  * "<!-- patterns:define -->" marker, and every name defined there must be used somewhere, so a
- * misspelt name fails the run instead of quietly forking the index in docs/tour/README.md.
+ * misspelt name fails the run instead of quietly forking the tour's README.md index.
  */
 import {
   existsSync,
@@ -32,9 +37,8 @@ import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const TOUR_DIR = path.join(ROOT, "docs", "tour");
-const CODETOUR_DIR = path.join(ROOT, ".tours");
-const INDEX = path.join(TOUR_DIR, "README.md");
+const PROJECTS_DIR = path.join(ROOT, "docs", "projects");
+const CODETOUR_ROOT = path.join(ROOT, ".tours");
 
 const TOUR_FILE = /^(\d{2})-[a-z0-9-]+\.md$/;
 const AT = /^<!-- at: (.+?) \| (.+) -->$/;
@@ -90,13 +94,18 @@ function locate(file, snippet, where) {
   return text.slice(0, first).split("\n").length;
 }
 
-function parseTour(fileName) {
+function parseTour(project, fileName) {
   const number = Number(TOUR_FILE.exec(fileName)[1]);
-  const lines = readFileSync(path.join(TOUR_DIR, fileName), "utf8").split("\n");
+  const lines = readFileSync(
+    path.join(project.tourDir, fileName),
+    "utf8"
+  ).split("\n");
   const title = lines[0].replace(/^# /, "").trim();
   const toc = between(lines, "<!-- stops:start -->", "<!-- stops:end -->");
   if (!toc) {
-    throw new Error(`${fileName} has no <!-- stops:start/end --> markers.`);
+    throw new Error(
+      `${project.name}/${fileName} has no <!-- stops:start/end --> markers.`
+    );
   }
   const intro = lines.slice(1, toc.from).join("\n").trim();
   const nav = between(lines, "<!-- nav:start -->", "<!-- nav:end -->");
@@ -114,7 +123,7 @@ function parseTour(fileName) {
 
   stops.forEach((stop, index) => {
     stop.number = index + 1;
-    stop.where = `${fileName} stop ${stop.number}`;
+    stop.where = `${project.name}/${fileName} stop ${stop.number}`;
     const content = [...stop.lines];
     const marker = content.findIndex((line) => AT.test(line));
     if (marker !== -1) {
@@ -142,9 +151,12 @@ function parseTour(fileName) {
   return { number, fileName, title, intro, stops };
 }
 
-function linkTo(stop) {
+function linkTo(project, stop) {
   const absolute = path.join(ROOT, stop.at.file);
-  const relative = path.relative(TOUR_DIR, absolute).split(path.sep).join("/");
+  const relative = path
+    .relative(project.tourDir, absolute)
+    .split(path.sep)
+    .join("/");
   return `[${path.basename(absolute)}:${stop.line}](${relative}#L${stop.line})`;
 }
 
@@ -152,7 +164,7 @@ function codeTourTitle(tour) {
   return `${tour.number} · ${tour.title}`;
 }
 
-function renderTour(tour, previous, next) {
+function renderTour(project, tour, previous, next) {
   const out = [`# ${tour.title}`, "", tour.intro, "", "<!-- stops:start -->"];
   out.push("");
   tour.stops.forEach((stop) =>
@@ -163,7 +175,7 @@ function renderTour(tour, previous, next) {
     out.push(`## ${stop.heading}`, "");
     if (stop.at) {
       out.push(`<!-- at: ${stop.at.file} | ${stop.at.snippet} -->`, "");
-      out.push(linkTo(stop), "");
+      out.push(linkTo(project, stop), "");
     }
     out.push(stop.body, "");
   }
@@ -189,13 +201,13 @@ function stepDescription(body) {
     .trim();
 }
 
-function renderCodeTour(tour, next) {
+function renderCodeTour(tour, next, isPrimary) {
   const codeTour = {
     $schema: "https://aka.ms/codetour-schema",
     title: codeTourTitle(tour),
     description: tour.intro
   };
-  if (tour.number === 1) {
+  if (isPrimary) {
     codeTour.isPrimary = true;
   }
   if (next) {
@@ -254,8 +266,8 @@ function patternUses(tours) {
   return uses;
 }
 
-function renderIndex(tours) {
-  const lines = readFileSync(INDEX, "utf8").split("\n");
+function renderIndex(project, tours) {
+  const lines = readFileSync(project.index, "utf8").split("\n");
   const toursAt = between(lines, "<!-- tours:start -->", "<!-- tours:end -->");
   const patternsAt = between(
     lines,
@@ -264,7 +276,7 @@ function renderIndex(tours) {
   );
   if (!toursAt || !patternsAt || patternsAt.from < toursAt.to) {
     throw new Error(
-      "docs/tour/README.md needs <!-- tours:start/end --> then <!-- patterns:start/end -->."
+      `${path.relative(ROOT, project.index)} needs <!-- tours:start/end --> then <!-- patterns:start/end -->.`
     );
   }
 
@@ -284,7 +296,7 @@ function renderIndex(tours) {
     if (!defined.has(name)) {
       const at = where.map((u) => `${u.tour.number}.${u.stop.number}`);
       problems.push(
-        `Pattern "${name}" (at ${at.join(", ")}) is not in the definitions.`
+        `${project.name}: pattern "${name}" (at ${at.join(", ")}) is not in the definitions.`
       );
     }
   }
@@ -293,7 +305,9 @@ function renderIndex(tours) {
   for (const definition of definitions) {
     const where = uses.get(definition.name) || [];
     if (!where.length) {
-      problems.push(`Pattern "${definition.name}" is defined but never used.`);
+      problems.push(
+        `${project.name}: pattern "${definition.name}" is defined but never used.`
+      );
     }
     if (definition.group !== group) {
       group = definition.group;
@@ -322,33 +336,77 @@ async function formatted(text, file) {
   return prettier.format(text, { ...options, filepath: file });
 }
 
-const tourFiles = readdirSync(TOUR_DIR)
-  .filter((name) => TOUR_FILE.test(name))
-  .sort();
-const tours = tourFiles.map(parseTour);
+/** Every .tour file under a directory, however deep. */
+function tourFilesUnder(directory) {
+  if (!existsSync(directory)) {
+    return [];
+  }
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return tourFilesUnder(full);
+    }
+    return entry.name.endsWith(".tour") ? [full] : [];
+  });
+}
+
+/** The projects that have a tour, in folder order: docs/projects/NN-name/tour/README.md. */
+const projects = readdirSync(PROJECTS_DIR, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort()
+  .map((name) => {
+    const tourDir = path.join(PROJECTS_DIR, name, "tour");
+    return {
+      name,
+      tourDir,
+      index: path.join(tourDir, "README.md"),
+      codeTourDir: path.join(CODETOUR_ROOT, name)
+    };
+  })
+  .filter((project) => existsSync(project.index));
 
 const outputs = new Map();
-for (const [index, tour] of tours.entries()) {
-  const previous = tours[index - 1];
-  const next = tours[index + 1];
-  const markdown = path.join(TOUR_DIR, tour.fileName);
-  outputs.set(
-    markdown,
-    await formatted(renderTour(tour, previous, next), markdown)
-  );
-  outputs.set(
-    path.join(CODETOUR_DIR, tour.fileName.replace(/\.md$/, ".tour")),
-    renderCodeTour(tour, next)
-  );
-}
-outputs.set(INDEX, await formatted(renderIndex(tours), INDEX));
+const titles = new Map();
+let tourCount = 0;
+let stopCount = 0;
+for (const project of projects) {
+  const tours = readdirSync(project.tourDir)
+    .filter((name) => TOUR_FILE.test(name))
+    .sort()
+    .map((fileName) => parseTour(project, fileName));
 
-const stale = existsSync(CODETOUR_DIR)
-  ? readdirSync(CODETOUR_DIR)
-      .filter((name) => name.endsWith(".tour"))
-      .map((name) => path.join(CODETOUR_DIR, name))
-      .filter((file) => !outputs.has(file))
-  : [];
+  for (const [index, tour] of tours.entries()) {
+    const previous = tours[index - 1];
+    const next = tours[index + 1];
+    const title = codeTourTitle(tour);
+    if (titles.has(title)) {
+      problems.push(
+        `${project.name}/${tour.fileName}: "${title}" is also the title of ${titles.get(title)}; CodeTour chains tours by title.`
+      );
+    }
+    titles.set(title, `${project.name}/${tour.fileName}`);
+    const markdown = path.join(project.tourDir, tour.fileName);
+    outputs.set(
+      markdown,
+      await formatted(renderTour(project, tour, previous, next), markdown)
+    );
+    outputs.set(
+      path.join(project.codeTourDir, tour.fileName.replace(/\.md$/, ".tour")),
+      renderCodeTour(tour, next, project === projects[0] && index === 0)
+    );
+  }
+  outputs.set(
+    project.index,
+    await formatted(renderIndex(project, tours), project.index)
+  );
+  tourCount += tours.length;
+  stopCount += tours.reduce((sum, tour) => sum + tour.stops.length, 0);
+}
+
+const stale = tourFilesUnder(CODETOUR_ROOT).filter(
+  (file) => !outputs.has(file)
+);
 
 if (problems.length) {
   console.error(problems.map((problem) => `  ${problem}`).join("\n"));
@@ -370,13 +428,12 @@ if (check) {
     console.error("\nRun: npm run tour");
     process.exit(1);
   }
-  const stops = tours.reduce((sum, tour) => sum + tour.stops.length, 0);
   console.log(
-    `Code tour current: ${tours.length} tours, ${stops} stops, every snippet found once.`
+    `Code tours current: ${projects.length} project(s), ${tourCount} tours, ${stopCount} stops, every snippet found once.`
   );
 } else {
-  mkdirSync(CODETOUR_DIR, { recursive: true });
   changed.forEach(([file, text]) => {
+    mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, text);
     console.log(`  wrote ${relative(file)}`);
   });

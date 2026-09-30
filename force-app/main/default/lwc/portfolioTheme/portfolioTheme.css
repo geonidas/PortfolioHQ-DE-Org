@@ -1,0 +1,162 @@
+/*
+ * The portfolio's design tokens and the few rules every section shares, imported into each
+ * portfolio component with @import 'c/portfolioTheme'. A CSS-only module: this is the one place
+ * the values live.
+ *
+ * The typeface is the site theme's own (--dxp-g-root-font-family), so the Theme panel still
+ * restyles the text. The palette is fixed on purpose: a portfolio has its own identity, and every
+ * pair below was measured for contrast rather than inherited from whatever a theme happens to be.
+ * The one accent a site can change is --pf-brand, set from the page's CSS, which beats nothing
+ * declared here because the fallback sits inside var().
+ */
+:host {
+  --pf-ink: #16202f;
+  --pf-paper: #ffffff;
+  --pf-quiet: #55637a;
+  --pf-line: #dbe3ee;
+  --pf-surface: #f4f7fb;
+  --pf-tint: #e8f1fc;
+  --pf-accent: var(--pf-brand, #0b62c4);
+  --pf-navy: #032d60;
+  --pf-font: var(
+    --dxp-g-root-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif
+  );
+  --pf-radius: 12px;
+  --pf-shadow:
+    0 1px 2px rgba(3, 45, 96, 0.06), 0 10px 28px rgba(3, 45, 96, 0.07);
+  --pf-max: 68rem;
+  --pf-gutter: 1.25rem;
+}
+
+/* Contrast, measured: ink on paper 16.4, quiet on paper 6.1 and on surface 5.7, accent on paper
+   5.9 and on surface 5.5, white on accent 5.9, white on navy 13.6, navy on tint 11.9. */
+
+/* Content column: capped and centred, so a wide screen does not stretch a line past reading
+   length. */
+.wrap {
+  max-width: var(--pf-max);
+  margin: 0 auto;
+  padding: 0 var(--pf-gutter);
+}
+
+.section {
+  padding: clamp(3rem, 7vw, 5.5rem) 0;
+  border-top: 1px solid var(--pf-line);
+  font-family: var(--pf-font);
+  color: var(--pf-ink);
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pf-accent);
+}
+
+.section-title {
+  margin: 0 0 1.75rem;
+  font-size: clamp(1.625rem, 3.2vw, 2.125rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.subhead {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pf-quiet);
+}
+
+.chip {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: var(--pf-tint);
+  color: var(--pf-navy);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+:host .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.2rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+:host .btn-primary {
+  background: var(--pf-accent);
+  color: #ffffff;
+}
+:host .btn-primary:hover {
+  background: var(--pf-navy);
+}
+:host .btn-secondary {
+  background: var(--pf-paper);
+  border-color: var(--pf-line);
+  color: var(--pf-ink);
+}
+:host .btn-secondary:hover {
+  border-color: var(--pf-accent);
+  color: var(--pf-accent);
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--pf-accent);
+  outline-offset: 2px;
+}
+
+/* Text for screen readers only. */
+.assistive {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (min-width: 48rem) {
+  :host {
+    --pf-gutter: 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host .btn {
+    transition: none;
+  }
+}

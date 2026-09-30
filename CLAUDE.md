@@ -3,6 +3,10 @@
 Read `docs/handoff.md` before changing anything that touches the org, the sync paths or the
 guest board. This file is the short version.
 
+Portfolio HQ is a hub org with numbered projects, each documented in its own
+`docs/projects/NN-name/`: 01 is the unified workflow board, 02 the Experience Cloud site.
+`force-app` is one package shared by all of them. The shape and rules below are mostly project 01's.
+
 ## Shape
 
 - Salesforce DX project, one scratch org, alias `MyScratchOrg`. Jira is live: a status change on
@@ -56,8 +60,9 @@ guest board. This file is the short version.
 - Deploying a permission set does not assign it. See the handoff for the assignments.
 - Verify with `sf apex run test --test-level RunLocalTests` on the org and `npm run test:unit`,
   `npm run lint`, `npm run prettier:verify` locally. Report real numbers.
-- `docs/tour/` is a code tour whose stops point at lines by snippet. After a change that moves or
-  rewrites code a stop points at, run `npm run tour` (refreshes it) and `npm run tour:check`.
+- `docs/projects/*/tour/` hold code tours whose stops point at lines by snippet (project 01 has
+  one). After a change that moves or rewrites code a stop points at, run `npm run tour` (refreshes
+  every project's tour and `.tours/`) and `npm run tour:check`.
 - Org-generated site scaffolding (`aura/`, `pages/`, `components/`, the `Communities*`, `Site*`
   and `Lightning*Controller` classes) is kept on purpose and excluded from lint and prettier.
   Do not edit or delete it.
@@ -71,8 +76,10 @@ guest board. This file is the short version.
   outcome.
 - Every step ships a diagram alongside the diff, unprompted, chosen for the decision the step
   made rather than the files it touched.
-- At the end of every build, write `docs/build-summaries/build-NN.md` for the planning chat:
-  decisions and their reasoning first, then open items carried into the next build. Decision
-  registers go in `docs/adr/`.
+- At the end of every build, write `build-summaries/build-NN.md` in the project's folder
+  (`docs/projects/NN-name/`) for the planning chat: decisions and their reasoning first, then open
+  items carried into the next build. Decision registers go in that folder's `adr/`, verification
+  evidence in its `build-NN/`. A new project gets the next number and a `README.md` overview, and
+  a row in the root README's projects table.
 - Update `docs/handoff.md` when org state, an invariant or a trap changes. It records what git
   cannot see.

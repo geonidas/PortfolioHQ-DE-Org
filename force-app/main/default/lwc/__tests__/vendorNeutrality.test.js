@@ -11,6 +11,11 @@
  * documentation, and a regex that strips "// ..." also strips half of "https://...". Test
  * folders are out of scope: a fixture that carries a source label is data arriving as data,
  * which is exactly the rule.
+ *
+ * The portfolio site's bundles (portfolio*) are out of scope too. They are not board code and
+ * render no board data: portfolioContent describes the finished Portfolio HQ project in prose, and
+ * that prose has to name what it integrates with. The rule is about the boards branching on a
+ * vendor or carrying copy that goes stale with the next one, and neither can happen there.
  */
 const fs = require("fs");
 const path = require("path");
@@ -19,6 +24,7 @@ const { parse } = require("@babel/parser");
 const LWC_ROOT = path.resolve(__dirname, "..");
 const VENDOR = /jira|asana/gi;
 const SKIPPED_DIRS = new Set(["__tests__", "__mocks__", "jest-mocks"]);
+const NOT_BOARD_CODE = /^portfolio/;
 
 /** Replace a range with spaces, keeping newlines, so reported line numbers stay true. */
 function blank(source, start, end) {
@@ -95,7 +101,10 @@ function sourceFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      return SKIPPED_DIRS.has(entry.name) ? [] : sourceFiles(full);
+      const skipped =
+        SKIPPED_DIRS.has(entry.name) ||
+        (dir === LWC_ROOT && NOT_BOARD_CODE.test(entry.name));
+      return skipped ? [] : sourceFiles(full);
     }
     return STRIPPERS[path.extname(entry.name)] ? [full] : [];
   });
@@ -172,6 +181,9 @@ describe("LWC source", () => {
       ])
     );
     expect(names.some((name) => name.includes("__tests__"))).toBe(false);
+    // The exemption is for the portfolio's bundles alone: every board bundle is still scanned.
+    expect(names.some((name) => NOT_BOARD_CODE.test(name))).toBe(false);
+    expect(names.some((name) => name.startsWith("board"))).toBe(true);
   });
 
   it("names no vendor anywhere outside a comment", () => {

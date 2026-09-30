@@ -1,0 +1,142 @@
+@import "c/portfolioTheme";
+
+:host {
+  display: block;
+  font-family: var(--pf-font);
+  color: var(--pf-ink);
+}
+.hero {
+  padding: clamp(2.5rem, 7vw, 5.5rem) 0 clamp(3rem, 7vw, 5.5rem);
+  background:
+    radial-gradient(
+      60rem 28rem at 92% -8%,
+      var(--pf-tint) 0%,
+      rgba(232, 241, 252, 0) 70%
+    ),
+    var(--pf-paper);
+}
+.grid {
+  display: grid;
+  gap: 2.5rem;
+  align-items: center;
+}
+
+/* Narrow: the picture leads, then the words. */
+.portrait {
+  order: -1;
+  justify-self: start;
+}
+.frame {
+  position: relative;
+  width: clamp(9rem, 42vw, 12rem);
+  aspect-ratio: 1;
+}
+/* An offset tint behind the picture, so it sits on something rather than floating. */
+.frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translate(0.6rem, 0.6rem);
+  border-radius: 28%;
+  background: var(--pf-tint);
+  border: 1px solid var(--pf-line);
+}
+.photo,
+.initials {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 28%;
+  border: 4px solid var(--pf-paper);
+  box-shadow: var(--pf-shadow);
+}
+.photo {
+  object-fit: cover;
+  background: var(--pf-surface);
+}
+.initials {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  background: var(--pf-navy);
+  color: #ffffff;
+  font-size: clamp(2.5rem, 10vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.availability {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1.25rem;
+  padding: 0.3rem 0.8rem 0.3rem 0.65rem;
+  border: 1px solid var(--pf-line);
+  border-radius: 999px;
+  background: var(--pf-paper);
+  color: var(--pf-quiet);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #1a8a4a;
+  box-shadow: 0 0 0 3px rgba(26, 138, 74, 0.18);
+}
+
+.name {
+  margin: 0;
+  font-size: clamp(2.25rem, 6vw, 3.75rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+.headline {
+  margin: 0.6rem 0 0;
+  font-size: clamp(1.125rem, 2.4vw, 1.5rem);
+  font-weight: 600;
+  color: var(--pf-accent);
+}
+.location {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  color: var(--pf-quiet);
+  font-size: 0.9375rem;
+}
+.intro {
+  max-width: 38rem;
+  margin: 1.5rem 0 0;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+.profiles {
+  margin-top: 1.75rem;
+}
+
+@media (min-width: 52rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4rem;
+  }
+  .portrait {
+    order: 0;
+    justify-self: end;
+  }
+  .frame {
+    width: 18rem;
+  }
+  .initials {
+    font-size: 5rem;
+  }
+}

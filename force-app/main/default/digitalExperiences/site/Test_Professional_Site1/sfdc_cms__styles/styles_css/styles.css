@@ -13,3 +13,25 @@ html {
 body {
     margin: 0;
 }
+
+/*
+ * The portfolio page runs edge to edge under its own top bar and closes with its own footer. On a
+ * page that holds it, the theme's empty header and footer bands and the section's padding are
+ * switched off. Nothing else contains c-portfolio-page, so every other page is untouched.
+ */
+community_byo-scoped-header-and-footer:has(c-portfolio-page) > header,
+community_byo-scoped-header-and-footer:has(c-portfolio-page) > footer {
+    display: none;
+}
+
+/* The section styles itself with two classes, so this needs two as well: a repeated class raises
+   specificity without !important. Element name and :has() alone are not enough. */
+community_layout-section.comm-section-container.comm-section-container:has(c-portfolio-page) {
+    padding: 0;
+}
+
+/* The theme's wrappers are inline, so the empty hidden region (the SEO helper's holder, which draws
+   nothing) after the page left a line box, a 24px white strip under the footer. */
+community_byo-scoped-header-and-footer:has(c-portfolio-page) community_layout-hidden-region {
+    display: none;
+}

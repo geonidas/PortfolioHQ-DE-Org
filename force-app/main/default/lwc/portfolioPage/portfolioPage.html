@@ -1,0 +1,52 @@
+<template>
+  <c-portfolio-nav
+    name={profile.name}
+    initials={initials}
+    links={sections}
+    active={activeId}
+    resume-url={resume.url}
+    resume-label={resume.label}
+    onnavigate={handleNavigate}
+  ></c-portfolio-nav>
+
+  <div class="content">
+    <c-portfolio-hero
+      name={profile.name}
+      initials={initials}
+      headline={profile.headline}
+      intro={profile.intro}
+      location={profile.location}
+      availability={profile.availability}
+      photo-url={photoUrl}
+      resume-url={resume.url}
+      resume-label={resume.label}
+      links={links}
+      has-projects={showProjects}
+      onnavigate={handleNavigate}
+    ></c-portfolio-hero>
+
+    <template lwc:if={showProjects}>
+      <c-portfolio-projects
+        data-section="projects"
+        intro={projectsIntro}
+        projects={projects}
+      ></c-portfolio-projects>
+    </template>
+
+    <template lwc:if={showAbout}>
+      <c-portfolio-about
+        data-section="about"
+        summary={about.summary}
+      ></c-portfolio-about>
+    </template>
+  </div>
+
+  <c-portfolio-footer
+    data-section="contact"
+    name={profile.name}
+    heading={contact.heading}
+    text={contact.text}
+    email-url={emailUrl}
+    links={links}
+  ></c-portfolio-footer>
+</template>

@@ -1,0 +1,149 @@
+@import "c/portfolioTheme";
+
+/* Sticky on the host, not on .bar: a sticky element travels only as far as its parent reaches, and
+   the host is as tall as the bar. The host's parent is the page, which spans everything. */
+:host {
+  display: block;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  font-family: var(--pf-font);
+}
+.bar {
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid var(--pf-line);
+  -webkit-backdrop-filter: saturate(1.4) blur(8px);
+  backdrop-filter: saturate(1.4) blur(8px);
+}
+.bar-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4rem;
+}
+
+:host .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  color: var(--pf-ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+.mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  background: var(--pf-navy);
+  color: #ffffff;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+.brand-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-button {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--pf-line);
+  border-radius: 8px;
+  background: var(--pf-paper);
+  color: var(--pf-ink);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+/* Narrow: the links are a panel under the bar, closed until the button opens it. */
+.links {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem var(--pf-gutter) 1.25rem;
+  background: var(--pf-paper);
+  border-bottom: 1px solid var(--pf-line);
+  box-shadow: var(--pf-shadow);
+}
+.links.open {
+  display: flex;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+:host .link {
+  display: block;
+  padding: 0.7rem 0;
+  color: var(--pf-ink);
+  font-size: 1rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+:host .link:hover,
+:host .link[aria-current="true"] {
+  color: var(--pf-accent);
+}
+:host .resume {
+  align-self: flex-start;
+}
+
+@media (min-width: 52rem) {
+  .menu-button {
+    display: none;
+  }
+  .links,
+  .links.open {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+  }
+  .list {
+    flex-direction: row;
+    gap: 1.75rem;
+  }
+  :host .link {
+    position: relative;
+    padding: 0.4rem 0;
+    font-size: 0.9375rem;
+  }
+  /* The section in view is marked by an underline as well as by color, for a visitor who
+     cannot tell the two blues apart. */
+  :host .link[aria-current="true"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -0.15rem;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--pf-accent);
+  }
+  :host .resume {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+  }
+}

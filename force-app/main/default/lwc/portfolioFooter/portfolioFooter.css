@@ -1,0 +1,64 @@
+@import "c/portfolioTheme";
+
+:host {
+  display: block;
+}
+.footer {
+  padding: clamp(3rem, 7vw, 5rem) 0 2rem;
+  background: var(--pf-navy);
+  color: #ffffff;
+  font-family: var(--pf-font);
+}
+
+/* The eyebrow's accent blue is for light surfaces (5.9 on white); on navy it would be 2.3. */
+.eyebrow {
+  color: #9fc5f2;
+}
+.heading {
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+.text {
+  max-width: 36rem;
+  margin: 1rem 0 0;
+  color: #d5e3f6;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+.actions {
+  margin-top: 1.75rem;
+}
+.actions:empty {
+  display: none;
+}
+:host .btn-light {
+  background: #ffffff;
+  color: var(--pf-navy);
+}
+:host .btn-light:hover {
+  background: var(--pf-tint);
+}
+:host .btn-light:focus-visible {
+  outline-color: #ffffff;
+}
+.profiles {
+  margin-top: 1.5rem;
+}
+
+.base {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  margin-top: clamp(2.5rem, 6vw, 4rem);
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  color: #c3d6ef;
+  font-size: 0.875rem;
+}
+.base p {
+  margin: 0;
+}
