@@ -165,9 +165,12 @@ function sf(commandArgs, { cwd = ROOT, allowFail = false } = {}) {
   } catch (error) {
     out = error.stdout;
   }
+  // The JSON can arrive after other output: the first run of a command whose plugin the CLI
+  // installs on demand (community, for one) prints npm's install warnings to stdout first.
+  const start = (out || "").search(/^\{/m);
   let parsed;
   try {
-    parsed = JSON.parse(out);
+    parsed = JSON.parse(start === -1 ? out : out.slice(start));
   } catch {
     throw new Error(`sf ${commandArgs.join(" ")} printed no JSON:\n${out}`);
   }
