@@ -27,7 +27,7 @@ Concepts: Experience Cloud (LWR) sites and the guest user, Apex class access and
 
 <!-- at: force-app/main/default/classes/PublicBoardController.cls | Separate from WorkItemBoardController because Apex class access is granted per class -->
 
-[PublicBoardController.cls:4](../../force-app/main/default/classes/PublicBoardController.cls#L4)
+[PublicBoardController.cls:4](../../../../force-app/main/default/classes/PublicBoardController.cls#L4)
 
 Apex class access is granted per class, not per method. Any user who can reach a class can call
 every `@AuraEnabled` method on it from the browser, whatever the page renders - so a guest who
@@ -49,7 +49,7 @@ guest can reach.
 
 <!-- at: force-app/main/default/classes/PublicBoardController.cls | public static PublicBoardData getPublicBoardData() { -->
 
-[PublicBoardController.cls:29](../../force-app/main/default/classes/PublicBoardController.cls#L29)
+[PublicBoardController.cls:29](../../../../force-app/main/default/classes/PublicBoardController.cls#L29)
 
 One method, no arguments: nothing a client sends can change what comes back, so there is nothing to
 validate, widen or mis-default. Both views ship in the one call, and the board's view toggle,
@@ -66,7 +66,7 @@ so adding a parameter breaks it at compile time.
 
 <!-- at: force-app/main/default/classes/PublicWorkItemSelector.cls | WHERE Is_Public__c = TRUE AND Project__r.Is_Public__c = TRUE -->
 
-[PublicWorkItemSelector.cls:58](../../force-app/main/default/classes/PublicWorkItemSelector.cls#L58)
+[PublicWorkItemSelector.cls:58](../../../../force-app/main/default/classes/PublicWorkItemSelector.cls#L58)
 
 In this WHERE clause: the item's flag and its project's flag, written into the query text rather
 than composed from parameters. The guest sharing rules also gate on the item's own flag, but a
@@ -90,7 +90,7 @@ an error rather than a wider answer.
 
 <!-- at: force-app/main/default/classes/PublicBoardController.cls | public class PublicCard { -->
 
-[PublicBoardController.cls:174](../../force-app/main/default/classes/PublicBoardController.cls#L174)
+[PublicBoardController.cls:174](../../../../force-app/main/default/classes/PublicBoardController.cls#L174)
 
 What an anonymous visitor receives is a class, not a record. An SObject carries every queried field
 to the browser; a DTO carries only the properties it declares, so adding a field to the query
@@ -108,7 +108,7 @@ and a test change - there is no way to do it by accident.
 
 <!-- at: force-app/main/default/classes/PublicBoardControllerTest.cls | static void theDtoCarriesExactlyTheAgreedFieldsAndNoOthers() { -->
 
-[PublicBoardControllerTest.cls:461](../../force-app/main/default/classes/PublicBoardControllerTest.cls#L461)
+[PublicBoardControllerTest.cls:461](../../../../force-app/main/default/classes/PublicBoardControllerTest.cls#L461)
 
 The test serialises a card and compares its keys with an exact set - an allow-list, not a list of
 banned fields. Adding a property fails it, so publishing something new to an anonymous visitor is a
@@ -128,7 +128,7 @@ for it.
 
 <!-- at: force-app/main/default/classes/GuestAccessTest.cls | static void theBoardGuestReadsExactlyTheseFields() { -->
 
-[GuestAccessTest.cls:87](../../force-app/main/default/classes/GuestAccessTest.cls#L87)
+[GuestAccessTest.cls:87](../../../../force-app/main/default/classes/GuestAccessTest.cls#L87)
 
 The same idea, one layer down. The test reads the guest permission set's field grants from the org
 and compares them with an exact list, and requires that the guest can edit nothing. Granting the
@@ -146,7 +146,7 @@ nothing.
 
 <!-- at: force-app/main/default/classes/PublicBoardControllerTest.cls | static void twoHundredPublicRecordsCostOneQuery() { -->
 
-[PublicBoardControllerTest.cls:654](../../force-app/main/default/classes/PublicBoardControllerTest.cls#L654)
+[PublicBoardControllerTest.cls:654](../../../../force-app/main/default/classes/PublicBoardControllerTest.cls#L654)
 
 Two hundred public records cost one SOQL query. The epic ancestry, child counts, the cap on
 completed epics and the featured epic are all worked out in memory from the rows that one query
@@ -169,7 +169,7 @@ adds a second query fails.
 
 <!-- at: force-app/main/default/classes/PublicBoardController.cls | card.inFeaturedEpic = rollup.inFeaturedEpic(record.Id); -->
 
-[PublicBoardController.cls:152](../../force-app/main/default/classes/PublicBoardController.cls#L152)
+[PublicBoardController.cls:152](../../../../force-app/main/default/classes/PublicBoardController.cls#L152)
 
 As answers. The featured epic's card says `isFeatured`, and every card says whether it rolls up
 into an epic (`inEpic`) and whether that epic is the featured one (`inFeaturedEpic`). Apex works
@@ -187,7 +187,7 @@ browser.
 
 <!-- at: force-app/main/default/classes/WorkItemTriggerHandler.cls | Is_Public__c WAS A CONDITION ON PUSHING -->
 
-[WorkItemTriggerHandler.cls:150](../../force-app/main/default/classes/WorkItemTriggerHandler.cls#L150)
+[WorkItemTriggerHandler.cls:150](../../../../force-app/main/default/classes/WorkItemTriggerHandler.cls#L150)
 
 The flag answers one question: may an anonymous visitor read this record. It says nothing about who
 may write it; object and field permissions govern that.
@@ -204,7 +204,7 @@ change looked reasonable and the damage was invisible.
 
 <!-- at: force-app/main/default/classes/FeaturedEpicService.cls | A setting rather than a field on Work_Item__c -->
 
-[FeaturedEpicService.cls:6](../../force-app/main/default/classes/FeaturedEpicService.cls#L6)
+[FeaturedEpicService.cls:6](../../../../force-app/main/default/classes/FeaturedEpicService.cls#L6)
 
 The featured epic is the org default of a hierarchy custom setting holding one Id - so there is one
 by construction - rather than a flag on the work item. Featuring an epic is then never a work item
@@ -230,7 +230,7 @@ whatever the page shows them.
 
 <!-- at: force-app/main/default/classes/FeaturedEpicService.cls | Database.insert(setting, AccessLevel.SYSTEM_MODE); -->
 
-[FeaturedEpicService.cls:253](../../force-app/main/default/classes/FeaturedEpicService.cls#L253)
+[FeaturedEpicService.cls:253](../../../../force-app/main/default/classes/FeaturedEpicService.cls#L253)
 
 Plain DML on a custom setting is checked against the running user, even in Apex, and refused for
 anyone who cannot customise the application - from a `without sharing` class too, and with the

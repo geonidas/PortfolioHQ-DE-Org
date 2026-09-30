@@ -29,7 +29,7 @@ on callouts, Named Credentials, row locks, `with sharing` and `without sharing`.
 
 <!-- at: force-app/main/default/classes/WorkItemBoardController.cls | Writes Status__c and nothing else. WorkItemTrigger does the rest -->
 
-[WorkItemBoardController.cls:135](../../force-app/main/default/classes/WorkItemBoardController.cls#L135)
+[WorkItemBoardController.cls:135](../../../../force-app/main/default/classes/WorkItemBoardController.cls#L135)
 
 `changeStatus` writes `Status__c`, in user mode, and returns. The trigger stages and enqueues the
 push, so calling `WorkItemSyncService` here as well would either throw - a callout cannot follow
@@ -56,7 +56,7 @@ way.
 
 <!-- at: force-app/main/default/triggers/WorkItemTrigger.trigger | trigger WorkItemTrigger on Work_Item__c( -->
 
-[WorkItemTrigger.trigger:9](../../force-app/main/default/triggers/WorkItemTrigger.trigger#L9)
+[WorkItemTrigger.trigger:9](../../../../force-app/main/default/triggers/WorkItemTrigger.trigger#L9)
 
 Two jobs on three events. Before update, `stageForPush` records which pushable fields changed in
 `Pending_Push_Fields__c` and marks the record Pending. After update, `pushChanges` enqueues a push
@@ -81,7 +81,7 @@ start dates; the trigger refuses one on every path, the record page and the API 
 
 <!-- at: force-app/main/default/classes/SyncFields.cls | public static Set<SyncField> changedBetween( -->
 
-[SyncFields.cls:23](../../force-app/main/default/classes/SyncFields.cls#L23)
+[SyncFields.cls:23](../../../../force-app/main/default/classes/SyncFields.cls#L23)
 
 The one definition of a pushable change: status (unless it moved to Unspecified), title, start date,
 due date and priority - and nothing at all for a record with no `External_Id__c`, which has no
@@ -104,7 +104,7 @@ stops a write-back from pushing again. One list decides it.
 
 <!-- at: force-app/main/default/classes/WorkItemTriggerHandler.cls | // Added to, never replaced -->
 
-[WorkItemTriggerHandler.cls:100](../../force-app/main/default/classes/WorkItemTriggerHandler.cls#L100)
+[WorkItemTriggerHandler.cls:100](../../../../force-app/main/default/classes/WorkItemTriggerHandler.cls#L100)
 
 The fields this save changed are merged into what is already pending, never written over it, and
 the last failure's reason is cleared because a new attempt is under way. If the caller set
@@ -124,7 +124,7 @@ changes not yet confirmed.
 
 <!-- at: force-app/main/default/classes/SyncContext.cls | private static Integer suppressionDepth = 0; -->
 
-[SyncContext.cls:12](../../force-app/main/default/classes/SyncContext.cls#L12)
+[SyncContext.cls:12](../../../../force-app/main/default/classes/SyncContext.cls#L12)
 
 A transaction-scoped switch. Inbound processing suppresses outbound around its upsert, so a value
 that arrives from the source is never sent back to it. The trigger checks the switch before it
@@ -149,7 +149,7 @@ header names all of them, so removing one is never mistaken for removing a dupli
 
 <!-- at: force-app/main/default/classes/WorkItemTriggerHandler.cls | private static Boolean isRetry(Work_Item__c item, Work_Item__c prior) { -->
 
-[WorkItemTriggerHandler.cls:69](../../force-app/main/default/classes/WorkItemTriggerHandler.cls#L69)
+[WorkItemTriggerHandler.cls:69](../../../../force-app/main/default/classes/WorkItemTriggerHandler.cls#L69)
 
 A retry is a save: a record with a remote id and something still pending, moved from Failed to
 Pending. The trigger clears `Sync_Error__c` and queues a push, and because the record was Failed -
@@ -169,7 +169,7 @@ suppressed, so they never count as one.
 
 <!-- at: force-app/main/default/classes/WorkItemSyncQueueable.cls | public without sharing class WorkItemSyncQueueable implements Queueable, Database.AllowsCallouts { -->
 
-[WorkItemSyncQueueable.cls:22](../../force-app/main/default/classes/WorkItemSyncQueueable.cls#L22)
+[WorkItemSyncQueueable.cls:22](../../../../force-app/main/default/classes/WorkItemSyncQueueable.cls#L22)
 
 The async half of the push. A transaction may make at most 100 callouts in 120 seconds, and a Jira
 push can take four (an edit, a two-step transition and a read of the issue's update time), so a job
@@ -198,7 +198,7 @@ always.
 
 <!-- at: force-app/main/default/classes/WorkItemSyncQueueable.cls | if (staged != null && otherPushesInFlight(context)) { -->
 
-[WorkItemSyncQueueable.cls:68](../../force-app/main/default/classes/WorkItemSyncQueueable.cls#L68)
+[WorkItemSyncQueueable.cls:68](../../../../force-app/main/default/classes/WorkItemSyncQueueable.cls#L68)
 
 Two saves a few seconds apart queue two jobs. Each owns the fields its own save staged and, while
 another push job is queued or running, sends only those that are still pending. With no other push
@@ -222,7 +222,7 @@ fallback for the case where no owner is left.
 
 <!-- at: force-app/main/default/classes/WorkItemSyncService.cls | // Callouts are finished. DML from here down. -->
 
-[WorkItemSyncService.cls:141](../../force-app/main/default/classes/WorkItemSyncService.cls#L141)
+[WorkItemSyncService.cls:141](../../../../force-app/main/default/classes/WorkItemSyncService.cls#L141)
 
 The loop above this line calls out for each item and keeps every result and log row in memory.
 Everything below it writes: the work items first, then the log rows. An adapter that throws is
@@ -245,7 +245,7 @@ before its first write, and anything worth recording about those calls waits in 
 
 <!-- at: force-app/main/default/classes/JiraAdapter.cls | Issues one callout and buffers exactly one Integration_Log__c row for it -->
 
-[JiraAdapter.cls:971](../../force-app/main/default/classes/JiraAdapter.cls#L971)
+[JiraAdapter.cls:971](../../../../force-app/main/default/classes/JiraAdapter.cls#L971)
 
 Every callout gets exactly one `Integration_Log__c` row - method, endpoint, status, duration,
 truncated request and response - whether it succeeded or threw. The row goes into the adapter's own
@@ -263,7 +263,7 @@ adapter, where the callouts actually happen.
 
 <!-- at: force-app/main/default/classes/JiraAdapter.cls | public SyncResult push(Work_Item__c item, Set<SyncField> changed) { -->
 
-[JiraAdapter.cls:555](../../force-app/main/default/classes/JiraAdapter.cls#L555)
+[JiraAdapter.cls:555](../../../../force-app/main/default/classes/JiraAdapter.cls#L555)
 
 Field edits go first, as one PUT carrying only the changed fields: a cleared date as an explicit
 null, the priority by id. Then the status. Jira will not accept a target status, so the adapter
@@ -286,7 +286,7 @@ source holds is overwritten with a value Salesforce merely happened to have.
 
 <!-- at: force-app/main/default/classes/SyncResult.cls | public Set<SyncField> confirmedFields { get; set; } -->
 
-[SyncResult.cls:35](../../force-app/main/default/classes/SyncResult.cls#L35)
+[SyncResult.cls:35](../../../../force-app/main/default/classes/SyncResult.cls#L35)
 
 A push returns an `Outcome` and the set of fields the source accepted. `confirmedFields` is set on a
 failure too, because a push can land its title and have its transition refused: forgetting the half
@@ -308,7 +308,7 @@ so the result answers it in a type rather than a sentence.
 
 <!-- at: force-app/main/default/classes/WorkItemSyncService.cls | private static List<Work_Item__c> writeBack(List<SyncResult> results) { -->
 
-[WorkItemSyncService.cls:217](../../force-app/main/default/classes/WorkItemSyncService.cls#L217)
+[WorkItemSyncService.cls:217](../../../../force-app/main/default/classes/WorkItemSyncService.cls#L217)
 
 After the callouts, the job re-reads its rows `FOR UPDATE` and works out each record's sync fields
 against what is stored now, removing only the confirmed fields from `Pending_Push_Fields__c`. Three

@@ -1,8 +1,9 @@
-# Code tour
+# Code tour: unified workflow board
 
-A guided route through version 1 of Portfolio HQ: what each part does, the platform concepts it
-rests on, and why it is built the way it is. Seven tours, each a short walk along one path through
-the system, and every stop sits on a real line of code.
+A guided route through version 1 of the unified workflow board, the first project in Portfolio HQ
+([project overview](../README.md)): what each part does, the platform concepts it rests on, and why
+it is built the way it is. Seven tours, each a short walk along one path through the system, and
+every stop sits on a real line of code.
 
 ## Taking it
 
@@ -242,6 +243,8 @@ The rule each pattern states, grouped, with every stop that is an instance of it
 
 The Markdown files here are the tour's source. Each stop names its line by a snippet of the code
 that must occur exactly once in its file; `npm run tour` turns every snippet back into a line
-link, rebuilds the lists on this page and regenerates the CodeTour files in `.tours/`.
-`npm run tour:check` changes nothing and fails when a snippet has stopped matching, or when
-anything here is out of date - run it after any change that moves code a stop points at.
+link, rebuilds the lists on this page and regenerates the CodeTour files in
+`.tours/01-workflow-board/`. `npm run tour:check` changes nothing and fails when a snippet has
+stopped matching, or when anything here is out of date - run it after any change that moves code a
+stop points at. Both commands cover every project's tour at once: another project's tour goes in
+its own `docs/projects/<project>/tour/`, laid out like this one, and gets its own `.tours/` folder.

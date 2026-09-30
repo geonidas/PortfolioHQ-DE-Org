@@ -26,7 +26,7 @@ in tests, seed data, scheduled jobs, source tracking.
 
 <!-- at: force-app/main/default/classes/AsanaWebhookResourceTest.cls | static void theGuestCanActuallyWriteTheRowsThisEndpointRecords() { -->
 
-[AsanaWebhookResourceTest.cls:415](../../force-app/main/default/classes/AsanaWebhookResourceTest.cls#L415)
+[AsanaWebhookResourceTest.cls:415](../../../../force-app/main/default/classes/AsanaWebhookResourceTest.cls#L415)
 
 Apex runs in system mode for every user but one: for the site guest, field-level security is
 enforced on DML. `AsanaWebhookResource` once set a `Webhook_Event__c` field that the guest's
@@ -49,7 +49,7 @@ custom setting write (tour 5).
 
 <!-- at: force-app/main/default/classes/WorkItemInboundQueueableTest.cls | static void theSubscriberEnqueuesRatherThanApplyingInline() { -->
 
-[WorkItemInboundQueueableTest.cls:26](../../force-app/main/default/classes/WorkItemInboundQueueableTest.cls#L26)
+[WorkItemInboundQueueableTest.cls:26](../../../../force-app/main/default/classes/WorkItemInboundQueueableTest.cls#L26)
 
 Every other inbound test calls `WorkItemInboundProcessor.process` directly, which is a good way to
 test what processing does and no way at all to find out whether processing can run where it
@@ -71,7 +71,7 @@ exactly the constraints the entry point brings.
 
 <!-- at: force-app/main/default/classes/AsanaWebhookResourceTest.cls | // Both readings inside the window: Test.stopTest restores the outer limits context -->
 
-[AsanaWebhookResourceTest.cls:349](../../force-app/main/default/classes/AsanaWebhookResourceTest.cls#L349)
+[AsanaWebhookResourceTest.cls:349](../../../../force-app/main/default/classes/AsanaWebhookResourceTest.cls#L349)
 
 By taking both readings inside the test window. `Test.stopTest()` restores the limits context that
 was in force before `Test.startTest()`, so a `Limits.getCallouts()` reading taken after it reports
@@ -90,7 +90,7 @@ cannot.
 
 <!-- at: force-app/main/default/classes/FieldMappingService.cls | private static List<Field_Mapping__mdt> injected; -->
 
-[FieldMappingService.cls:37](../../force-app/main/default/classes/FieldMappingService.cls#L37)
+[FieldMappingService.cls:37](../../../../force-app/main/default/classes/FieldMappingService.cls#L37)
 
 Custom metadata records cannot be created by DML, so every class that reads them has a
 `@TestVisible` seam a test can fill instead: `FieldMappingService`, `BoardSourceRules`,
@@ -110,7 +110,7 @@ quietly change the answer.
 
 <!-- at: scripts/apex/flag-public-demo-data.apex | External_Key__c = 'SEED-CANARY', -->
 
-[flag-public-demo-data.apex:128](../../scripts/apex/flag-public-demo-data.apex#L128)
+[flag-public-demo-data.apex:128](../../../../scripts/apex/flag-public-demo-data.apex#L128)
 
 The demo-data script flags some work public, shapes it into an epic hierarchy, and plants one record
 that must never render: a work item flagged public under a private project, owned by a real user so
@@ -129,7 +129,7 @@ makes it visible instead.
 
 <!-- at: force-app/main/default/classes/IntegrationDataPurge.cls | WHAT IT WILL NOT DELETE. -->
 
-[IntegrationDataPurge.cls:23](../../force-app/main/default/classes/IntegrationDataPurge.cls#L23)
+[IntegrationDataPurge.cls:23](../../../../force-app/main/default/classes/IntegrationDataPurge.cls#L23)
 
 Each night, `Webhook_Event__c` and `Integration_Log__c` are cut to their 50 most recent rows and
 hard-deleted from the recycle bin. A delivery still Pending is work in progress, not history, so it
@@ -154,7 +154,7 @@ right.
 
 <!-- at: manifest/org-changes.xml | Deliberately excludes ApexClass -->
 
-[org-changes.xml:6](../../manifest/org-changes.xml#L6)
+[org-changes.xml:6](../../../../manifest/org-changes.xml#L6)
 
 Source that lives in git travels one way, local to org. This manifest retrieves only declarative
 metadata changed in Setup, and deliberately leaves out Apex, LWC, site JSON and profiles.

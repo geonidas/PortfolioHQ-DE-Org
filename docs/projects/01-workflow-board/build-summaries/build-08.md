@@ -73,7 +73,7 @@ Ten commits on `feature/first-branch`, one per step after step 0.
 
 ## Decisions, and why
 
-All nine are in `docs/adr/build-08-board-redesign.md`; these are the reasons in brief.
+All nine are in `docs/projects/01-workflow-board/adr/build-08-board-redesign.md`; these are the reasons in brief.
 
 ### 1. The public board names the vendor
 
@@ -203,7 +203,7 @@ spend it alone.
   with a visible ring at every stop and Escape returning focus.
 - The canary WI-0011 no longer shows Pending, on the board or the record.
 
-**By the owner, 9/25** (`docs/build-08/verification.md`)
+**By the owner, 9/25** (`docs/projects/01-workflow-board/build-08/verification.md`)
 
 - Lighthouse on the public board, logged out: accessibility **100** on desktop and mobile, level
   with the baseline. The other Lighthouse scores were not reported.

@@ -1,7 +1,7 @@
 # ADR — Build 07: a second source system
 
 Decisions taken while adding Asana, with the reasoning that would otherwise be lost. Narrative
-lives in `docs/build-summaries/build-07.md`; org state and traps live in `docs/handoff.md`.
+lives in `docs/projects/01-workflow-board/build-summaries/build-07.md`; org state and traps live in `docs/handoff.md`.
 
 ---
 

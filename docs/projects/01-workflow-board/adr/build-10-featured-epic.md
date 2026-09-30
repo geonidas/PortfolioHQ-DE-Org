@@ -3,7 +3,7 @@
 Decisions taken for build 10, with the reasoning that would otherwise be lost. Decisions 1-14 were
 made by the owner before the build started and are recorded here at step 0, as given. Where step 0
 found something that bears on a decision, it is written under that decision. The questions it
-raised for the owner are at the end. Narrative will live in `docs/build-10/summary.md`; org state
+raised for the owner are at the end. Narrative will live in `docs/projects/01-workflow-board/build-10/summary.md`; org state
 and traps live in `docs/handoff.md`.
 
 The build: the owner features one epic on the public board, from a button on that epic's card on

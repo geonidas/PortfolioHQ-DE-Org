@@ -2,7 +2,7 @@
 
 Decisions taken for build 09, with the reasoning that would otherwise be lost. Decisions 1-9 were
 made by the owner before the build started and are recorded here at step 0. Narrative lives in
-`docs/build-09/summary.md`; org state and traps live in `docs/handoff.md`.
+`docs/projects/01-workflow-board/build-09/summary.md`; org state and traps live in `docs/handoff.md`.
 
 ---
 

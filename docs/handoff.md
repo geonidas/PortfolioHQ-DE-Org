@@ -1,23 +1,27 @@
 # Handoff — Portfolio HQ (neoGeoDevOrg)
 
-What a new context window needs and cannot read from the repo. Decisions and their
-reasoning live in `docs/adr/`; per-build narrative lives in `docs/build-summaries/`.
+What a new context window needs and cannot read from the repo. The org is a hub with one folder
+per project under `docs/projects/`, and each project keeps its decisions (`adr/`) and per-build
+narrative (`build-summaries/`) there. Sections 1-6 are project 01, the unified workflow board
+(`docs/projects/01-workflow-board/`); section 7 is project 02, the Experience Cloud site.
 **This file holds only what git does not know: org state, invariants, and traps.**
 
-Current as of **Build 10** (`docs/build-10/summary.md`, and `docs/build-summaries/build-10.md`),
-which closes version 1: the owner features one epic on the public board from a button on its card
-on the internal board. With an epic featured, the public board opens on Tasks and shows that epic's
-work under a sentence naming it; with none, it opens on Epics. Build 09
-(`docs/build-summaries/build-09.md`) gave every work item a priority that syncs both ways, and both
-boards a Sort; build 08 (`docs/build-summaries/build-08.md`) redesigned both boards - source
+Current as of **Build 10** (`docs/projects/01-workflow-board/build-10/summary.md`, and
+`docs/projects/01-workflow-board/build-summaries/build-10.md`), which closes version 1: the owner
+features one epic on the public board from a button on its card on the internal board. With an epic
+featured, the public board opens on Tasks and shows that epic's work under a sentence naming it;
+with none, it opens on Epics. Build 09
+(`docs/projects/01-workflow-board/build-summaries/build-09.md`) gave every work item a priority that
+syncs both ways, and both boards a Sort; build 08
+(`docs/projects/01-workflow-board/build-summaries/build-08.md`) redesigned both boards - source
 accents, View and Source filters, cards that open in place, editing and pushing from the internal
-board, drag-and-drop, Retry, live updates through Change Data Capture, and a public board that
-polls every 30 seconds while someone looks. Builds 01-10 are deployed to the scratch org and
-verified - against live Jira and Asana up to build 09; build 10 calls neither. `feature/first-branch`
-has not been merged to `main` (the development org): see section 3, "Deleting an LWC from source",
-for the one thing that merge must also run. No build used a separate branch after build 08.
+board, drag-and-drop, Retry, live updates through Change Data Capture, and a public board that polls
+every 30 seconds while someone looks. Builds 01-10 are deployed to the scratch org and verified -
+against live Jira and Asana up to build 09; build 10 calls neither. `feature/first-branch` has not
+been merged to `main` (the development org): see section 3, "Deleting an LWC from source", for the
+one thing that merge must also run. No build used a separate branch after build 08.
 
-**A second project shares this repo: the portfolio site** (branch `portfolioSite`, section 7). It is `portfolio*` LWCs and one static resource, needs no Apex and no guest access, and is staged on the scratch org only.
+**Project 02, the Experience Cloud site, has work in progress: the portfolio page** (branch `portfolioSite`, section 7). It is `portfolio*` LWCs and one static resource, needs no Apex and no guest access, and is staged on the scratch org only.
 
 Build 07's Asana setup (section 6) is done and live. Class names reflect the refactor after build
 06: `JiraWebhookProcessor` became `WorkItemInboundProcessor`. Older ADRs and summaries use the old
@@ -878,7 +882,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed
 
 # ...and what it looks like to one, at desktop width and on a 375px phone - optionally with a
 # card opened first
-node scripts/capture-public-board.mjs docs/build-08/screenshots <label> [WI-0005]
+node scripts/capture-public-board.mjs docs/projects/01-workflow-board/build-08/screenshots <label> [WI-0005]
 
 # ...and whether it is accessible to one: axe-core over fourteen states - both sorts at both sizes
 # since build 09, and since build 10 the featured epic in Tasks, its source filtered out, none in
@@ -1086,9 +1090,10 @@ enqueues a real push to real Asana.
 ## 7. The portfolio site (branch `portfolioSite`)
 
 A **project showcase** for the owner, linked from a résumé and LinkedIn: each project shown running,
-with a label for how far a visitor can go. A separate project from Portfolio HQ that shares the repo,
-the dev org and the site host. Nothing here is in `docs/adr/` or `docs/build-summaries/` yet: the
-work is committed step by step but the build is open.
+with a label for how far a visitor can go. Part of project 02, the Experience Cloud site
+(`docs/projects/02-experience-cloud-site/`): the site that already hosts the public board gains a
+home page. The project folder holds only its overview so far; its ADR and build summary go there
+when the owner closes the build, which is open and committed step by step.
 
 **Decision (2026-09-28, the owner): no skills, experience or certifications on the page.** They live
 on the résumé and LinkedIn, and a second copy is one more thing to keep current; the owner also has

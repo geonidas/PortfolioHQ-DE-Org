@@ -25,7 +25,7 @@ Concepts: LWC modules and bundles, `@wire` and `refreshApex`, Change Data Captur
 
 <!-- at: force-app/main/default/lwc/boardLayout/boardLayout.js | This module imports no Apex, and that is the whole reason it can be shared. -->
 
-[boardLayout.js:4](../../force-app/main/default/lwc/boardLayout/boardLayout.js#L4)
+[boardLayout.js:4](../../../../force-app/main/default/lwc/boardLayout/boardLayout.js#L4)
 
 An LWC import is not conditional: whatever a module imports ships in the bundle of every page that
 uses it. A component that imported `WorkItemBoardController` would carry the class a guest must
@@ -46,7 +46,7 @@ method imports included.
 
 <!-- at: force-app/main/default/lwc/__tests__/guestBundle.test.js | An LWC import is not conditional -->
 
-[guestBundle.test.js:4](../../force-app/main/default/lwc/__tests__/guestBundle.test.js#L4)
+[guestBundle.test.js:4](../../../../force-app/main/default/lwc/__tests__/guestBundle.test.js#L4)
 
 A unit test walks the public board's graph from source - JavaScript imports, child components
 named in templates, CSS imports - and asserts that the only Apex import anywhere in it is
@@ -64,7 +64,7 @@ fact about the whole graph, not trusted to review.
 
 <!-- at: force-app/main/default/lwc/boardCard/boardCard.js | @api abilities; -->
 
-[boardCard.js:34](../../force-app/main/default/lwc/boardCard/boardCard.js#L34)
+[boardCard.js:34](../../../../force-app/main/default/lwc/boardCard/boardCard.js#L34)
 
 One card serves both boards. It renders the view model the board hands it and raises events -
 toggle, move, save, open record - and the board does the work and hands the outcome back. What an
@@ -83,7 +83,7 @@ public card, not hidden on it.
 
 <!-- at: force-app/main/default/classes/BoardSourceRules.cls | The board's counterpart to WorkItemAdapterFactory -->
 
-[BoardSourceRules.cls:4](../../force-app/main/default/classes/BoardSourceRules.cls#L4)
+[BoardSourceRules.cls:4](../../../../force-app/main/default/classes/BoardSourceRules.cls#L4)
 
 `BoardSourceRules` is the only reader of `Board_Source__mdt`. The controllers ask it about each
 card's source and send the answers - a label to show, an accent token such as `accent-1` that the
@@ -106,7 +106,7 @@ source needs a metadata row, not a component change.
 
 <!-- at: force-app/main/default/lwc/boardModel/boardModel.js | export function formatDay( -->
 
-[boardModel.js:77](../../force-app/main/default/lwc/boardModel/boardModel.js#L77)
+[boardModel.js:77](../../../../force-app/main/default/lwc/boardModel/boardModel.js#L77)
 
 A start or due date is a calendar day, not an instant, so it travels from Apex as a `YYYY-MM-DD`
 string and the client reads the day from the string's own parts. The creation date is a real
@@ -124,7 +124,7 @@ has one.
 
 <!-- at: jest.config.js | process.env.TZ = "America/Los_Angeles"; -->
 
-[jest.config.js:7](../../jest.config.js#L7)
+[jest.config.js:7](../../../../jest.config.js#L7)
 
 Every Jest run is pinned to a zone behind UTC, so a date bug fails locally rather than only for
 visitors in the Americas. The pin is set in the config, before the workers start, because Jest hands
@@ -140,7 +140,7 @@ it rather than inheriting it.
 
 <!-- at: force-app/main/default/lwc/workItemBoard/workItemBoard.js | subscribe(CHANGE_CHANNEL, -1, () => this.scheduleRefresh()) -->
 
-[workItemBoard.js:120](../../force-app/main/default/lwc/workItemBoard/workItemBoard.js#L120)
+[workItemBoard.js:120](../../../../force-app/main/default/lwc/workItemBoard/workItemBoard.js#L120)
 
 It subscribes to Change Data Capture on `Work_Item__c` and refreshes when a change arrives,
 debounced by a second and a half, because one save produces several events: the edit, then the
@@ -166,7 +166,7 @@ permissions, not on the code.
 
 <!-- at: force-app/main/default/lwc/publicWorkItemBoard/publicWorkItemBoard.js | export const IDLE_MS = 300000; -->
 
-[publicWorkItemBoard.js:42](../../force-app/main/default/lwc/publicWorkItemBoard/publicWorkItemBoard.js#L42)
+[publicWorkItemBoard.js:42](../../../../force-app/main/default/lwc/publicWorkItemBoard/publicWorkItemBoard.js#L42)
 
 LWR sites do not support `lightning/empApi`, so the public board re-reads every 30 seconds
 instead, but only while the tab is visible and the visitor has done something in the last five
@@ -187,7 +187,7 @@ and spending stops when nobody is looking.
 
 <!-- at: force-app/main/default/lwc/boardCard/boardCard.html | <span class="assistive">{card.metaSpoken}</span> -->
 
-[boardCard.html:57](../../force-app/main/default/lwc/boardCard/boardCard.html#L57)
+[boardCard.html:57](../../../../force-app/main/default/lwc/boardCard/boardCard.html#L57)
 
 The LWC template compiler drops the whitespace between tags: `<span>A</span> <span>B</span>`
 renders as "AB". A flex gap hides that visually, but a screen reader hears the spans run together

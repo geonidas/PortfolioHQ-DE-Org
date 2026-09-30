@@ -1,8 +1,8 @@
 # ADR — Build 08: board redesign, in-card editing, live updates
 
 Decisions taken during build 08, with the reasoning that would otherwise be lost. Narrative lives
-in `docs/build-summaries/build-08.md`; org state and traps live in `docs/handoff.md`. The design
-decisions themselves - palette, type, wireframes - are in `docs/build-08/design-plan.md`.
+in `docs/projects/01-workflow-board/build-summaries/build-08.md`; org state and traps live in `docs/handoff.md`. The design
+decisions themselves - palette, type, wireframes - are in `docs/projects/01-workflow-board/build-08/design-plan.md`.
 
 ---
 

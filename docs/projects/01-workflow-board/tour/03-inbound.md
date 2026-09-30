@@ -33,7 +33,7 @@ sharing, Scheduled Apex.
 
 <!-- at: force-app/main/default/classes/JiraWebhookResource.cls | @RestResource(urlMapping='/v1/webhook/jira') -->
 
-[JiraWebhookResource.cls:21](../../force-app/main/default/classes/JiraWebhookResource.cls#L21)
+[JiraWebhookResource.cls:21](../../../../force-app/main/default/classes/JiraWebhookResource.cls#L21)
 
 The Jira webhook's endpoint verifies the signature over the raw bytes, inserts one
 `Webhook_Event__c` row, and answers. No JSON parsing, no business logic, no callouts, no reads of
@@ -59,7 +59,7 @@ delivery arrived. Acting on it is somebody else's job.
 
 <!-- at: force-app/main/default/classes/WebhookSignature.cls | return Crypto.verifyHMac( -->
 
-[WebhookSignature.cls:68](../../force-app/main/default/classes/WebhookSignature.cls#L68)
+[WebhookSignature.cls:68](../../../../force-app/main/default/classes/WebhookSignature.cls#L68)
 
 The HMAC-SHA256 of the request body is computed with the shared secret and compared with the
 signature header by `Crypto.verifyHMac`. The verifier only ever sees a `Blob`, never a parsed
@@ -81,7 +81,7 @@ branch in which something not being configured skips the check.
 
 <!-- at: force-app/main/default/classes/JiraWebhookResource.cls | // One response for every rejection reason. -->
 
-[JiraWebhookResource.cls:77](../../force-app/main/default/classes/JiraWebhookResource.cls#L77)
+[JiraWebhookResource.cls:77](../../../../force-app/main/default/classes/JiraWebhookResource.cls#L77)
 
 Status codes are chosen for what they make the sender do. A non-2xx asks Jira to retry, so 500 is
 kept for the one case where retrying helps: the delivery could not be recorded. A payload that will
@@ -99,7 +99,7 @@ don't - and the one it gets should be the one it ought to act on.
 
 <!-- at: force-app/main/default/classes/WebhookSecretStore.cls | Two halves, because the platform forces them apart. -->
 
-[WebhookSecretStore.cls:4](../../force-app/main/default/classes/WebhookSecretStore.cls#L4)
+[WebhookSecretStore.cls:4](../../../../force-app/main/default/classes/WebhookSecretStore.cls#L4)
 
 A site guest can insert a custom object row and can never read one back: not its own, not in system
 mode, not through a `without sharing` class. In build 07, object access, field-level security and
@@ -125,7 +125,7 @@ secret alike, and null means reject.
 
 <!-- at: force-app/main/default/objects/Webhook_Event_Received__e/Webhook_Event_Received__e.object-meta.xml | <publishBehavior>PublishAfterCommit</publishBehavior> -->
 
-[Webhook_Event_Received__e.object-meta.xml:8](../../force-app/main/default/objects/Webhook_Event_Received__e/Webhook_Event_Received__e.object-meta.xml#L8)
+[Webhook_Event_Received__e.object-meta.xml:8](../../../../force-app/main/default/objects/Webhook_Event_Received__e/Webhook_Event_Received__e.object-meta.xml#L8)
 
 Its only job is to change who is running. The `Webhook_Event__c` insert trigger publishes one event
 per verified row, carrying nothing but the row's id, and the subscriber trigger runs as the
@@ -152,7 +152,7 @@ it is.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | System.enqueueJob(new WorkItemInboundQueueable(eventIds)); -->
 
-[WorkItemInboundProcessor.cls:80](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L80)
+[WorkItemInboundProcessor.cls:80](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L80)
 
 The subscriber is a trigger, and Apex refuses a callout made from a trigger. The Asana adapter must
 call out while it parses, to fetch the task, so the subscriber hands the batch to
@@ -171,7 +171,7 @@ knowing which adapters call out, which is the knowledge the adapter seam exists 
 
 <!-- at: force-app/main/default/classes/WorkItemInboundQueueable.cls | AND Processing_Status__c = :DeliveryStatus.PENDING -->
 
-[WorkItemInboundQueueable.cls:50](../../force-app/main/default/classes/WorkItemInboundQueueable.cls#L50)
+[WorkItemInboundQueueable.cls:50](../../../../force-app/main/default/classes/WorkItemInboundQueueable.cls#L50)
 
 The job carries ids, not rows, and re-reads them with `Processing_Status__c = Pending` and a valid
 signature in the WHERE clause. Between the publish and this job, a delivery can be retired by
@@ -185,7 +185,7 @@ was handed.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | List<Delivery> parsed = parseAll(rows, logs); -->
 
-[WorkItemInboundProcessor.cls:103](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L103)
+[WorkItemInboundProcessor.cls:103](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L103)
 
 The processor's first act is to parse the batch, one adapter call per source system, and it writes
 nothing until every call has returned. Every outcome, every log row an adapter buffered and every
@@ -207,7 +207,7 @@ the other direction.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | Map<String, Delivery> newestByExternalId = new Map<String, Delivery>(); -->
 
-[WorkItemInboundProcessor.cls:116](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L116)
+[WorkItemInboundProcessor.cls:116](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L116)
 
 A batch can hold several deliveries about one issue. Only the newest, by the issue's own update
 time, is applied; the rest are retired as Ignored with `Ignore_Reason__c = Superseded`, so a bulk
@@ -227,7 +227,7 @@ meant string-matching an error message, which breaks the day somebody rewords it
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | change.remoteUpdated <= current.Remote_Last_Modified__c -->
 
-[WorkItemInboundProcessor.cls:180](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L180)
+[WorkItemInboundProcessor.cls:180](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L180)
 
 The durable half of loop prevention: a delivery that is not strictly newer than
 `Remote_Last_Modified__c` changes nothing and is marked Ignored. That one comparison covers the
@@ -250,7 +250,7 @@ across transactions.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | if (pending.contains(SyncField.STATUS)) { -->
 
-[WorkItemInboundProcessor.cls:212](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L212)
+[WorkItemInboundProcessor.cls:212](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L212)
 
 A field listed in `Pending_Push_Fields__c` keeps Salesforce's value, and the sync fields are left
 alone until nothing is pending. The delivery still applies everything else, and its row says what
@@ -270,7 +270,7 @@ and inbound does not write over it.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | if (String.isNotBlank(change.title)) { -->
 
-[WorkItemInboundProcessor.cls:312](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L312)
+[WorkItemInboundProcessor.cls:312](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L312)
 
 A title, type, parent or project is assigned only when the delivery carries one; the dates, the
 description and the priority are written, null included, exactly when their carried flag is set.
@@ -291,7 +291,7 @@ value the delivery did not carry.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | Id owner = integrationOwnerId(); -->
 
-[WorkItemInboundProcessor.cls:240](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L240)
+[WorkItemInboundProcessor.cls:240](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L240)
 
 When inbound creates a record it sets two things it never sets again. The owner: the processor runs
 as Automated Process, so everything it creates would be owned by Automated Process, and guest
@@ -319,7 +319,7 @@ owner, and the owner decides who can see it.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | a move. Follow it, and log both keys. -->
 
-[WorkItemInboundProcessor.cls:260](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L260)
+[WorkItemInboundProcessor.cls:260](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L260)
 
 Three cases, written out in the code: no link yet, assign it; linked to a different key, follow the
 move and log both keys; the same key, write nothing. A move whose new key resolves to no project,
@@ -339,7 +339,7 @@ them; listing the cases is what exposed it.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundProcessor.cls | private static void resolveParents( -->
 
-[WorkItemInboundProcessor.cls:581](../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L581)
+[WorkItemInboundProcessor.cls:581](../../../../force-app/main/default/classes/WorkItemInboundProcessor.cls#L581)
 
 A batch can carry a child and its parent in either order, so links are made after every record in
 the batch exists. Resolving during the first pass would miss a parent not yet inserted - and would
@@ -358,7 +358,7 @@ disappear; it leaves a row saying exactly what is missing.
 
 <!-- at: force-app/main/default/classes/WorkItemInboundSweeper.cls | private static final Integer MAX_ATTEMPTS = 3; -->
 
-[WorkItemInboundSweeper.cls:80](../../force-app/main/default/classes/WorkItemInboundSweeper.cls#L80)
+[WorkItemInboundSweeper.cls:80](../../../../force-app/main/default/classes/WorkItemInboundSweeper.cls#L80)
 
 Every fifteen minutes, deliveries still Pending after five quiet minutes are handed to the same
 queueable again, up to three times, and then retired as Ignored, Not Applicable. Before this class,

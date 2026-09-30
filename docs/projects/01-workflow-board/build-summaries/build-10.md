@@ -1,11 +1,11 @@
 <!-- The build 10 summary, kept beside builds 04-09's for the planning chat. The same text as
-     docs/build-10/summary.md, where the build prompt asked for it. -->
+     docs/projects/01-workflow-board/build-10/summary.md, where the build prompt asked for it. -->
 
 # Build 10 — Featured epic
 
 **Status:** complete and verified in the scratch org. The public board was checked logged out, and
 the internal board as the owner, pressing the real button. No Jira or Asana call was made, by
-design. The owner's own checks are pending: see `docs/build-10/verification.md`.
+design. The owner's own checks are pending: see `docs/projects/01-workflow-board/build-10/verification.md`.
 
 The owner can now choose one epic to feature on the public board, from a button on that epic's
 card on the internal board. With an epic featured, the public board opens on Tasks and shows that
@@ -97,7 +97,7 @@ Six commits on `feature/first-branch`, one per step. No separate branch.
 
 ## Decisions, and why
 
-The fourteen decisions the owner made before the build are in `docs/adr/build-10-featured-epic.md`,
+The fourteen decisions the owner made before the build are in `docs/projects/01-workflow-board/adr/build-10-featured-epic.md`,
 with their reasoning. In short:
 
 - The featured epic is a custom setting's org default, set by new controller methods behind a new
@@ -290,7 +290,7 @@ were written for.
   `WorkItemSyncQueueable` jobs stayed at 34, and the touched cards kept their 9/26 01:56:11
   timestamps.
 
-**By the owner** - pending; see `docs/build-10/verification.md`.
+**By the owner** - pending; see `docs/projects/01-workflow-board/build-10/verification.md`.
 
 ---
 

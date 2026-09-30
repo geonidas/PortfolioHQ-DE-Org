@@ -49,7 +49,7 @@ and tour 7 how all of it is tested and operated.
 
 <!-- at: force-app/main/default/classes/ExternalIdUtil.cls | public static String qualify(String systemNamespace, String rawId) { -->
 
-[ExternalIdUtil.cls:19](../../force-app/main/default/classes/ExternalIdUtil.cls#L19)
+[ExternalIdUtil.cls:19](../../../../force-app/main/default/classes/ExternalIdUtil.cls#L19)
 
 `External_Id__c` is the key every inbound write upserts on, and it is unique. Uniqueness is per
 field, not per system, so a Jira issue id and an Asana gid that happened to share digits would
@@ -74,7 +74,7 @@ system it belongs to, and `split` refuses a blank or unqualified value rather th
 
 <!-- at: force-app/main/default/classes/WorkItemStatus.cls | public static final String UNSPECIFIED = 'Unspecified'; -->
 
-[WorkItemStatus.cls:11](../../force-app/main/default/classes/WorkItemStatus.cls#L11)
+[WorkItemStatus.cls:11](../../../../force-app/main/default/classes/WorkItemStatus.cls#L11)
 
 Every picklist API name the code compares against lives in a small constants class:
 `WorkItemStatus`, `SyncStatus`, `WorkItemType`, `ExternalSystem`, `DeliveryStatus`,
@@ -95,7 +95,7 @@ pushed - and every other class names the constant.
 
 <!-- at: force-app/main/default/objects/Work_Item__c/validationRules/Sync_Status_Requires_Known_Status.validationRule-meta.xml | <errorConditionFormula>AND( -->
 
-[Sync_Status_Requires_Known_Status.validationRule-meta.xml:6](../../force-app/main/default/objects/Work_Item__c/validationRules/Sync_Status_Requires_Known_Status.validationRule-meta.xml#L6)
+[Sync_Status_Requires_Known_Status.validationRule-meta.xml:6](../../../../force-app/main/default/objects/Work_Item__c/validationRules/Sync_Status_Requires_Known_Status.validationRule-meta.xml#L6)
 
 `Status__c = Unspecified` means the source reported a status no mapping covers. `Sync_Status__c =
 Synced` claims that Salesforce and the source agree. This validation rule makes the two together
@@ -118,7 +118,7 @@ code paths that happens to write the field.
 
 <!-- at: force-app/main/default/classes/IWorkItemAdapter.cls | public interface IWorkItemAdapter { -->
 
-[IWorkItemAdapter.cls:8](../../force-app/main/default/classes/IWorkItemAdapter.cls#L8)
+[IWorkItemAdapter.cls:8](../../../../force-app/main/default/classes/IWorkItemAdapter.cls#L8)
 
 Six methods, covering both directions: `push(item, fields)`, `fetchAvailableTransitions`,
 `parseInbound(batch)`, `normalizeStatus`, `normalizeType` and `drainLogs`. Nothing in the
@@ -144,7 +144,7 @@ factory. The processor, the sync service and both boards did not change.
 
 <!-- at: force-app/main/default/classes/WorkItemAdapterFactory.cls | public static IWorkItemAdapter forSystem(String systemNamespace) { -->
 
-[WorkItemAdapterFactory.cls:35](../../force-app/main/default/classes/WorkItemAdapterFactory.cls#L35)
+[WorkItemAdapterFactory.cls:35](../../../../force-app/main/default/classes/WorkItemAdapterFactory.cls#L35)
 
 Here, in the adapters themselves, in the two webhook endpoints and in the `ExternalSystem`
 constants, because something has to construct the concrete class and something has to answer each
@@ -167,7 +167,7 @@ never depends on HTTP at all.
 
 <!-- at: force-app/main/default/classes/InboundChange.cls | public Boolean carriesDueDate { get; private set; } -->
 
-[InboundChange.cls:86](../../force-app/main/default/classes/InboundChange.cls#L86)
+[InboundChange.cls:86](../../../../force-app/main/default/classes/InboundChange.cls#L86)
 
 `InboundChange` is what an adapter hands the processor: one change to one work item, in
 Salesforce's terms. For its optional fields the rule is that null means "this delivery did not

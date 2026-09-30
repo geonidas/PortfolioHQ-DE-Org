@@ -485,9 +485,9 @@ private class PublicBoardControllerTest {
       'condensesIntoEpic',
       // Build 08 step 5, each added deliberately; this assertion failed first and named them.
       // sourceLabel publishes the vendor's name to an anonymous visitor, reversing build 07 -
-      // docs/adr/build-08-board-redesign.md, decision 1. accentToken is a token name, never a
-      // colour. createdAt is when the source created the work; startDate and dueDate are
-      // YYYY-MM-DD strings, never dates a browser would shift.
+      // docs/projects/01-workflow-board/adr/build-08-board-redesign.md, decision 1. accentToken
+      // is a token name, never a colour. createdAt is when the source created the work;
+      // startDate and dueDate are YYYY-MM-DD strings, never dates a browser would shift.
       'sourceLabel',
       'accentToken',
       'createdAt',

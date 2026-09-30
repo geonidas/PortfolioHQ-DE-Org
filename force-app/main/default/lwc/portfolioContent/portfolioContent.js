@@ -129,7 +129,7 @@ export const PROJECTS = [
       {
         kind: "writeup",
         label: "Code tour",
-        url: "https://github.com/neogeoaidev-spec/neoGeoDevHub/blob/main/docs/tour/README.md"
+        url: "https://github.com/neogeoaidev-spec/neoGeoDevHub/blob/main/docs/projects/01-workflow-board/tour/README.md"
       }
     ]
   },

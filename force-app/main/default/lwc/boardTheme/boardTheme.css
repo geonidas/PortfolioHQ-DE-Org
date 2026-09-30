@@ -1,6 +1,7 @@
 /*
  * The board's design tokens, shared by every board component through @import 'c/boardTheme'.
- * docs/build-08/design-plan.md is the reasoning; this is the one place the values live.
+ * docs/projects/01-workflow-board/build-08/design-plan.md is the reasoning; this is the one place
+ * the values live.
  *
  * Every neutral comes from the site theme's own hooks, so restyling is a Theme panel change. In
  * Lightning Experience none of the --dxp-g-* hooks exist, and each fallback here is what the

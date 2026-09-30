@@ -1,6 +1,3 @@
-<!-- The build 09 summary, kept beside builds 04-08's for the planning chat. The same text as
-     docs/build-09/summary.md, where the build prompt asked for it. -->
-
 # Build 09 — Priority and sorting
 
 **Status:** complete and verified in the scratch org, against live Jira and Asana. Every owner
@@ -89,7 +86,7 @@ run changed nothing.
 
 ## Decisions, and why
 
-The nine decisions the owner made before the build are in `docs/adr/build-09-priority-and-sort.md`
+The nine decisions the owner made before the build are in `docs/projects/01-workflow-board/adr/build-09-priority-and-sort.md`
 with their reasoning. In short: blank is none, with no sentinel; map by id, never by name; a
 restricted three-value picklist; an unknown inbound value is logged and ignored; sorting is
 client-side; Due date is the default and both sorts end on the key; epics keep their order; the
@@ -222,7 +219,7 @@ as build 08 chose; after Move to it follows the card into its sorted place.
   shown in 20 seconds and cleared in 26; zero axe violations in nine states; no request on a sort
   change; HTTP 200 and one query.
 
-**By the owner, 9/26** (`docs/build-09/verification.md`)
+**By the owner, 9/26** (`docs/projects/01-workflow-board/build-09/verification.md`)
 
 - The open card's Priority select on WI-0003, screenshotted: the board's choices, then No priority.
 - No priority saved and seen in Jira as the en dash - blank reaches Apex from the browser - then

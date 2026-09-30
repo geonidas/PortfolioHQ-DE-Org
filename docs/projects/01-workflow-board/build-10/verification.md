@@ -42,7 +42,7 @@ The order was checked live in step 3 - header, button, Open record - and in Jest
 
 ## Lighthouse, after
 
-Same commands and conditions as `docs/build-09/baseline.md`: Lighthouse CLI 13.5.0, the public
+Same commands and conditions as `docs/projects/01-workflow-board/build-09/baseline.md`: Lighthouse CLI 13.5.0, the public
 board, logged out in a fresh headless incognito profile, three runs each, the median shown. Taken
 2026-09-27 01:35-01:47 UTC, after the final republish, in two states of the featured epic set by
 script: WI-0000 featured, where the board opens on Tasks as the baseline's did, and none, where it
@@ -88,16 +88,16 @@ npm run prettier:verify
 
 # The public board, logged out: fourteen states, and it features WI-0000 then none and puts back
 # what it found. --shots saves each build 10 state
-node scripts/audit-public-board.mjs --shots=docs/build-10/screenshots
+node scripts/audit-public-board.mjs --shots=docs/projects/01-workflow-board/build-10/screenshots
 
 # Screenshots at desktop width and a true 375px
-node scripts/capture-public-board.mjs docs/build-10/screenshots <label>
+node scripts/capture-public-board.mjs docs/projects/01-workflow-board/build-10/screenshots <label>
 
 # Feature an epic, or none
 sf apex run --file scripts/apex/set-featured-epic.apex --target-org MyScratchOrg
 sf apex run --file scripts/apex/clear-featured-epic.apex --target-org MyScratchOrg
 ```
 
-Screenshots in `docs/build-10/screenshots`: `step-03-*` (the internal board, live),
+Screenshots in `docs/projects/01-workflow-board/build-10/screenshots`: `step-03-*` (the internal board, live),
 `step-04-*` (each public state, from the audit) and `step-05-featured-*` / `step-05-none-*` (the
 final board, desktop and 375px).

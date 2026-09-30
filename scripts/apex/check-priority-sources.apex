@@ -8,7 +8,7 @@
  * - Jira: DOPP's priority scheme - its default and each priority id and name, in order.
  * - Asana: the Priority custom field on the synced project, and each option gid.
  *
- * Compare the ids with docs/adr/build-09-priority-and-sort.md.
+ * Compare the ids with docs/projects/01-workflow-board/adr/build-09-priority-and-sort.md.
  *
  * It deliberately does not read Jira's editmeta. DOPP is team-managed, and there editmeta lists
  * priority on Story only while the API accepts it on every issue type - a real change landed on a

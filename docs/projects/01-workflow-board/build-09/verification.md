@@ -72,6 +72,6 @@ npm run lint
 npm run prettier:verify
 curl -s -o /dev/null -w '%{http_code}\n' https://customization-speed-3039-dev-ed.scratch.my.site.com/neoGeoTest/work-item-board
 node scripts/audit-public-board.mjs
-node scripts/capture-public-board.mjs docs/build-09/screenshots <label> [WI-0005]
+node scripts/capture-public-board.mjs docs/projects/01-workflow-board/build-09/screenshots <label> [WI-0005]
 sf apex run --file scripts/apex/check-priority-sources.apex --target-org MyScratchOrg | grep '>>>'
 ```

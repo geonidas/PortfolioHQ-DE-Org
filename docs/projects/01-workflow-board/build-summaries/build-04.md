@@ -135,7 +135,7 @@ shape too.
 1. **`scripts/apex/backfill-work-item-titles.apex` is written but still untracked in git** — the
    step 6 commit message says it's kept in the repo, but the commit didn't include it. Needs to be
    added.
-2. ~~No ADR for build 04.~~ Written: `docs/adr/build-04-work-item-board.md`, 26 decisions.
+2. ~~No ADR for build 04.~~ Written: `docs/projects/01-workflow-board/adr/build-04-work-item-board.md`, 26 decisions.
    Note that build 04's spec is not in the repo, so its origin labels are reconstructed from the
    step commits and code comments rather than recorded at the time.
 3. **No drag and drop.** Status changes go through a detail panel with buttons. Deliberate for now

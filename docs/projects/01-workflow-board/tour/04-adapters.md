@@ -27,7 +27,7 @@ table.
 
 <!-- at: force-app/main/default/classes/JiraAdapter.cls | Everything Jira-shaped is confined here -->
 
-[JiraAdapter.cls:4](../../force-app/main/default/classes/JiraAdapter.cls#L4)
+[JiraAdapter.cls:4](../../../../force-app/main/default/classes/JiraAdapter.cls#L4)
 
 The named credential, the `/rest/api/3` paths, the webhook payload's shape, the transitions
 envelope, and the tables that map Jira's status and issue type names to Salesforce's. Both
@@ -49,7 +49,7 @@ status added to it is understood in both directions at once.
 
 <!-- at: force-app/main/default/classes/JiraAdapter.cls | Two things are read from the issue, not the envelope. -->
 
-[JiraAdapter.cls:235](../../force-app/main/default/classes/JiraAdapter.cls#L235)
+[JiraAdapter.cls:235](../../../../force-app/main/default/classes/JiraAdapter.cls#L235)
 
 Both come from the issue rather than the webhook's envelope. The id is `issue.id`, numeric and
 permanent, never the key (`DOPP-15`), which changes when an issue moves project. The timestamp is
@@ -66,7 +66,7 @@ guarantees, not the ones that happen to be nearby.
 
 <!-- at: force-app/main/default/classes/JiraAdapter.cls | if (fields.containsKey('duedate')) { -->
 
-[JiraAdapter.cls:325](../../force-app/main/default/classes/JiraAdapter.cls#L325)
+[JiraAdapter.cls:325](../../../../force-app/main/default/classes/JiraAdapter.cls#L325)
 
 Jira sends a key with a null value when a field is empty, and leaves the key out when the field was
 not sent. The adapter carries a date only when its key is present (`containsKey`, not a null
@@ -87,7 +87,7 @@ read apart here, at the source.
 
 <!-- at: force-app/main/default/classes/JiraAdapter.cls | Three outcomes, and the difference between the last two is the point: -->
 
-[JiraAdapter.cls:409](../../force-app/main/default/classes/JiraAdapter.cls#L409)
+[JiraAdapter.cls:409](../../../../force-app/main/default/classes/JiraAdapter.cls#L409)
 
 Priority is mapped by id, with three outcomes decided before the processor sees anything. A mapped
 id is carried as its value. Jira's en dash - the stand-in a Jira issue needs, since it cannot be
@@ -104,7 +104,7 @@ writes, so the comment lists all three outcomes before the code handles them.
 
 <!-- at: force-app/main/default/classes/AsanaAdapter.cls | The difference from Jira that shapes this class -->
 
-[AsanaAdapter.cls:9](../../force-app/main/default/classes/AsanaAdapter.cls#L9)
+[AsanaAdapter.cls:9](../../../../force-app/main/default/classes/AsanaAdapter.cls#L9)
 
 Asana's events name a resource and an action and carry nothing else - not the title, not the
 section, not whether the task is finished. So `parseInbound` hydrates: it collects the distinct task
@@ -124,7 +124,7 @@ the rest for the next run.
 
 <!-- at: force-app/main/default/classes/AsanaAdapter.cls | Parallel lists rather than a map keyed on Webhook_Event__c.Id. -->
 
-[AsanaAdapter.cls:151](../../force-app/main/default/classes/AsanaAdapter.cls#L151)
+[AsanaAdapter.cls:151](../../../../force-app/main/default/classes/AsanaAdapter.cls#L151)
 
 Events and the task gids read from them are kept in two parallel lists, not a map keyed on the
 event's Id. An unsaved row has no Id, and a map keyed on null answers every event with the same
@@ -139,7 +139,7 @@ it is inserted - so it is not a key until then. Position is the key that always 
 
 <!-- at: force-app/main/default/classes/AsanaAdapter.cls | Keyed on the gid and never on the section name -->
 
-[AsanaAdapter.cls:113](../../force-app/main/default/classes/AsanaAdapter.cls#L113)
+[AsanaAdapter.cls:113](../../../../force-app/main/default/classes/AsanaAdapter.cls#L113)
 
 Status comes from the section's gid, type from the chosen option's gid on the project's Format
 field, and priority from the Priority field - found by the field's own gid - and then its option's
@@ -155,7 +155,7 @@ Unspecified, with a log row saying which gid to map.
 
 <!-- at: force-app/main/default/classes/AsanaAdapter.cls | The completion flag overrides the section -->
 
-[AsanaAdapter.cls:196](../../force-app/main/default/classes/AsanaAdapter.cls#L196)
+[AsanaAdapter.cls:196](../../../../force-app/main/default/classes/AsanaAdapter.cls#L196)
 
 A completed task is Done whatever section it sits in. Asana's checkbox is independent of sections
 and is the easiest way to finish something in its UI: it strikes the task through without moving
@@ -175,7 +175,7 @@ everything above the adapter sees one status.
 
 <!-- at: force-app/main/default/classes/AsanaAdapter.cls | it refuses it as a 400 INSIDE an otherwise 200 response -->
 
-[AsanaAdapter.cls:41](../../force-app/main/default/classes/AsanaAdapter.cls#L41)
+[AsanaAdapter.cls:41](../../../../force-app/main/default/classes/AsanaAdapter.cls#L41)
 
 Asana's batch endpoint refuses a query string inside an action's path, and refuses it as a 400
 inside an otherwise 200 response. So the fields go in each action's `options.fields`, and
@@ -192,7 +192,7 @@ proves the code agrees with the mock, not with the service.
 
 <!-- at: force-app/main/default/classes/FieldMappingService.cls | Vendor value mappings, read in both directions from one table. -->
 
-[FieldMappingService.cls:2](../../force-app/main/default/classes/FieldMappingService.cls#L2)
+[FieldMappingService.cls:2](../../../../force-app/main/default/classes/FieldMappingService.cls#L2)
 
 In `Field_Mapping__mdt`, read in both directions through this class: an Asana section gid to a
 `Status__c` on the way in, the `Status__c` back to the gid on the way out. Four mapping types:
