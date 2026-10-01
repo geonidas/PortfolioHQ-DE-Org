@@ -22,9 +22,9 @@
 
 // ---- fill these in from your Asana project ----
 Map<String, String> sectionGidByStatus = new Map<String, String>{
-  WorkItemStatus.TO_DO => '1218523823051428',
-  WorkItemStatus.IN_PROGRESS => '1218523823051431',
-  WorkItemStatus.DONE => '1218523823051434'
+  WorkItemStatus.TO_DO => '1219008290898973',
+  WorkItemStatus.IN_PROGRESS => '1219008290898975',
+  WorkItemStatus.DONE => '1219008290898976'
 };
 Map<String, String> labelByStatus = new Map<String, String>{
   WorkItemStatus.TO_DO => 'Up next',
