@@ -51,13 +51,18 @@
       <div class="portrait">
         <div class="frame">
           <template lwc:if={showPhoto}>
-            <img
-              class="photo"
-              src={photoUrl}
-              alt={photoAlt}
-              data-photo
-              onerror={handlePhotoError}
-            />
+            <picture>
+              <template lwc:if={showPrimarySource}>
+                <source srcset={photoUrl} type="image/webp" />
+              </template>
+              <img
+                class="photo"
+                src={imgSrc}
+                alt={photoAlt}
+                data-photo
+                onerror={handlePhotoError}
+              />
+            </picture>
           </template>
           <template lwc:else>
             <div

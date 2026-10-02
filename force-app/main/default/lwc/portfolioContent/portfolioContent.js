@@ -22,13 +22,14 @@
  */
 
 export const PROFILE = {
-  name: "Your Name",
+  name: "Giovanni Mueco",
   headline: "Salesforce Developer",
   intro:
-    "I design and build Salesforce solutions end to end - Apex, Lightning Web Components, integrations and Experience Cloud sites - and I ship them with the tests, docs and deploy path they need to be trusted. The work is below, running, so you can see it rather than read about it.",
-  location: "City, State",
+    "2+ years building with Apex, LWC, Flow, and integrations. I've owned large-scale unit-testing and legacy-migration projects, and I work directly with stakeholders to deliver solutions people actually adopt. I use AI tools like Claude Code to ship faster without cutting corners on security.",
+  location: "Anaheim, California",
   availability: "Open to new opportunities",
-  photo: "profile-placeholder.svg"
+  photo: "profile.webp",
+  photoFallback: "profile.jpg"
 };
 
 export const RESUME = {
@@ -42,25 +43,25 @@ export const PROFILE_LINKS = [
     id: "linkedin",
     label: "LinkedIn",
     icon: "linkedin",
-    url: "https://www.linkedin.com/in/your-handle"
+    url: "https://www.linkedin.com/in/giovanni-mueco-419708228"
   },
   {
     id: "github",
     label: "GitHub",
     icon: "github",
-    url: "https://github.com/your-handle"
+    url: "https://github.com/geonidas"
   },
   {
     id: "trailhead",
     label: "Trailhead",
     icon: "trailhead",
-    url: "https://www.salesforce.com/trailblazer/your-handle"
+    url: "https://www.salesforce.com/trailblazer/gmueco"
   },
   {
     id: "email",
     label: "Email",
     icon: "mail",
-    url: "mailto:you@example.com"
+    url: "mailto:giovannimueco25@gmail.com"
   }
 ];
 
@@ -88,12 +89,12 @@ export const PROJECTS = [
   {
     id: "portfolio-hq",
     featured: true,
-    title: "Portfolio HQ",
+    title: "Unified Cross-Platform Project Tracker",
     summary:
-      "Two-way sync between a Salesforce org and two work trackers, Jira and Asana, with a Kanban board for the team and a read-only public board for anyone with the link. Built in ten numbered builds, with a separate guest-safe controller so that read-only is a property of the code, and a full Apex and Jest test suite.",
+      "Sometimes you or your team might want to be able to see items from both Jira and Asana in one place within Salesforce, so I built a two-way sync that puts both on one Salesforce Kanban board. I actually use it myself, and there's also a demo version that uses a separate guest-safe controller accessing live org, Jira, and Asana data so you can take a look at what I'm currently working on.",
     access: "view",
     tryIt:
-      "Switch between Tasks and Epics, filter by source, sort by due date or priority, and open any card. The board refreshes itself every 30 seconds while you look.",
+      "Switch between Tasks and Epics, filter by source, sort by due date or priority, and open any card. The board refreshes itself every 30 seconds while you look. Note that because this is live data available for anyone to see, it is read-only. The one I use is much more functional!",
     media: [
       {
         file: "portfolio-hq-desktop.png",
@@ -119,45 +120,51 @@ export const PROJECTS = [
       {
         kind: "demo",
         label: "Open the live board",
-        url: "https://orgfarm-23f9e52958-dev-ed.develop.my.site.com/neoGeoTest/work-item-board"
+        url: "https://orgfarm-7c9ef0e658-dev-ed.develop.my.site.com/neoGeoTest/work-item-board"
       },
       {
         kind: "source",
         label: "Source",
-        url: "https://github.com/neogeoaidev-spec/neoGeoDevHub"
+        url: "https://github.com/geonidas/PortfolioHQ-DE-Org/blob/main/docs/projects/01-workflow-board/README.md"
       },
       {
         kind: "writeup",
         label: "Code tour",
-        url: "https://github.com/neogeoaidev-spec/neoGeoDevHub/blob/main/docs/projects/01-workflow-board/tour/README.md"
+        url: "https://github.com/geonidas/PortfolioHQ-DE-Org/blob/main/docs/projects/01-workflow-board/tour/README.md"
       }
     ]
   },
   {
     id: "next-project",
     featured: false,
-    title: "Your next project",
+    title: "Agentforce Chatbot For This Portfolio",
     summary:
-      "A sentence or two on what it does and why you built it. Add a screenshot, a live demo link and the access label when there is a demo.",
-    access: "screenshots",
+      "Agentforce is quickly becoming the face of modern Salesforce development. I think it would be a great addition to this page, so it could answer any quick questions you might have for me!",
+    //access: "screenshots",
     tags: ["Apex", "Flow"],
     links: [{ kind: "source", label: "Source", url: "" }]
   },
   {
     id: "another-project",
     featured: false,
-    title: "Another project",
+    title: "Mortgage Rate Calculator",
     summary:
-      "Projects without links or pictures still show, so a write-up can come later.",
-    tags: ["LWC"],
-    links: []
+      "A live-rate mortgage payment estimator added to the Property record page, pulling daily interest rates from the FRED API. Developed for the DreamHouse Real Estate Salesforce Org.",
+    tags: ["LWC", "API"],
+    links: [
+      {
+        kind: "source",
+        label: "Source",
+        url: "https://github.com/geonidas/Geos-DreamHouse-Repo/blob/main/docs/mortgage-calculator.md"
+      }
+    ]
   }
 ];
 
 export const ABOUT = {
   summary: [
-    "I'm a Salesforce developer who likes turning messy, multi-system processes into something a team can trust. My work spans Apex, Lightning Web Components, integrations and Experience Cloud, and I care as much about the tests and the deploy path as about the feature.",
-    "Add a second paragraph here: what you are working toward, the kind of team you do your best work on, and one thing you do outside of work. My full history is on my résumé and LinkedIn."
+    "At my core, I'm just a nerd who loves breaking down complicated technologies and concepts into simple terms anyone can understand. This is what defines my personal approach to software development. I enjoy learning about new tools that help make my own workflows more efficient. For example, the current AI boom has been incredibly fascinating to me!", 
+    "As for hobbies, I love reading books from thought-provoking fictional stories, to non-fiction books that expand the breadth of my knowledge of our world. I'm an on-and-off electric guitar and music theory learner. I also love playing video games and watching popular TV shows, anime and movies (I've been on a Marvel kick lately)."
   ]
 };
 

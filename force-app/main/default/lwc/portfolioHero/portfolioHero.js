@@ -5,8 +5,9 @@ import { LightningElement, api } from "lwc";
  * visitor most often came for (the work and the résumé), and the profile links, beside the
  * profile picture.
  *
- * The picture has three states and none of them leaves a hole in the layout: the photo, the
- * initials when no photo is set, and the initials again if the photo fails to load.
+ * The picture falls back in order and never leaves a hole in the layout: the WebP photo, the
+ * JPG photo (for browsers without WebP, or if the WebP fails to load), then the initials when
+ * no photo is set or every photo fails to load.
  */
 export default class PortfolioHero extends LightningElement {
   @api name = "";
@@ -17,6 +18,11 @@ export default class PortfolioHero extends LightningElement {
   @api availability = "";
   /** A full url. The page builds it from the static resource and the file name in the content. */
   @api photoUrl = "";
+  /**
+   * Optional. A full url to a JPG/PNG copy of the photo. When set, photoUrl is treated as the
+   * WebP version and this one is the fallback.
+   */
+  @api photoFallbackUrl = "";
   @api resumeUrl = "";
   @api resumeLabel = "Résumé";
   /** [{ id, label, icon, url }], passed straight to portfolioLinks. */
@@ -24,10 +30,20 @@ export default class PortfolioHero extends LightningElement {
   /** True when the page has a Projects section for the first button to go to. */
   @api hasProjects = false;
 
+  primaryFailed = false;
   photoFailed = false;
 
   get showPhoto() {
-    return Boolean(this.photoUrl) && !this.photoFailed;
+    return Boolean(this.photoUrl || this.photoFallbackUrl) && !this.photoFailed;
+  }
+
+  /** Offer the WebP source only when there is a fallback to drop back to. */
+  get showPrimarySource() {
+    return Boolean(this.photoUrl && this.photoFallbackUrl) && !this.primaryFailed;
+  }
+
+  get imgSrc() {
+    return this.photoFallbackUrl || this.photoUrl;
   }
 
   get photoAlt() {
@@ -47,7 +63,12 @@ export default class PortfolioHero extends LightningElement {
   }
 
   handlePhotoError() {
-    this.photoFailed = true;
+    if (this.showPrimarySource) {
+      // Drop the WebP source; the browser re-selects and loads the fallback in <img>.
+      this.primaryFailed = true;
+    } else {
+      this.photoFailed = true;
+    }
   }
 
   handleProjects(event) {
