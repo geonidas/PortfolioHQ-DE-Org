@@ -1,5 +1,6 @@
 import { LightningElement } from "lwc";
 import ASSETS from "@salesforce/resourceUrl/portfolio_assets";
+import RESUME_PDF from "@salesforce/resourceUrl/portfolio_resume";
 import {
   PROFILE,
   RESUME,
@@ -29,7 +30,7 @@ export default class PortfolioPage extends LightningElement {
   observer;
 
   profile = PROFILE;
-  resume = RESUME;
+  resume = { ...RESUME, url: RESUME_PDF };
   links = PROFILE_LINKS;
   projectsIntro = PROJECTS_INTRO;
   about = ABOUT;

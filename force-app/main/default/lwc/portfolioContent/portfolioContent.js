@@ -15,8 +15,7 @@
  * - PROFILE.photo and each media file are file names inside the portfolio_assets static resource
  *   (force-app/main/default/staticresources/portfolio_assets). Add the picture there and name it
  *   here; an empty PROFILE.photo shows the initials instead.
- * - RESUME.url should be a link that keeps pointing at the newest file, such as a shared file you
- *   replace in place, so the page never needs a deploy for a new version. Empty hides the buttons.
+ * - The résumé file is the portfolio_resume static resource; replace the file there and republish.
  * - Links open in a new tab when they start with http, and in the mail app when they start with
  *   mailto:. portfolioContent.test.js refuses anything else, so a typo fails a test, not a visitor.
  */
@@ -25,7 +24,7 @@ export const PROFILE = {
   name: "Giovanni Mueco",
   headline: "Salesforce Developer",
   intro:
-    "2+ years building with Apex, LWC, Flow, and integrations. I've owned large-scale unit-testing and legacy-migration projects, and I work directly with stakeholders to deliver solutions people actually adopt. I use AI tools like Claude Code to ship faster without cutting corners on security.",
+    "2+ years building with Apex, LWC, Flow, and integrations. Platform Developer I certfified. I've owned large-scale unit-testing and legacy-migration projects, and I work directly with stakeholders to deliver solutions people actually adopt. I use AI tools like Claude Code to ship faster without cutting corners on security.",
   location: "Anaheim, California",
   availability: "Open to new opportunities",
   photo: "profile.webp",
@@ -33,8 +32,7 @@ export const PROFILE = {
 };
 
 export const RESUME = {
-  label: "Résumé",
-  url: "https://example.com/your-resume.pdf"
+  label: "Résumé"
 };
 
 /** icon is one of the names in portfolioIcon: github, linkedin, trailhead, mail. */
@@ -137,11 +135,11 @@ export const PROJECTS = [
   {
     id: "next-project",
     featured: false,
-    title: "Agentforce Chatbot For This Portfolio",
+    title: "Currently Scoping: Agentforce Chatbot For This Portfolio",
     summary:
       "Agentforce is quickly becoming the face of modern Salesforce development. I think it would be a great addition to this page, so it could answer any quick questions you might have for me!",
     //access: "screenshots",
-    tags: ["Apex", "Flow"],
+    tags: ["Apex", "Flow", "Agentforce", "Experience Cloud (LWR)"],
     links: [{ kind: "source", label: "Source", url: "" }]
   },
   {
@@ -150,7 +148,7 @@ export const PROJECTS = [
     title: "Mortgage Rate Calculator",
     summary:
       "A live-rate mortgage payment estimator added to the Property record page, pulling daily interest rates from the FRED API. Developed for the DreamHouse Real Estate Salesforce Org.",
-    tags: ["LWC", "API"],
+    tags: ["LWC", "API", "Apex"],
     links: [
       {
         kind: "source",
